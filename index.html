@@ -967,6 +967,13 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
           </svg>
           Recargar
         </button>
+
+        <!-- Cerrar visor — vuelve a la lista de archivos a pantalla completa -->
+        <button class="btn-visor-nav" id="btn-visor-cerrar" type="button" title="Cerrar" aria-label="Cerrar visor">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
       </div>
 
       <div id="visor-inner">
@@ -2102,6 +2109,10 @@ document.getElementById("btn-visor-next").addEventListener("click", () => {
   if (idx < archivos.length - 1) abrirVisor(archivos[idx + 1]);
 });
 
+document.getElementById("btn-visor-cerrar").addEventListener("click", () => {
+  setSplit(false);
+});
+
 // Flechas de teclado (solo cuando el visor está activo y no hay foco en un input)
 document.addEventListener("keydown", e => {
   if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
@@ -2384,16 +2395,27 @@ async function renderizarPDF() {
   const wrap = document.getElementById("pdf-canvas-wrap");
   wrap.innerHTML = "";
   const total = pdfDoc.numPages;
+  // Renderizar al tamaño físico real de la pantalla (devicePixelRatio), no solo
+  // al tamaño lógico en CSS — si no, en celulares con pantalla Retina el canvas
+  // queda "estirado" y se ve borroso aunque el zoom diga 100%.
+  const dpr = window.devicePixelRatio || 1;
   for (let n = 1; n <= total; n++) {
     const page     = await pdfDoc.getPage(n);
     const viewport = page.getViewport({ scale: pdfZoom });
     const canvas   = document.createElement("canvas");
     canvas.className = "pdf-page-canvas";
-    canvas.width  = viewport.width;
-    canvas.height = viewport.height;
+    canvas.width  = Math.floor(viewport.width * dpr);
+    canvas.height = Math.floor(viewport.height * dpr);
+    canvas.style.width  = viewport.width + "px";
+    canvas.style.height = viewport.height + "px";
     canvas.dataset.pagina = n;
     wrap.appendChild(canvas);
-    await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+    const ctx = canvas.getContext("2d");
+    await page.render({
+      canvasContext: ctx,
+      viewport,
+      transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : undefined,
+    }).promise;
   }
 
   // IntersectionObserver para actualizar número de página al scrollear
@@ -2437,6 +2459,62 @@ document.getElementById("pdf-zoom-out").addEventListener("click", async () => {
   document.getElementById("pdf-zoom-label").textContent = Math.round(pdfZoom*100)+"%";
   await renderizarPDF();
 });
+
+/* ============================================================
+   PINCH-TO-ZOOM (PDF, mobile) — dos dedos sobre el visor
+   Durante el gesto se escala visualmente con CSS (fluido, sin re-renderizar
+   en cada frame); al soltar los dedos, recién ahí se vuelve a renderizar
+   con pdf.js a la resolución nítida correspondiente al zoom final.
+   ============================================================ */
+(function() {
+  const wrap = document.getElementById("pdf-canvas-wrap");
+  let pinchActivo = false;
+  let distInicial = 0;
+  let zoomInicial = 1;
+  let zoomPendiente = null;
+
+  function distanciaEntreDedos(touches) {
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.hypot(dx, dy);
+  }
+
+  wrap.addEventListener("touchstart", e => {
+    if (e.touches.length === 2 && pdfDoc) {
+      pinchActivo = true;
+      distInicial = distanciaEntreDedos(e.touches);
+      zoomInicial = pdfZoom;
+    }
+  }, { passive: true });
+
+  wrap.addEventListener("touchmove", e => {
+    if (!pinchActivo || e.touches.length !== 2) return;
+    e.preventDefault();
+    const dist = distanciaEntreDedos(e.touches);
+    const factor = dist / distInicial;
+    zoomPendiente = Math.min(Math.max(zoomInicial * factor, 0.4), 3.0);
+    wrap.style.transformOrigin = "50% 0";
+    wrap.style.transform = `scale(${zoomPendiente / pdfZoom})`;
+  }, { passive: false });
+
+  wrap.addEventListener("touchend", async () => {
+    if (!pinchActivo) return;
+    pinchActivo = false;
+    wrap.style.transform = "";
+    if (zoomPendiente && pdfDoc) {
+      pdfZoom = zoomPendiente;
+      document.getElementById("pdf-zoom-label").textContent = Math.round(pdfZoom * 100) + "%";
+      await renderizarPDF();
+    }
+    zoomPendiente = null;
+  });
+
+  wrap.addEventListener("touchcancel", () => {
+    pinchActivo = false;
+    wrap.style.transform = "";
+    zoomPendiente = null;
+  });
+})();
 
 // Recargar
 document.getElementById("btn-visor-reload").addEventListener("click", () => {
