@@ -278,6 +278,93 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 .has-split #divider { display: flex; }
 
 /* ============================================================
+   COLAPSAR GESTOR + DRAWER — sidebar colapsable (desktop) y
+   drawer deslizable para volver a mostrarlo (desktop y mobile)
+   ============================================================ */
+#btn-colapsar-gestor {
+  position: absolute; z-index: 15;
+  width: 26px; height: 26px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface); border: 1px solid var(--line);
+  color: var(--muted); cursor: pointer;
+  transition: border-color .15s, color .15s;
+}
+#btn-colapsar-gestor:hover { border-color: var(--accent); color: var(--accent); }
+/* Desktop: divisor vertical — flecha mirando hacia el gestor (derecha) */
+#split-wrap.desktop #btn-colapsar-gestor {
+  top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(180deg);
+}
+/* Mobile: divisor horizontal — flecha mirando hacia el gestor (abajo) */
+#split-wrap:not(.desktop) #btn-colapsar-gestor {
+  top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-90deg);
+}
+
+/* Botón flotante para reabrir el gestor (drawer) cuando está colapsado */
+#btn-abrir-gestor {
+  position: fixed; z-index: 220;
+  width: 44px; height: 44px; border-radius: 50%;
+  display: none; align-items: center; justify-content: center;
+  background: var(--surface); border: 1px solid var(--line);
+  color: var(--accent); box-shadow: 0 2px 12px rgba(0,0,0,.35);
+  cursor: pointer;
+}
+#btn-abrir-gestor.show { display: flex; }
+#split-wrap.desktop #btn-abrir-gestor { top: 50%; right: 14px; transform: translateY(-50%); }
+#split-wrap:not(.desktop) #btn-abrir-gestor { bottom: calc(16px + var(--safe-b)); right: 16px; }
+
+/* Fondo oscuro detrás del drawer */
+#drawer-backdrop {
+  display: none;
+  position: fixed; inset: 0; z-index: 240;
+  background: rgba(0,0,0,.5);
+}
+
+/* Botón cerrar, solo visible dentro del drawer */
+#btn-cerrar-drawer {
+  display: none;
+  position: absolute; top: 10px; right: 10px; z-index: 5;
+  width: 32px; height: 32px; border-radius: 50%;
+  align-items: center; justify-content: center;
+  background: var(--surface-2); border: 1px solid var(--line);
+  color: var(--text); cursor: pointer;
+}
+
+/* Estado drawer: panel-explorer sale del layout normal y flota como overlay */
+#panel-explorer.drawer-abierto {
+  display: flex !important;
+  position: fixed; z-index: 245;
+  background: var(--bg);
+  box-shadow: -4px 0 24px rgba(0,0,0,.4);
+}
+#panel-explorer.drawer-abierto #btn-cerrar-drawer { display: flex; }
+
+/* Desktop: drawer lateral desde la derecha */
+#split-wrap.desktop #panel-explorer.drawer-abierto {
+  top: calc(var(--bar-h) + var(--safe-t)); right: 0; bottom: 0;
+  width: min(420px, 92vw);
+  animation: drawerDesdeLaDerecha .25s cubic-bezier(.4,0,.2,1);
+}
+@keyframes drawerDesdeLaDerecha {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+
+/* Mobile: drawer desde abajo, cubre la mayor parte de la pantalla */
+#split-wrap:not(.desktop) #panel-explorer.drawer-abierto {
+  top: 8vh; left: 0; right: 0; bottom: 0;
+  border-radius: 16px 16px 0 0;
+  animation: drawerDesdeAbajo .25s cubic-bezier(.4,0,.2,1);
+}
+@keyframes drawerDesdeAbajo {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #panel-explorer.drawer-abierto { animation: none; }
+}
+
+/* ============================================================
    VISOR INTERNO
    ============================================================ */
 #visor-inner {
@@ -1038,10 +1125,26 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
     <!-- DIVISOR -->
     <div id="divider">
       <div id="divider-handle"></div>
+      <!-- Colapsar sidebar (desktop) — botón embebido en el propio divisor -->
+      <button id="btn-colapsar-gestor" type="button" aria-label="Ocultar gestor de archivos" title="Ocultar gestor de archivos">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
     </div>
+
+    <!-- Botón flotante para reabrir el gestor (como drawer) cuando está colapsado -->
+    <button id="btn-abrir-gestor" type="button" aria-label="Mostrar gestor de archivos" title="Mostrar gestor de archivos" style="display:none">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+    </button>
+
+    <!-- Fondo oscuro detrás del drawer -->
+    <div id="drawer-backdrop"></div>
 
     <!-- PANEL EXPLORADOR (derecha / abajo) -->
     <div id="panel-explorer">
+      <!-- Cerrar drawer (solo visible cuando el gestor está en modo drawer) -->
+      <button id="btn-cerrar-drawer" type="button" aria-label="Cerrar" title="Cerrar">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
       <div id="explorer-stack">
 
         <!-- PANTALLA HOME -->
@@ -1346,12 +1449,13 @@ const state = {
 /* ============================================================
    REFS
    ============================================================ */
-const app        = document.getElementById("app");
-const splitWrap  = document.getElementById("split-wrap");
-const panelVisor = document.getElementById("panel-visor");
-const divider    = document.getElementById("divider");
-const visorFrame = document.getElementById("visor-frame");
-const fab        = null; // no hay FAB en split layout
+const app           = document.getElementById("app");
+const splitWrap     = document.getElementById("split-wrap");
+const panelVisor    = document.getElementById("panel-visor");
+const panelExplorer = document.getElementById("panel-explorer");
+const divider       = document.getElementById("divider");
+const visorFrame    = document.getElementById("visor-frame");
+const fab           = null; // no hay FAB en split layout
 
 /* ============================================================
    TOAST
@@ -1427,7 +1531,45 @@ function setSplit(activo) {
 
 function resetSplitSize() {
   panelVisor.style.flex = "0 0 50%";
+  // Abrir un archivo siempre vuelve al estado normal (no colapsado) —
+  // evita que quede "fullscreen" heredado de una sesión anterior con el visor.
+  gestorColapsado = false;
+  panelExplorer.style.display = "";
+  divider.style.display = "";
+  document.getElementById("btn-abrir-gestor")?.classList.remove("show");
 }
+
+/* ============================================================
+   COLAPSAR GESTOR (sidebar) + DRAWER
+   ============================================================ */
+let gestorColapsado = false;
+
+function colapsarGestor() {
+  gestorColapsado = true;
+  cerrarDrawerGestor();
+  panelExplorer.style.display = "none";
+  divider.style.display = "none";
+  panelVisor.style.flex = "1 1 auto";
+  document.getElementById("btn-abrir-gestor").classList.add("show");
+}
+
+function abrirDrawerGestor() {
+  panelExplorer.style.display = "flex";
+  panelExplorer.classList.add("drawer-abierto");
+  document.getElementById("drawer-backdrop").classList.add("show");
+}
+
+function cerrarDrawerGestor() {
+  panelExplorer.classList.remove("drawer-abierto");
+  document.getElementById("drawer-backdrop").classList.remove("show");
+  // Si seguimos "colapsados" de fondo, el drawer era temporal — se vuelve a ocultar.
+  if (gestorColapsado) panelExplorer.style.display = "none";
+}
+
+document.getElementById("btn-colapsar-gestor").addEventListener("click", colapsarGestor);
+document.getElementById("btn-abrir-gestor").addEventListener("click", abrirDrawerGestor);
+document.getElementById("btn-cerrar-drawer").addEventListener("click", cerrarDrawerGestor);
+document.getElementById("drawer-backdrop").addEventListener("click", cerrarDrawerGestor);
 
 // Diferir event listeners hasta que el DOM esté listo
 if (document.readyState === "loading") {
