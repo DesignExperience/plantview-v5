@@ -2175,8 +2175,10 @@ function abrirVisor(archivo) {
     ? `Archivo pesado (${archivo.tam}) — puede tardar.` : "";
   mostrarCarga(sub);
 
-  // Split automático en desktop
-  if (!state.splitActivo && isDesktop()) setSplit(true);
+  // Mostrar el visor al abrir un archivo — antes solo pasaba en desktop
+  // (isDesktop()), lo que dejaba el PDF/eDrawing cargado pero invisible en mobile,
+  // ya que panel-visor queda display:none hasta que se activa el split.
+  if (!state.splitActivo) setSplit(true);
 
   if (archivo.tipo === "pdf") {
     pedirArchivo(".pdf", buf => cargarPDF(buf));
@@ -2828,9 +2830,17 @@ async function listarHijosDrive(folderId, apiKey) {
 }
 
 async function descargarBufferDrive(driveId) {
-  const url = `https://www.googleapis.com/drive/v3/files/${driveId}?alt=media&key=${encodeURIComponent(driveConfig.apiKey)}`;
+  // La descarga de contenido (alt=media) no soporta CORS desde el navegador —
+  // pasa por nuestro proxy server-side (api/drive-proxy.js) en vez de pegarle
+  // directo a googleapis.com. La key la seguimos mandando nosotros (cada
+  // usuario puede tener la suya), el proxy no la fija ni la esconde.
+  const url = `/api/drive-proxy?fileId=${encodeURIComponent(driveId)}&key=${encodeURIComponent(driveConfig.apiKey)}`;
   const resp = await fetch(url);
-  if (!resp.ok) throw new Error(`No se pudo descargar desde Drive (HTTP ${resp.status})`);
+  if (!resp.ok) {
+    let mensaje = `HTTP ${resp.status}`;
+    try { const j = await resp.json(); if (j.error) mensaje = j.error; } catch(e) {}
+    throw new Error(`No se pudo descargar desde Drive (${mensaje})`);
+  }
   return resp.arrayBuffer();
 }
 
