@@ -943,23 +943,10 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
     <div id="panel-visor">
       <!-- Mini barra del visor -->
       <div id="visor-mini-bar">
-        <!-- Flecha anterior -->
-        <button class="btn-visor-nav" id="btn-visor-prev" type="button" title="Plano anterior" disabled>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M15 18l-6-6 6-6"/></svg>
-        </button>
-
         <div class="visor-file-chip">
           <span class="visor-chip-name" id="visor-chip-name">Sin modelo cargado</span>
           <span class="visor-chip-folder" id="visor-chip-folder">—</span>
         </div>
-
-        <!-- Contador N/Total -->
-        <span class="visor-nav-info" id="visor-nav-info"></span>
-
-        <!-- Flecha siguiente -->
-        <button class="btn-visor-nav" id="btn-visor-next" type="button" title="Plano siguiente" disabled>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M9 18l6-6-6-6"/></svg>
-        </button>
 
         <button class="btn-back-sm" id="btn-visor-reload" type="button" title="Recargar" style="display:none">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -2078,37 +2065,6 @@ function getIdxActual() {
   return archivos.findIndex(f => f.id === state.archivoActual?.id);
 }
 
-function actualizarNavBotones() {
-  const archivos = getArchivosActuales();
-  const idx      = getIdxActual();
-  const total    = archivos.length;
-  const btnPrev  = document.getElementById("btn-visor-prev");
-  const btnNext  = document.getElementById("btn-visor-next");
-  const info     = document.getElementById("visor-nav-info");
-
-  if (total <= 1 || idx < 0) {
-    btnPrev.disabled = true;
-    btnNext.disabled = true;
-    info.textContent = "";
-    return;
-  }
-  btnPrev.disabled = idx === 0;
-  btnNext.disabled = idx === total - 1;
-  info.textContent = `${idx + 1} / ${total}`;
-}
-
-document.getElementById("btn-visor-prev").addEventListener("click", () => {
-  const archivos = getArchivosActuales();
-  const idx = getIdxActual();
-  if (idx > 0) abrirVisor(archivos[idx - 1]);
-});
-
-document.getElementById("btn-visor-next").addEventListener("click", () => {
-  const archivos = getArchivosActuales();
-  const idx = getIdxActual();
-  if (idx < archivos.length - 1) abrirVisor(archivos[idx + 1]);
-});
-
 document.getElementById("btn-visor-cerrar").addEventListener("click", () => {
   setSplit(false);
 });
@@ -2175,9 +2131,6 @@ function abrirVisor(archivo) {
   // Chip
   document.getElementById("visor-chip-name").textContent = archivo.nombre;
   document.getElementById("visor-chip-folder").textContent = state.carpetaActual.nombre;
-
-  // Actualizar flechas de navegación
-  actualizarNavBotones();
 
   resetVisor();
 
