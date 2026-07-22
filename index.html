@@ -548,6 +548,72 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 .file-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 3px; }
 .file-meta { font-family: "IBM Plex Mono", monospace; font-size: 9.5px; color: var(--muted); display: flex; gap: 7px; flex-wrap: wrap; align-items: center; }
 .new-pill { background: var(--accent); color: #14161A; font-size: 8.5px; font-weight: 700; padding: 1px 6px; border-radius: 20px; text-transform: uppercase; }
+.rev-pill {
+  border: 1px solid var(--line); color: var(--muted);
+  font-family: "IBM Plex Mono", monospace; font-size: 8.5px; font-weight: 600;
+  padding: 1px 5px; border-radius: 3px; letter-spacing: .04em;
+}
+.sync-info {
+  flex: none; font-family: "IBM Plex Mono", monospace;
+  font-size: 9px; color: var(--muted); opacity: .75; white-space: nowrap;
+}
+.crumb-sep { flex: none; color: var(--muted); opacity: .5; font-size: 13px; }
+
+/* Dropdown "Fuente de datos" en el app-bar */
+#fuente-menu {
+  display: none; position: absolute; top: calc(100% + 6px); right: 0;
+  flex-direction: column; align-items: stretch; gap: 6px; padding: 8px;
+  min-width: 210px; background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); box-shadow: 0 8px 24px rgba(0,0,0,.35);
+  z-index: 90;
+}
+#fuente-menu.abierto { display: flex; }
+#fuente-menu > button { width: 100%; }
+#btn-fuente-menu.abierto { color: var(--accent); border-color: var(--accent); }
+
+/* ============================================================
+   BOTTOM NAV (solo mobile) — patrón estándar de tabs inferiores:
+   los modos quedan en la zona del pulgar en vez del tope de la
+   pantalla. En desktop no existe (el switcher del app-bar manda).
+   ============================================================ */
+#bottom-nav { display: none; }
+@media (max-width: 767px) {
+  #mode-switcher { display: none !important; }
+  #bottom-nav {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 210;
+    display: flex; align-items: stretch;
+    background: var(--surface); border-top: 1px solid var(--line);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .bnav-tab {
+    flex: 1; height: 54px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    background: none; border: none; color: var(--muted);
+    font-family: "Chakra Petch", sans-serif; font-weight: 600;
+    font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+    cursor: pointer; transition: color .15s;
+  }
+  .bnav-tab.active { color: var(--accent); }
+  /* Dejarle lugar al nav: el contenido de la app no debe quedar tapado */
+  #app { padding-bottom: calc(54px + env(safe-area-inset-bottom)); }
+  #pv-wrap { bottom: calc(54px + env(safe-area-inset-bottom)); }
+
+  /* Touch targets: los controles del topbar suben a tamaño tocable */
+  .exp-topbar { height: 52px; }
+  .btn-back-sm { height: 40px; padding: 0 12px; }
+  .btn-edit-order { height: 40px; }
+}
+
+/* Accesibilidad: navegación por teclado visible en todos los interactivos */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
 .playing-dot {
   width: 6px; height: 6px; background: var(--accent);
   border-radius: 50%; flex: none; animation: blink 1.4s ease infinite;
@@ -835,11 +901,11 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
   <!-- ============================================================
        APP BAR GLOBAL
        ============================================================ -->
-  <div id="app-bar">
+  <div id="app-bar" role="banner">
     <!-- Logo compuesto -->
-    <div style="display:flex;align-items:center;gap:0;flex:none">
+    <button id="btn-logo-home" type="button" aria-label="Ir a inicio" style="display:flex;align-items:center;gap:0;flex:none;background:none;border:none;cursor:pointer;padding:0">
       <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:14px;letter-spacing:-.01em;color:var(--text)">plant<em style="color:var(--accent);font-style:normal">view</em></span>
-    </div>
+    </button>
 
     <!-- Tabs modo -->
     <div id="mode-switcher" style="
@@ -847,21 +913,21 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
       background:var(--surface-2); border:1px solid var(--line);
       border-radius:var(--radius); padding:3px;
     ">
-      <button class="mode-tab active" data-mode="planos">
+      <button class="mode-tab active" data-mode="planos" aria-pressed="true">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
           <polyline points="14,2 14,8 20,8"/>
         </svg>
-        Planos
+        Files
       </button>
-      <button class="mode-tab" data-mode="3d">
+      <button class="mode-tab" data-mode="3d" aria-pressed="false">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M12 2L2 7l10 5 10-5-10-5z"/>
           <path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
         </svg>
         3D
       </button>
-      <button class="mode-tab" data-mode="split" id="tab-split-btn" style="display:none">
+      <button class="mode-tab" data-mode="split" id="tab-split-btn" style="display:none" aria-pressed="false">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <rect x="3" y="3" width="18" height="18" rx="2"/>
           <line x1="12" y1="3" x2="12" y2="21"/>
@@ -872,6 +938,16 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 
     <!-- Acciones -->
     <div style="display:flex;align-items:center;gap:6px;flex:none">
+      <!-- Fuente de datos: agrupa conectar carpeta local / Drive / desvincular.
+           Desvincular (destructivo) ya no convive al lado de refresh (frecuente). -->
+      <div id="fuente-menu-wrap" style="position:relative;flex:none">
+      <button class="btn-icon" id="btn-fuente-menu" type="button" aria-label="Fuente de datos" aria-haspopup="true" aria-expanded="false" title="Fuente de datos">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+          <line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/>
+        </svg>
+      </button>
+      <div id="fuente-menu">
       <button id="btn-elegir-carpeta" type="button" style="
         height:32px; padding:0 10px; flex:none;
         display:flex; align-items:center; gap:6px;
@@ -887,17 +963,37 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
         <span id="btn-carpeta-label">Carpeta</span>
       </button>
       <button id="btn-drive-conectar" type="button" title="Conectar carpeta de Google Drive" style="
-        height:32px; width:32px; flex:none;
-        display:flex; align-items:center; justify-content:center;
+        height:32px; padding:0 10px; flex:none;
+        display:flex; align-items:center; gap:6px;
         border:1px solid var(--line); border-radius:var(--radius);
         background:var(--surface-2); color:var(--muted);
+        font-family:'Chakra Petch',sans-serif; font-weight:600;
+        font-size:10px; letter-spacing:.04em; text-transform:uppercase;
         cursor:pointer;
       ">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
           <path d="M8 3l8 0 5 8.5-4 7-10 0-4-7z"/>
           <path d="M8 3l-4 8.5m8-8.5l4 8.5m-8.5 7h9"/>
         </svg>
+        <span>Google Drive</span>
       </button>
+      <button id="btn-desvincular-carpeta" type="button" title="Desvincular carpeta y volver al estado inicial" style="
+        height:32px; padding:0 10px; flex:none; display:none;
+        align-items:center; gap:6px;
+        border:1px solid var(--line); border-radius:var(--radius);
+        background:var(--surface-2); color:var(--danger);
+        font-family:'Chakra Petch',sans-serif; font-weight:600;
+        font-size:10px; letter-spacing:.04em; text-transform:uppercase;
+        cursor:pointer;
+      ">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+          <line x1="4" y1="4" x2="20" y2="20"/>
+        </svg>
+        <span>Desvincular todo</span>
+      </button>
+      </div><!-- /fuente-menu -->
+      </div><!-- /fuente-menu-wrap -->
       <button id="btn-recargar-carpeta" type="button" title="Recargar" aria-label="Recargar" style="
         height:32px; width:32px; flex:none; display:flex;
         align-items:center; justify-content:center;
@@ -907,17 +1003,6 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="reload-icon">
           <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
           <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-        </svg>
-      </button>
-      <button id="btn-desvincular-carpeta" type="button" title="Desvincular carpeta y volver al estado inicial" style="
-        height:32px; width:32px; flex:none; display:none;
-        align-items:center; justify-content:center;
-        border:1px solid var(--line); border-radius:var(--radius);
-        background:var(--surface-2); color:var(--danger); cursor:pointer;
-      ">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-          <line x1="4" y1="4" x2="20" y2="20"/>
         </svg>
       </button>
       <button class="btn-icon" id="btn-theme-toggle" type="button" aria-label="Cambiar a tema claro" title="Cambiar tema">
@@ -942,7 +1027,7 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
   <!-- ============================================================
        SPLIT WRAP
        ============================================================ -->
-  <div id="split-wrap">
+  <div id="split-wrap" role="main">
 
     <!-- PANEL VISOR (izquierda / arriba) -->
     <div id="panel-visor">
@@ -1085,6 +1170,11 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
           <div class="exp-scroll">
             <p class="sec-label">Proyectos</p>
             <div class="folder-grid" id="folder-grid"></div>
+            <!-- Resultados de búsqueda global de archivos (todas las carpetas) -->
+            <div id="global-results" style="display:none">
+              <p class="sec-label">Planos y archivos</p>
+              <div class="recent-list" id="global-results-list"></div>
+            </div>
             <div id="recientes-wrap" style="display:none">
               <p class="sec-label">Recientes</p>
               <div class="recent-list" id="recent-list"></div>
@@ -1095,11 +1185,13 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
         <!-- PANTALLA ARCHIVOS -->
         <div class="pantalla" id="p-archivos">
           <div class="exp-topbar">
-            <button class="btn-back-sm" id="btn-back-home">
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg>
+            <button class="btn-back-sm" id="btn-back-home" aria-label="Volver a inicio">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>
               Inicio
             </button>
-            <span class="exp-folder-name" id="folder-title">—</span>
+            <span class="crumb-sep" aria-hidden="true">›</span>
+            <span class="exp-folder-name" id="folder-title" tabindex="-1">—</span>
+            <span class="sync-info" id="sync-info"></span>
             <button class="btn-back-sm btn-toggle-sidebar" type="button" title="Ocultar/mostrar gestor de archivos" aria-label="Ocultar/mostrar gestor de archivos" style="display:none">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
                 <rect x="3" y="3" width="18" height="18" rx="2"/>
@@ -1170,6 +1262,26 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
   </div><!-- /split-wrap -->
 </div><!-- /app -->
 
+<!-- Navegación inferior (solo mobile) — los modos al alcance del pulgar.
+     Vive FUERA de #app para seguir visible en modo 3D (que oculta #app):
+     así siempre hay una vía de vuelta sin depender del botón flotante. -->
+<nav id="bottom-nav" aria-label="Modos de la aplicación">
+  <button class="bnav-tab active" data-mode="planos" type="button" aria-pressed="true">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+      <polyline points="14,2 14,8 20,8"/>
+    </svg>
+    <span>Files</span>
+  </button>
+  <button class="bnav-tab" data-mode="3d" type="button" aria-pressed="false">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+      <path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
+    </svg>
+    <span>3D</span>
+  </button>
+</nav>
+
 <!-- PlantView iframe -->
 <div id="pv-wrap">
   <div id="pv-loading">
@@ -1234,6 +1346,11 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
         border:1px solid var(--line); background:var(--bg); color:var(--text);
         font-family:'IBM Plex Mono',monospace; font-size:12px;
       ">
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted);line-height:1.6;opacity:.85">
+        ⚠ La key es visible para quien use esta URL. En
+        <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" style="color:var(--accent)">Google Cloud → Credenciales</a>,
+        restringila: solo <strong>Drive API</strong> + referrer HTTP de este sitio.
+      </span>
     </label>
 
     <label style="width:100%;display:flex;flex-direction:column;gap:4px;align-self:flex-start">
@@ -1420,6 +1537,30 @@ function formatBytes(b) {
   return (b/1048576).toFixed(1) + " MB";
 }
 function isDesktop() { return window.innerWidth >= 768; }
+
+// Escape para interpolar texto no confiable (nombres de archivos/carpetas de
+// Drive o del FS) dentro de innerHTML. Sin esto, un archivo llamado
+// "<img onerror=...>.pdf" en una carpeta compartida ejecuta JS acá.
+function esc(s) {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+}
+
+// Extrae la revisión de nombres tipo "10-00500.0-00" → "00".
+// Si el nombre no sigue la nomenclatura, devuelve null y no se muestra nada.
+function revisionDe(nombre) {
+  const m = String(nombre).match(/^\d+-\d+\.\d+-(\d+)/);
+  return m ? m[1] : null;
+}
+
+// Sella la hora de la última carga real de archivos (no del filtrado).
+// En documentación de planta, saber si estás viendo la revisión vigente
+// es el trabajo principal — este sello da esa confianza.
+function marcarSync() {
+  const el = document.getElementById("sync-info");
+  if (el) el.textContent = "✓ " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
 
 /* ============================================================
    SPLIT TOGGLE
@@ -1662,8 +1803,39 @@ if (modoEquipoDrive) {
   // del usuario, no puede dispararse solo al cargar la página.
 }
 
+// Logo → Inicio (convención universal). Si estamos en 3D, vuelve a Files primero.
+document.getElementById("btn-logo-home").addEventListener("click", () => {
+  if (typeof modoActual !== "undefined" && modoActual === "3d") aplicarModo("planos");
+  volverExp(P.home);
+  history.replaceState(history.state, "", location.pathname + location.search);
+});
+
 // Botón recargar
 document.getElementById("btn-recargar-carpeta").addEventListener("click", recargarCarpeta);
+
+// Menú "Fuente de datos" (carpeta local / Drive / desvincular)
+(function() {
+  const wrap = document.getElementById("fuente-menu-wrap");
+  const menu = document.getElementById("fuente-menu");
+  const btn  = document.getElementById("btn-fuente-menu");
+  function cerrar() {
+    menu.classList.remove("abierto");
+    btn.classList.remove("abierto");
+    btn.setAttribute("aria-expanded", "false");
+  }
+  btn.addEventListener("click", e => {
+    e.stopPropagation();
+    const abierto = menu.classList.toggle("abierto");
+    btn.classList.toggle("abierto", abierto);
+    btn.setAttribute("aria-expanded", String(abierto));
+  });
+  // Elegir una acción cierra el menú; clic afuera también
+  menu.querySelectorAll("button").forEach(b => b.addEventListener("click", cerrar));
+  document.addEventListener("click", e => {
+    if (menu.classList.contains("abierto") && !wrap.contains(e.target)) cerrar();
+  });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") cerrar(); });
+})();
 
 // Auto-recargar cuando el usuario vuelve a la ventana (ej: arrastró un archivo y vuelve)
 window.addEventListener("focus", () => {
@@ -1697,6 +1869,9 @@ async function recargarCarpeta() {
   // Carpeta(s) de Google Drive conectadas
   if (driveConfig.apiKey && driveConfig.folders.length) {
     await reconectarCarpetasDriveGuardadas();
+    // Si hay una carpeta abierta, recargar también su listado de archivos
+    if (state.carpetaActual?.origenDrive) await cargarArchivosDrive(state.carpetaActual);
+    showToast("Actualizado ✓");
     return;
   }
 
@@ -1786,7 +1961,7 @@ function renderCarpetas(filtro) {
   grid.classList.toggle("edit-mode", editModeActivo);
 
   grid.innerHTML = lista.map(c => `
-    <button class="folder-card" data-id="${c.id}" type="button"
+    <button class="folder-card" data-id="${esc(c.id)}" type="button"
       draggable="${editModeActivo}">
       <svg class="drag-handle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="9" cy="5" r="1" fill="currentColor"/><circle cx="15" cy="5" r="1" fill="currentColor"/>
@@ -1802,7 +1977,7 @@ function renderCarpetas(filtro) {
           <path d="M8 3l8 0 5 8.5-4 7-10 0-4-7z"/>
         </svg>`:""}
       </div>
-      <span class="folder-card-name">${c.nombre}</span>
+      <span class="folder-card-name">${esc(c.nombre)}</span>
       <span class="folder-card-count">${c.archivos} archivo${c.archivos!==1?"s":""}</span>
       ${c.nuevos?`<span class="folder-new-pill">${c.nuevos} nuevo${c.nuevos!==1?"s":""}</span>`:""}
     </button>`).join("");
@@ -1927,12 +2102,12 @@ function renderRecientes() {
   wrap.style.display = "";
   lista.innerHTML = state.recientes.map(r => `
     <button class="recent-item${state.archivoActual?.id===r.id?' activo-visor':''}"
-      data-id="${r.id}" data-cid="${r.carpetaId}" type="button">
+      data-id="${esc(r.id)}" data-cid="${esc(r.carpetaId)}" type="button">
       ${iconoTipo(r.tipo)}
       <span class="recent-info">
-        <span class="recent-name">${r.nombre}</span>
+        <span class="recent-name">${esc(r.nombre)}</span>
         <span class="recent-meta">
-          <span class="folder-pill">${r.carpetaNombre}</span>
+          <span class="folder-pill">${esc(r.carpetaNombre)}</span>
           <span>${formatTs(r.ts)}</span>
         </span>
       </span>
@@ -1955,7 +2130,81 @@ function renderRecientes() {
 
 renderCarpetas();
 renderRecientes();
-document.getElementById("search-home").addEventListener("input", e => renderCarpetas(e.target.value));
+document.getElementById("search-home").addEventListener("input", e => {
+  renderCarpetas(e.target.value);
+  renderBusquedaGlobal(e.target.value);
+});
+
+/* ============================================================
+   BÚSQUEDA GLOBAL — busca archivos en TODAS las carpetas conectadas,
+   no solo la abierta. Las carpetas aún no listadas se cargan en
+   segundo plano y los resultados se completan cuando llegan.
+   ============================================================ */
+const cargasBusquedaEnCurso = new Set();
+
+function renderBusquedaGlobal(q) {
+  const wrap  = document.getElementById("global-results");
+  const lista = document.getElementById("global-results-list");
+  q = (q || "").trim().toLowerCase();
+  if (!q) { wrap.style.display = "none"; lista.innerHTML = ""; return; }
+
+  // Disparar carga de carpetas que todavía no tienen listado (una sola vez c/u)
+  carpetasOrden.forEach(c => {
+    if (state.archivosFS[c.id] || cargasBusquedaEnCurso.has(c.id)) return;
+    if (!c.driveId && !c.handle) return;
+    cargasBusquedaEnCurso.add(c.id);
+    asegurarArchivosCargados(c).then(() => {
+      // Re-render solo si el usuario sigue buscando lo mismo
+      const actual = document.getElementById("search-home").value.trim().toLowerCase();
+      if (actual && actual === q) renderBusquedaGlobal(actual);
+    }).catch(() => {});
+  });
+
+  const resultados = [];
+  for (const c of carpetasOrden) {
+    const archivos = state.archivosFS[c.id];
+    if (!archivos) continue;
+    for (const f of archivos) {
+      if (f.nombre.toLowerCase().includes(q)) resultados.push({ f, c });
+      if (resultados.length >= 30) break;
+    }
+    if (resultados.length >= 30) break;
+  }
+
+  wrap.style.display = "";
+  const pendientes = carpetasOrden.some(c => !state.archivosFS[c.id] && (c.driveId || c.handle));
+  if (!resultados.length) {
+    lista.innerHTML = `<div class="empty-state" style="padding:16px"><p>${pendientes ? "Buscando en las carpetas…" : "Sin archivos que coincidan"}</p></div>`;
+    return;
+  }
+  lista.innerHTML = resultados.map(({f, c}) => `
+    <button class="recent-item" data-id="${esc(f.id)}" data-cid="${esc(c.id)}" type="button">
+      ${iconoTipo(f.tipo)}
+      <span class="recent-info">
+        <span class="recent-name">${esc(f.nombre)}</span>
+        <span class="recent-meta">
+          <span class="folder-pill">${esc(c.nombre)}</span>
+          <span>${formatTs(f.ts)}</span>
+        </span>
+      </span>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" opacity=".3"><path d="M9 18l6-6-6-6"/></svg>
+    </button>`).join("");
+
+  lista.querySelectorAll(".recent-item").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const c = carpetasOrden.find(x => x.id === btn.dataset.cid);
+      if (!c) return;
+      state.carpetaActual = c;
+      document.getElementById("folder-title").textContent = c.nombre;
+      const archivos = await asegurarArchivosCargados(c);
+      // El listado pudo haberse cargado en background con otra carpeta activa —
+      // re-renderizar ahora que carpetaActual es la correcta.
+      renderArchivos();
+      const f = archivos.find(x => x.id === btn.dataset.id);
+      if (f) { irAExp(P.archivos, P.home); abrirVisor(f); }
+    });
+  });
+}
 
 // Reconectar carpetas de Drive guardadas de sesiones anteriores.
 // Se define reconectarCarpetasDriveGuardadas() más abajo; se difiere al próximo tick
@@ -1976,6 +2225,10 @@ function abrirCarpeta(carpeta) {
     renderArchivos();
   }
   irAExp(P.archivos, P.home);
+  pushNav("archivos");
+  // Mover el foco al título de la carpeta: teclado y lectores de pantalla
+  // aterrizan en el contexto nuevo en vez de quedar en la grilla anterior.
+  document.getElementById("folder-title").focus({ preventScroll: true });
 }
 
 // Devuelve los archivos reales de una carpeta (local o Drive), cargándolos primero
@@ -2020,6 +2273,7 @@ async function cargarArchivosFS(carpeta) {
     archivos.sort((a,b) => b.ts - a.ts);
     state.archivosFS[carpeta.id] = archivos;
     renderArchivos();
+    marcarSync();
     return;
   }
 
@@ -2029,6 +2283,7 @@ async function cargarArchivosFS(carpeta) {
     const archivos = await resp.json();
     state.archivosFS[carpeta.id] = archivos;
     renderArchivos();
+    marcarSync();
   } catch(e) {
     console.error("Error cargando archivos:", e);
     showToast("Error al cargar archivos");
@@ -2050,12 +2305,14 @@ function renderArchivos(filtro) {
     const esNuevo  = f.nuevo && !state.conocidos.has(f.id);
     const esActivo = state.archivoActual?.id === f.id;
     const esPDF    = f.tipo === "pdf";
+    const rev      = revisionDe(f.nombre);
     return `
-    <div class="file-item${esActivo?' activo-visor':''}" data-idx="${i}" id="file-${f.id}">
+    <div class="file-item${esActivo?' activo-visor':''}" data-idx="${i}" id="file-${esc(f.id)}" role="button" tabindex="0" aria-label="Abrir ${esc(f.nombre)}">
       ${iconoTipo(f.tipo)}
       <span class="file-info">
-        <span class="file-name">${f.nombre}</span>
+        <span class="file-name">${esc(f.nombre)}</span>
         <span class="file-meta">
+          ${rev?`<span class="rev-pill">Rev ${esc(rev)}</span>`:""}
           <span>${f.tam}</span>
           <span>${formatTs(f.ts)}</span>
           ${esNuevo?`<span class="new-pill">nuevo</span>`:""}
@@ -2090,6 +2347,13 @@ function renderArchivos(filtro) {
       const f = window._archivos_actuales[Number(el.dataset.idx)];
       abrirVisor(f);
     });
+    // Las filas son divs con role="button" — Enter/Espacio deben abrir igual que el clic
+    el.addEventListener("keydown", e => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      if (e.target !== el) return;
+      e.preventDefault();
+      abrirVisor(window._archivos_actuales[Number(el.dataset.idx)]);
+    });
   });
   lista.querySelectorAll(".btn-qr").forEach(btn => {
     btn.addEventListener("click", e => {
@@ -2109,7 +2373,11 @@ function renderArchivos(filtro) {
 }
 
 document.getElementById("search-files").addEventListener("input", e => renderArchivos(e.target.value));
-document.getElementById("btn-back-home").addEventListener("click", () => volverExp(P.home));
+document.getElementById("btn-back-home").addEventListener("click", () => {
+  volverExp(P.home);
+  // El hash de carpeta ya no aplica en Home
+  history.replaceState(history.state, "", location.pathname + location.search);
+});
 
 /* ============================================================
    VISOR — router limpio PDF / eDrawing
@@ -2124,6 +2392,17 @@ if (typeof pdfjsLib !== "undefined") {
 // Estado PDF
 let pdfDoc  = null;
 let pdfZoom = 1.0;
+
+// Memoria de sesión por archivo: al cerrar y reabrir un PDF vuelve a la
+// misma página/zoom — consultar un detalle e ir y volver no cuesta re-navegar.
+const pdfMemoria = new Map();
+
+function guardarEstadoPDF() {
+  if (!pdfDoc || state.archivoActual?.tipo !== "pdf") return;
+  const wrap = document.getElementById("pdf-canvas-wrap");
+  pdfMemoria.set(state.archivoActual.id, { zoom: pdfZoom, scroll: wrap.scrollTop });
+}
+document.getElementById("pdf-canvas-wrap").addEventListener("scroll", guardarEstadoPDF, { passive: true });
 
 /* ---- Navegación entre planos ---- */
 function getArchivosActuales() {
@@ -2163,6 +2442,69 @@ document.addEventListener("keydown", e => {
   }
 });
 
+/* ============================================================
+   NAVEGACIÓN — botón atrás del navegador y Escape
+   Cada "capa" que se abre (carpeta, visor, modo 3D) agrega una
+   entrada al historial; atrás cierra la capa superior visible en
+   vez de sacar al usuario de la app (clave en Android/mobile).
+   ============================================================ */
+function pushNav(capa) {
+  // La carpeta abierta va al hash: refrescar la página no pierde el lugar,
+  // y el link copiado lleva a la misma carpeta.
+  let url;
+  if (capa === "archivos" && state.carpetaActual) {
+    url = "#c=" + encodeURIComponent(state.carpetaActual.id);
+  }
+  history.pushState({ pv: capa }, "", url);
+}
+
+// Restaurar carpeta desde el hash al cargar (salvo que haya deep-link ?file=,
+// que tiene prioridad y ya trae carpeta + archivo).
+(function() {
+  if (new URLSearchParams(location.search).get("file")) return;
+  const m = location.hash.match(/^#c=(.+)$/);
+  if (!m) return;
+  const cid = decodeURIComponent(m[1]);
+  const intentar = () => {
+    const c = carpetasOrden.find(x => x.id === cid);
+    if (!c) return false;
+    abrirCarpeta(c);
+    return true;
+  };
+  // Las carpetas de Drive reconectan async — reintentar un rato
+  if (!intentar()) {
+    const t0 = Date.now();
+    const poll = setInterval(() => {
+      if (intentar() || Date.now() - t0 > 15000) clearInterval(poll);
+    }, 300);
+  }
+})();
+
+window.addEventListener("popstate", () => {
+  // Modo 3D cubre todo — cerrarlo primero
+  if (typeof modoActual !== "undefined" && modoActual === "3d") {
+    aplicarModo("planos");
+    return;
+  }
+  const modalVisible = document.querySelector(".modal-overlay.visible");
+  if (modalVisible) { modalVisible.classList.remove("visible"); return; }
+  if (typeof visorFullscreen !== "undefined" && visorFullscreen) { salirFullscreen(); return; }
+  if (state.splitActivo) { setSplit(false); return; }
+  if (P.archivos.classList.contains("activa")) { volverExp(P.home); return; }
+  // Sin capas abiertas: el navegador sigue con su historial normal
+});
+
+// Escape cierra el modal visible; si no hay, cierra el visor abierto.
+// (El fullscreen y el modo 3D ya tienen sus propios handlers de Escape.)
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape") return;
+  const modalVisible = document.querySelector(".modal-overlay.visible");
+  if (modalVisible) { modalVisible.classList.remove("visible"); return; }
+  if (typeof visorFullscreen !== "undefined" && visorFullscreen) return; // lo maneja su handler
+  if (typeof modoActual !== "undefined" && modoActual === "3d") return; // ídem
+  if (state.splitActivo) setSplit(false);
+});
+
 function mostrarCarga(sub) {
   document.getElementById("visor-empty").style.display = "none";
   document.getElementById("visor-carga").classList.add("show");
@@ -2172,9 +2514,13 @@ function mostrarCarga(sub) {
 function ocultarCarga() {
   document.getElementById("visor-carga").classList.remove("show");
 }
-function mostrarError() {
+function mostrarError(detalle) {
   ocultarCarga();
-  document.getElementById("visor-error").classList.add("show");
+  const err = document.getElementById("visor-error");
+  // Mostrar la causa real cuando la tenemos — "puede ser muy pesado" genérico
+  // solo cuando de verdad no sabemos qué pasó.
+  err.querySelector("p").textContent = detalle || "El archivo puede ser muy pesado o no válido.";
+  err.classList.add("show");
 }
 function resetVisor() {
   // Limpiar iframe
@@ -2218,7 +2564,7 @@ function abrirVisor(archivo) {
   // Mostrar el visor al abrir un archivo — antes solo pasaba en desktop
   // (isDesktop()), lo que dejaba el PDF/eDrawing cargado pero invisible en mobile,
   // ya que panel-visor queda display:none hasta que se activa el split.
-  if (!state.splitActivo) setSplit(true);
+  if (!state.splitActivo) { setSplit(true); pushNav("visor"); }
 
   if (archivo.tipo === "pdf") {
     pedirArchivo(".pdf", buf => cargarPDF(buf));
@@ -2296,7 +2642,7 @@ async function pedirArchivo(accept, onBuffer) {
       return;
     } catch(e) {
       console.error("Error leyendo archivo local:", e);
-      mostrarError(); return;
+      mostrarError(e.message); return;
     }
   }
 
@@ -2318,7 +2664,7 @@ async function pedirArchivo(accept, onBuffer) {
       return;
     } catch(e) {
       console.error("Error descargando de Drive:", e);
-      mostrarError(); return;
+      mostrarError(e.message); return;
     }
   }
 
@@ -2342,7 +2688,7 @@ async function pedirArchivo(accept, onBuffer) {
       return;
     } catch(e) {
       console.error("Error cargando archivo:", e);
-      mostrarError(); return;
+      mostrarError(e.message); return;
     }
   }
 
@@ -2397,20 +2743,22 @@ async function cargarPDF(buffer) {
   try {
     if (pdfDoc) { pdfDoc.destroy(); pdfDoc = null; }
     pdfDoc = await pdfjsLib.getDocument({ data: buffer }).promise;
-    pdfZoom = calcZoomFit();
+    const memoria = pdfMemoria.get(state.archivoActual?.id);
+    pdfZoom = memoria?.zoom ?? calcZoomFit();
     document.getElementById("pdf-zoom-label").textContent = Math.round(pdfZoom*100)+"%";
     document.getElementById("pdf-total").textContent = pdfDoc.numPages;
     document.getElementById("pdf-page-cur").max = pdfDoc.numPages;
     document.getElementById("pdf-page-cur").value = 1;
 
     await renderizarPDF();
+    if (memoria?.scroll) document.getElementById("pdf-canvas-wrap").scrollTop = memoria.scroll;
     ocultarCarga();
     document.getElementById("pdf-toolbar").classList.add("show");
     document.getElementById("pdf-canvas-wrap").classList.add("show");
     document.getElementById("btn-visor-reload").style.display = "flex";
   } catch(e) {
     console.error(e);
-    mostrarError();
+    mostrarError(e.message);
   }
 }
 
@@ -2481,12 +2829,14 @@ document.getElementById("pdf-zoom-in").addEventListener("click", async () => {
   pdfZoom = Math.min(pdfZoom + 0.2, 3.0);
   document.getElementById("pdf-zoom-label").textContent = Math.round(pdfZoom*100)+"%";
   await renderizarPDF();
+  guardarEstadoPDF();
 });
 document.getElementById("pdf-zoom-out").addEventListener("click", async () => {
   if (!pdfDoc) return;
   pdfZoom = Math.max(pdfZoom - 0.2, 0.4);
   document.getElementById("pdf-zoom-label").textContent = Math.round(pdfZoom*100)+"%";
   await renderizarPDF();
+  guardarEstadoPDF();
 });
 
 /* ============================================================
@@ -2613,6 +2963,9 @@ document.getElementById("btn-qr-dl").addEventListener("click", () => {
     state.carpetaActual = c;
     document.getElementById("folder-title").textContent = c.nombre;
     asegurarArchivosCargados(c).then(archivos => {
+      // El explorador debe mostrar la carpeta del archivo, no quedarse en Home
+      renderArchivos();
+      irAExp(P.archivos, P.home);
       const f = archivos.find(x => x.id === fid);
       if (f) setTimeout(() => abrirVisor(f), 400);
     });
@@ -2679,11 +3032,11 @@ document.getElementById("btn-notif").addEventListener("click", () => {
     lista.innerHTML = state.nuevos.map(f => {
       const cid = f.id.split("||")[0];
       const c = carpetasOrden.find(x => x.id === cid);
-      return `<button class="notif-item" data-id="${f.id}" data-cid="${cid}" type="button">
+      return `<button class="notif-item" data-id="${esc(f.id)}" data-cid="${esc(cid)}" type="button">
         ${iconoTipo(f.tipo)}
         <span class="notif-info">
-          <span class="notif-name">${f.nombre}</span>
-          <span class="notif-folder">${c?.nombre||"—"}</span>
+          <span class="notif-name">${esc(f.nombre)}</span>
+          <span class="notif-folder">${esc(c?.nombre||"—")}</span>
         </span></button>`;
     }).join("");
     lista.querySelectorAll(".notif-item").forEach(btn => {
@@ -2724,8 +3077,8 @@ function renderModalDrive() {
   wrap.style.display = "flex";
   lista.innerHTML = driveConfig.folders.map(f => `
     <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg);border:1px solid var(--line);border-radius:var(--radius)">
-      <span style="flex:1;min-width:0;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${f.nombre}</span>
-      <button class="drive-desconectar-btn" data-id="${f.id}" type="button" style="
+      <span style="flex:1;min-width:0;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(f.nombre)}</span>
+      <button class="drive-desconectar-btn" data-id="${esc(f.id)}" type="button" style="
         height:26px;padding:0 8px;border-radius:6px;border:1px solid var(--line);
         background:var(--surface-2);color:var(--danger);font-size:10px;
         font-family:'IBM Plex Mono',monospace;cursor:pointer;flex:none;
@@ -2913,12 +3266,33 @@ function extractDriveFolderId(input) {
   return null;
 }
 
+// Traduce los errores de la API de Drive a mensajes accionables. En obra,
+// "HTTP 403" no le dice nada a nadie — el mensaje tiene que decir qué hacer.
+function mensajeErrorDrive(status, rawMsg) {
+  if (!navigator.onLine) return "Sin conexión a internet. Verificá tu señal e intentá de nuevo.";
+  if (status === 400) return "La API Key no es válida. Revisala en el modal de Google Drive.";
+  if (status === 403) {
+    if (/quota|rate/i.test(rawMsg || "")) return "Se superó el límite de uso de la API Key. Esperá unos minutos o usá otra key.";
+    return "Google rechazó el acceso. Verificá que la API Key tenga habilitada la Drive API y que la carpeta esté compartida como \"Cualquiera con el link puede ver\".";
+  }
+  if (status === 404) return "No se encontró la carpeta o el archivo. Puede haberse movido, borrado, o no estar compartido públicamente.";
+  if (status >= 500) return "Google Drive está teniendo problemas. Intentá de nuevo en unos minutos.";
+  return rawMsg || `Error de Drive (HTTP ${status})`;
+}
+
 async function fetchDriveJSON(url) {
-  const resp = await fetch(url);
+  let resp;
+  try {
+    resp = await fetch(url);
+  } catch (e) {
+    throw new Error(navigator.onLine
+      ? "No se pudo contactar a Google Drive. Puede ser un problema de red o un firewall."
+      : "Sin conexión a internet. Verificá tu señal e intentá de nuevo.");
+  }
   if (!resp.ok) {
-    let msg = `HTTP ${resp.status}`;
-    try { const j = await resp.json(); if (j.error?.message) msg = j.error.message; } catch(e) {}
-    throw new Error(msg);
+    let raw = "";
+    try { const j = await resp.json(); if (j.error?.message) raw = j.error.message; } catch(e) {}
+    throw new Error(mensajeErrorDrive(resp.status, raw));
   }
   return resp.json();
 }
@@ -2942,11 +3316,18 @@ async function descargarBufferDrive(driveId) {
   // directo a googleapis.com. La key la seguimos mandando nosotros (cada
   // usuario puede tener la suya), el proxy no la fija ni la esconde.
   const url = `/api/drive-proxy?fileId=${encodeURIComponent(driveId)}&key=${encodeURIComponent(driveConfig.apiKey)}`;
-  const resp = await fetch(url);
+  let resp;
+  try {
+    resp = await fetch(url);
+  } catch (e) {
+    throw new Error(navigator.onLine
+      ? "No se pudo contactar al servidor. Recargá la página e intentá de nuevo."
+      : "Sin conexión a internet. Verificá tu señal e intentá de nuevo.");
+  }
   if (!resp.ok) {
-    let mensaje = `HTTP ${resp.status}`;
-    try { const j = await resp.json(); if (j.error) mensaje = j.error; } catch(e) {}
-    throw new Error(`No se pudo descargar desde Drive (${mensaje})`);
+    let raw = "";
+    try { const j = await resp.json(); if (j.error) raw = j.error; } catch(e) {}
+    throw new Error(mensajeErrorDrive(resp.status, raw));
   }
   return resp.arrayBuffer();
 }
@@ -3016,6 +3397,7 @@ async function cargarArchivosDrive(carpeta) {
     archivos.sort((a,b) => b.ts - a.ts);
     state.archivosFS[carpeta.id] = archivos;
     renderArchivos();
+    marcarSync();
   } catch(e) {
     console.error("Error cargando archivos de Drive:", e);
     showToast("Error al cargar archivos de Drive: " + e.message);
@@ -3228,7 +3610,15 @@ function cargarPV() {
     };
     pvIframe.src = url;
   } else {
-    pvLoad.innerHTML = '<p style="color:#e03050">No se encontró el visor 3D embebido.</p>';
+    // El template vive más abajo en el documento: si la app arranca directo
+    // en modo 3D, este código corre antes de que el <template> exista.
+    // Reintentar cuando termine de parsearse en vez de trabar pvLoaded.
+    pvLoaded = false;
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", cargarPV, { once: true });
+    } else {
+      pvLoad.innerHTML = '<p style="color:#e03050">No se encontró el visor 3D embebido.</p>';
+    }
   }
 }
 
@@ -3250,8 +3640,11 @@ function aplicarModo(modo, save = true) {
   modoActual = modo;
   if (save) localStorage.setItem("pv_modo", modo);
 
-  document.querySelectorAll(".mode-tab").forEach(t =>
-    t.classList.toggle("active", t.dataset.mode === modo));
+  document.querySelectorAll(".mode-tab, .bnav-tab").forEach(t => {
+    const activo = t.dataset.mode === modo;
+    t.classList.toggle("active", activo);
+    t.setAttribute("aria-pressed", String(activo));
+  });
 
   document.body.classList.remove("mode-split");
   pvWrap.classList.remove("show");
@@ -3264,6 +3657,8 @@ function aplicarModo(modo, save = true) {
     // DriveDoc fullscreen — nada más
     if (backBtn) backBtn.classList.add("hidden");
   } else if (modo === "3d") {
+    // Entrada de historial: atrás desde 3D vuelve a Planos, no saca de la app
+    if (save) pushNav("3d");
     pvWrap.classList.add("show");
     pvWrap.style.left = "0";
     pvWrap.style.borderLeft = "none";
@@ -3297,7 +3692,7 @@ function aplicarModo(modo, save = true) {
 }
 
 // Cuando volvemos a Planos desde 3D, restaurar app
-document.querySelectorAll(".mode-tab").forEach(tab => {
+document.querySelectorAll(".mode-tab, .bnav-tab").forEach(tab => {
   tab.addEventListener("click", () => {
     if (modoActual === "3d" && tab.dataset.mode !== "3d") app.style.display = "";
     aplicarModo(tab.dataset.mode);
@@ -3426,6 +3821,20 @@ canvas{display:block;width:100%;height:100%}
 #msr-svg{position:fixed;inset:0;pointer-events:none;z-index:80}
 .msr-panel{position:fixed;top:calc(var(--safe-top) + 68px);left:16px;right:16px;background:rgba(15,17,24,.95);border:1px solid var(--border);backdrop-filter:blur(20px);border-radius:var(--radius);padding:14px 16px;display:none;z-index:195;box-shadow:0 8px 40px rgba(0,0,0,.5)}
 .msr-panel.show{display:block}
+
+/* Barra de explosión — arriba del fab-dock, aparece/desaparece con bExplode */
+.explode-bar{
+  position:fixed; left:50%; transform:translateX(-50%);
+  bottom:calc(88px + var(--safe-bottom));
+  display:none; align-items:center; gap:10px;
+  width:min(320px,calc(100vw - 32px));
+  background:rgba(232,234,239,.95); border:1px solid var(--border);
+  backdrop-filter:blur(20px); border-radius:22px; padding:10px 16px;
+  z-index:200; box-shadow:0 4px 24px rgba(0,0,0,.15); color:var(--text);
+}
+.explode-bar.show{display:flex}
+.explode-bar input[type=range]{flex:1; accent-color:#5B8BFF; cursor:pointer}
+#explodeLabel{flex:none; font-size:11px; font-weight:700; min-width:32px; text-align:right; font-variant-numeric:tabular-nums}
 .msr-title{font-size:9px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
 .msr-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px}
 .msr-cell{background:var(--surf2);border-radius:10px;padding:8px;text-align:center}
@@ -3762,7 +4171,16 @@ window.onerror=function(msg,src,line){
   <div class="fab-sep"></div>
   <button class="fab" id="bMeasure"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 6H3M21 12H3M21 18H3"/><line x1="9" y1="3" x2="9" y2="21"/></svg><span>Medir</span></button>
   <div class="fab-sep"></div>
+  <button class="fab" id="bExplode"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h6M4 4v6M4 4l6 6"/><path d="M20 4h-6M20 4v6M20 4l-6 6"/><path d="M4 20h6M4 20v-6M4 20l6-6"/><path d="M20 20h-6M20 20v-6M20 20l-6-6"/></svg><span>Explosión</span></button>
+  <div class="fab-sep"></div>
   <button class="fab" id="bClear"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span>Limpiar</span></button>
+</div>
+
+<!-- Barra de explosión — slider estilo eDrawings, separa subensamblajes desde el centro -->
+<div class="explode-bar" id="explodeBar">
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none;opacity:.7"><path d="M4 4h6M4 4v6M4 4l6 6"/><path d="M20 4h-6M20 4v6M20 4l-6 6"/></svg>
+  <input type="range" id="explodeSlider" min="0" max="100" value="0" step="1" aria-label="Nivel de explosión">
+  <span id="explodeLabel">0%</span>
 </div>
 
 <div class="sheet-overlay" id="sheetOverlay"></div>
@@ -4202,6 +4620,7 @@ async function buildSceneFromGLB(glbData, selectedIndices){
   });
   scene.add(gridHelper);scene.add(floor);
   zoneGroups={};allMeshes=[];ZONES=[];
+  resetExplodeUI();
 
   const {subassemblies,buildNode}=glbData;
   const activeSet=new Set(selectedIndices);
@@ -4279,6 +4698,7 @@ async function buildSceneFromGLB(glbData, selectedIndices){
     await new Promise(r=>setTimeout(r,100));
     renderer.render(scene,camera);
     await new Promise(r=>setTimeout(r,50));
+    computeExplodeData(rootGrp);
     applyScaleAndCamera(rootGrp);
 
     if(loadBar) loadBar.style.width='100%';
@@ -4297,6 +4717,86 @@ async function buildSceneFromGLB(glbData, selectedIndices){
     if(newLoadMsg) newLoadMsg.innerHTML=`❌ Error al cargar<br><small>${err.message||err}</small>`;
     if(loadBar) loadBar.style.background='#e03050';
   }
+}
+
+// ── EXPLODE VIEW — separa los subensamblajes desde el centro del modelo,
+// como el slider de eDrawings. Se calcula en el espacio local de rootGrp
+// (antes de que applyScaleAndCamera lo reposicione/escale), así que el
+// offset queda consistente sin importar el zoom/escala aplicados después.
+//
+// Es un explode de DOS NIVELES, no uno solo: cada "subensamblaje" del GLB
+// suele venir agrupado con varias piezas visualmente separadas adentro
+// (tornillería, chapas, etc. bajo el mismo nodo). Si solo movemos el grupo
+// entero como bloque rígido, esas piezas internas nunca se separan entre sí
+// — es lo que se veía como "subensamblajes que no se explotan". Por eso acá
+// también calculamos, PARA CADA HIJO DIRECTO de cada subensamblaje, su propia
+// dirección de separación relativa al centro de ESE subensamblaje, con una
+// magnitud menor (proporcional al tamaño del subensamblaje, no del modelo
+// entero) — mismo patrón en cascada que usa eDrawings con un solo slider.
+let explodeMaxDist=0;
+function computeExplodeData(rootGrp){
+  rootGrp.updateMatrixWorld(true);
+  const overallBox=new THREE.Box3().setFromObject(rootGrp);
+  const overallCenter=overallBox.getCenter(new THREE.Vector3());
+  const overallSize=overallBox.getSize(new THREE.Vector3());
+  explodeMaxDist=Math.max(overallSize.x,overallSize.y,overallSize.z)||1;
+
+  // Solo los subensamblajes reales (hijos directos de rootGrp) — excluye
+  // entradas '<zoneId>_stl' de zoneGroups, que cuelgan de OTRO grupo y cuya
+  // .position no está en el espacio de rootGrp.
+  Object.values(zoneGroups).forEach(grp=>{
+    if(grp.parent!==rootGrp) return;
+    grp.updateMatrixWorld(true);
+    const grpBox=new THREE.Box3().setFromObject(grp);
+    const grpCenter=grpBox.isEmpty() ? grp.getWorldPosition(new THREE.Vector3()) : grpBox.getCenter(new THREE.Vector3());
+    const grpSize=grpBox.isEmpty() ? new THREE.Vector3() : grpBox.getSize(new THREE.Vector3());
+
+    const dir=grpCenter.clone().sub(overallCenter);
+    if(dir.lengthSq()<1e-6) dir.set(0,1,0); // pieza concéntrica: explota hacia arriba en vez de no moverse
+    dir.normalize();
+    grp.userData.basePos=grp.position.clone();
+    grp.userData.explodeDir=dir;
+    grp.userData.localSpread=Math.max(grpSize.x,grpSize.y,grpSize.z)||0;
+
+    // Nivel 2: piezas internas del subensamblaje, relativas a SU propio centro
+    grp.children.forEach(child=>{
+      child.updateMatrixWorld(true);
+      const childBox=new THREE.Box3().setFromObject(child);
+      const childCenter=childBox.isEmpty() ? child.getWorldPosition(new THREE.Vector3()) : childBox.getCenter(new THREE.Vector3());
+      const dir2=childCenter.clone().sub(grpCenter);
+      if(dir2.lengthSq()<1e-6) return; // pieza única en el grupo: nada que separar adentro
+      dir2.normalize();
+      child.userData.basePos2=child.position.clone();
+      child.userData.explodeDir2=dir2;
+    });
+  });
+}
+
+// amount: 0 (armado) a 1 (máxima separación)
+function setExplode(amount){
+  amount=Math.min(Math.max(amount,0),1);
+  Object.values(zoneGroups).forEach(grp=>{
+    const {basePos,explodeDir,localSpread}=grp.userData;
+    if(!basePos||!explodeDir) return;
+    grp.position.copy(basePos).addScaledVector(explodeDir, amount*explodeMaxDist*0.6);
+
+    grp.children.forEach(child=>{
+      const {basePos2,explodeDir2}=child.userData;
+      if(!basePos2||!explodeDir2) return;
+      child.position.copy(basePos2).addScaledVector(explodeDir2, amount*localSpread*0.7);
+    });
+  });
+}
+
+// Modelo nuevo/eliminado: volver a armado y ocultar la barra —
+// un slider "explotado" heredado de la sesión anterior confundiría.
+function resetExplodeUI(){
+  const slider=document.getElementById('explodeSlider');
+  if(slider) slider.value=0;
+  const label=document.getElementById('explodeLabel');
+  if(label) label.textContent='0%';
+  document.getElementById('explodeBar')?.classList.remove('show');
+  document.getElementById('bExplode')?.classList.remove('on');
 }
 
 function applyScaleAndCamera(rootGrp){
@@ -4814,6 +5314,19 @@ document.getElementById('bPan').onclick=()=>{
 document.getElementById('bSelect').onclick=()=>{ setMode('select'); navMode='orbit'; };
 document.getElementById('bMeasure').onclick=()=>{ setMode('measure'); navMode='orbit'; };
 document.getElementById('bClear').onclick=clearAll;
+
+// ── EXPLODE SLIDER — toggle de la barra + aplicar en vivo ─────────────
+document.getElementById('bExplode').onclick=(e)=>{
+  const bar=document.getElementById('explodeBar');
+  const abrir=!bar.classList.contains('show');
+  bar.classList.toggle('show', abrir);
+  e.currentTarget.classList.toggle('on', abrir);
+};
+document.getElementById('explodeSlider').addEventListener('input', (e)=>{
+  const pct=Number(e.target.value);
+  document.getElementById('explodeLabel').textContent=pct+'%';
+  setExplode(pct/100);
+});
 
 // ── FACE HIGHLIGHT SYSTEM ─────────────────────────────────────────────
 // Stores highlight overlays: [{mesh, origColor, faceIndices}]
@@ -5477,6 +5990,7 @@ function renderImportLibrary(){
     scene.add(gridHelper);scene.add(floor);
     buildZonesPanel();renderImportLibrary();
     document.getElementById('importDot').style.display='none';
+    resetExplodeUI();
     toast('Modelo eliminado');
   };
 }
