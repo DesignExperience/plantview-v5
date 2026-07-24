@@ -21,6 +21,10 @@
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Archivo:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Syne:wght@700;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<!-- DXF (CAD 2D, formato abierto) — parser client-side, sin subir archivos a
+     terceros. DWG (binario propietario de Autodesk) no tiene equivalente
+     gratuito: queda fuera de alcance, ver mostrarError en la rama "dwg". -->
+<script src="https://cdn.jsdelivr.net/npm/dxf-parser/dist/dxf-parser.js"></script>
 <style>
 :root {
   /* Tema oscuro (default) */
@@ -328,6 +332,38 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
   display: block; pointer-events: all;
 }
 
+/* Mini toolbar de zoom para imágenes — mismo look que #pdf-toolbar */
+#imagen-toolbar {
+  flex: none; height: 38px; padding: 0 10px;
+  display: none; align-items: center; justify-content: flex-end; gap: 6px;
+  background: var(--surface); border-bottom: 1px solid var(--line);
+}
+#imagen-toolbar.show { display: flex; }
+#imagen-zoom-label {
+  font-family: "IBM Plex Mono", monospace; font-size: 10px;
+  color: var(--muted); min-width: 36px; text-align: center;
+}
+
+#visor-imagen-wrap {
+  flex: 1; min-height: 0; width: 100%; overflow: hidden;
+  background: #fff; display: none; touch-action: none; cursor: grab;
+}
+#visor-imagen-wrap.show { display: flex; align-items: center; justify-content: center; }
+#visor-imagen-wrap.arrastrando { cursor: grabbing; }
+#visor-imagen {
+  max-width: 100%; max-height: 100%; object-fit: contain;
+  transform-origin: center center; user-select: none; -webkit-user-drag: none;
+}
+
+#visor-dxf-wrap {
+  flex: 1; min-height: 0; width: 100%; overflow: hidden;
+  background: #fff; display: none; touch-action: none; cursor: grab;
+}
+#visor-dxf-wrap.show { display: block; }
+#visor-dxf-wrap.arrastrando { cursor: grabbing; }
+#visor-dxf { width: 100%; height: 100%; transform-origin: 0 0; }
+#visor-dxf svg { display: block; }
+
 #visor-carga {
   position: absolute; inset: 38px 0 0;
   display: none; flex-direction: column;
@@ -577,7 +613,10 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
    pantalla. En desktop no existe (el switcher del app-bar manda).
    ============================================================ */
 #bottom-nav { display: none; }
-@media (max-width: 767px) {
+/* max-height:500px cubre el teléfono acostado (landscape): un iPhone mide
+   812px+ de ANCHO apaisado (superaría max-width:767px solo) pero su ALTO
+   sigue siendo chico — sin esto el bottom-nav desaparecía justo al rotar. */
+@media (max-width: 767px), (max-height: 500px) {
   #mode-switcher { display: none !important; }
   #bottom-nav {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 210;
@@ -586,13 +625,14 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
     padding-bottom: env(safe-area-inset-bottom);
   }
   .bnav-tab {
-    flex: 1; height: 54px;
+    flex: 1; height: 54px; min-width: 0;
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
     background: none; border: none; color: var(--muted);
     font-family: "Chakra Petch", sans-serif; font-weight: 600;
-    font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
-    cursor: pointer; transition: color .15s;
+    font-size: 9px; letter-spacing: .02em; text-transform: uppercase;
+    cursor: pointer; transition: color .15s; white-space: nowrap;
   }
+  .bnav-tab svg { width: 16px; height: 16px; flex-shrink: 0; }
   .bnav-tab.active { color: var(--accent); }
   /* Dejarle lugar al nav: el contenido de la app no debe quedar tapado */
   #app { padding-bottom: calc(54px + env(safe-area-inset-bottom)); }
@@ -667,7 +707,7 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
    ============================================================ */
 .modal-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,.75);
-  backdrop-filter: blur(6px); z-index: 200;
+  backdrop-filter: blur(6px); z-index: 300;
   display: none; align-items: flex-end; justify-content: center;
 }
 .modal-overlay.visible { display: flex; }
@@ -1096,6 +1136,29 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
         <!-- Iframe eDrawings — sin sandbox para que funcione el orbit/rotate -->
         <iframe id="visor-frame" title="Visor" allow="fullscreen pointer-lock"></iframe>
 
+        <!-- Imagen (jpg/png) — vive en la pestaña PDF/Images junto al PDF.js,
+             pero es un elemento propio (no el iframe de arriba): así una imagen
+             y un eDrawing HTML pueden quedar cargados a la vez, cada uno en su
+             pestaña, sin pisarse el mismo iframe. -->
+        <div id="imagen-toolbar">
+          <button class="btn-pdf-nav" id="imagen-zoom-out" title="Alejar">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+          </button>
+          <span id="imagen-zoom-label">100%</span>
+          <button class="btn-pdf-nav" id="imagen-zoom-in" title="Acercar">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+          </button>
+        </div>
+        <div id="visor-imagen-wrap">
+          <img id="visor-imagen" alt="">
+        </div>
+
+        <!-- DXF (CAD 2D) — vive en la pestaña eDrawings junto al iframe HTML,
+             como un elemento propio (mismo patrón que visor-imagen con PDF). -->
+        <div id="visor-dxf-wrap">
+          <div id="visor-dxf"></div>
+        </div>
+
         <!-- PDF.js toolbar -->
         <div id="pdf-toolbar">
           <button class="btn-pdf-nav" id="pdf-prev" title="Página anterior">
@@ -1272,6 +1335,22 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
       <polyline points="14,2 14,8 20,8"/>
     </svg>
     <span>Files</span>
+  </button>
+  <button class="bnav-tab" data-mode="pdf" type="button" aria-pressed="false" title="PDF / Images">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+      <polyline points="14,2 14,8 20,8"/>
+      <line x1="8.5" y1="13" x2="15.5" y2="13"/>
+      <line x1="8.5" y1="16.5" x2="15.5" y2="16.5"/>
+    </svg>
+    <span>PDF/IMG</span>
+  </button>
+  <button class="bnav-tab" data-mode="edrawing" type="button" aria-pressed="false">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <rect x="3" y="4" width="18" height="16" rx="2"/>
+      <line x1="3" y1="9" x2="21" y2="9"/>
+    </svg>
+    <span>eDraw</span>
   </button>
   <button class="bnav-tab" data-mode="3d" type="button" aria-pressed="false">
     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1481,7 +1560,13 @@ const state = {
   archivosFS: {},            // archivos por carpeta
   carpetaActual: null,
   archivoActual: null,
+  // Último archivo de cada tipo — permite que las pestañas PDF / eDrawings
+  // del bottom-nav (mobile) recuerden su contenido al volver a ellas, en
+  // vez de compartir un único "archivo actual" que se pisa entre tipos.
+  pdfArchivo: null,
+  edrawingArchivo: null,
   blobURL: null,
+  imagenBlobURL: null,
   nuevos: [],
   conocidos: new Set(JSON.parse(localStorage.getItem("dd_conocidos") || "[]")),
   recientes: JSON.parse(localStorage.getItem("dd_recientes") || "[]"),
@@ -1538,6 +1623,15 @@ function formatBytes(b) {
 }
 function isDesktop() { return window.innerWidth >= 768; }
 
+// Un teléfono acostado (landscape) fácilmente supera los 768px de ANCHO
+// (un iPhone estándar mide 812px apaisado) sin dejar de ser un teléfono —
+// isDesktop() solo mira el ancho y lo confundiría con desktop, ocultando
+// el bottom-nav justo cuando el usuario rota la pantalla. Esta función es
+// la que deciden las pestañas PDF/eDrawings/3D del bottom-nav: "esto sigue
+// siendo una pantalla de teléfono" si el ancho es chico O el alto es chico
+// (un desktop real casi nunca tiene una ventana de menos de 500px de alto).
+function esMobileUI() { return window.innerWidth < 768 || window.innerHeight < 500; }
+
 // Escape para interpolar texto no confiable (nombres de archivos/carpetas de
 // Drive o del FS) dentro de innerHTML. Sin esto, un archivo llamado
 // "<img onerror=...>.pdf" en una carpeta compartida ejecuta JS acá.
@@ -1592,6 +1686,12 @@ function setSplit(activo) {
     if (iconH) iconH.style.display="none";
     if (label) label.textContent = "Split";
     panelVisor.style.flex = "";
+    // Limpiar un posible display:none inline dejado por la pestaña PDF/eDrawings
+    // (mostrarSoloVisorPara colapsa el explorador) — sin split, el explorador
+    // SIEMPRE debe quedar visible, nunca heredar ese estado.
+    panelExplorer.style.display = "";
+    divider.style.display = "none";
+    gestorColapsado = false;
     document.querySelectorAll(".btn-toggle-sidebar").forEach(b => b.style.display = "none");
     document.getElementById("btn-expand-sidebar").style.display = "none";
   }
@@ -2392,6 +2492,36 @@ if (typeof pdfjsLib !== "undefined") {
 // Estado PDF
 let pdfDoc  = null;
 let pdfZoom = 1.0;
+// La pestaña "PDF / Images" puede tener cargado un PDF O una imagen (nunca
+// los dos a la vez) — esta bandera dice cuál de los dos hay que mostrar
+// cuando se vuelve a esa pestaña sin reabrir nada.
+let pdfTabTipo = null; // 'pdf' | 'imagen' | null
+
+const visorImagen = document.getElementById("visor-imagen");
+const visorImagenWrap = document.getElementById("visor-imagen-wrap");
+
+// Zoom/pan de imágenes — mismo patrón que el DXF (transform CSS a mano) y
+// misma idea de "recordar por archivo" que pdfMemoria: al volver a abrir la
+// MISMA imagen (aunque en el medio hayas visto otra), vuelve al zoom que
+// tenía la última vez, en vez de resetear a 100%.
+let imagenZoom = 1;
+let imagenPanXY = { x: 0, y: 0 };
+const imagenMemoria = new Map();
+
+function aplicarTransformImagen() {
+  visorImagen.style.transform = `translate(${imagenPanXY.x}px, ${imagenPanXY.y}px) scale(${imagenZoom})`;
+  document.getElementById("imagen-zoom-label").textContent = Math.round(imagenZoom * 100) + "%";
+}
+function guardarEstadoImagen() {
+  if (!state.archivoActual || pdfTabTipo !== "imagen") return;
+  imagenMemoria.set(state.archivoActual.id, { zoom: imagenZoom, x: imagenPanXY.x, y: imagenPanXY.y });
+}
+
+// La pestaña eDrawings puede tener cargado un HTML (visorFrame) o un DXF
+// (visor-dxf) — misma lógica que pdfTabTipo para PDF/Images.
+let edrawingTabTipo = null; // 'html' | 'dxf' | null
+const visorDxfWrap = document.getElementById("visor-dxf-wrap");
+const visorDxf = document.getElementById("visor-dxf");
 
 // Memoria de sesión por archivo: al cerrar y reabrir un PDF vuelve a la
 // misma página/zoom — consultar un detalle e ir y volver no cuesta re-navegar.
@@ -2522,18 +2652,21 @@ function mostrarError(detalle) {
   err.querySelector("p").textContent = detalle || "El archivo puede ser muy pesado o no válido.";
   err.classList.add("show");
 }
-function resetVisor() {
-  // Limpiar iframe
-  visorFrame.classList.remove("show");
-  visorFrame.src = "about:blank";
-  // Limpiar PDF
+// Oculta (sin destruir) el panel del OTRO tipo — PDF y eDrawing/imagen viven
+// en el mismo visor-inner, pero cada uno debe conservar su contenido cargado
+// para que las pestañas PDF / eDrawings del bottom-nav lo recuerden al volver.
+// Destruir/limpiar el contenido del tipo que SÍ se está abriendo lo hace cada
+// rama (cargarPDF ya destruye el pdfDoc anterior; pedirArchivo ya libera el
+// blobURL anterior antes de asignar uno nuevo).
+function ocultarPanelesVisor() {
   document.getElementById("pdf-toolbar").classList.remove("show");
   document.getElementById("pdf-canvas-wrap").classList.remove("show");
-  document.getElementById("pdf-canvas-wrap").innerHTML = "";
-  if (pdfDoc) { pdfDoc.destroy(); pdfDoc = null; }
-  // Limpiar blob
-  if (state.blobURL) { URL.revokeObjectURL(state.blobURL); state.blobURL = null; }
-  document.getElementById("btn-visor-reload").style.display = "none";
+  visorFrame.classList.remove("show");
+  visorImagenWrap.classList.remove("show");
+  document.getElementById("imagen-toolbar").classList.remove("show");
+  visorDxfWrap.classList.remove("show");
+  document.getElementById("visor-empty").style.display = "none";
+  document.getElementById("visor-error").classList.remove("show");
 }
 
 function abrirVisor(archivo) {
@@ -2554,7 +2687,7 @@ function abrirVisor(archivo) {
   document.getElementById("visor-chip-name").textContent = archivo.nombre;
   document.getElementById("visor-chip-folder").textContent = state.carpetaActual.nombre;
 
-  resetVisor();
+  ocultarPanelesVisor();
 
   const tamMB = parseFloat(archivo.tam);
   const sub = (!isNaN(tamMB) && tamMB > 50)
@@ -2567,6 +2700,11 @@ function abrirVisor(archivo) {
   if (!state.splitActivo) { setSplit(true); pushNav("visor"); }
 
   if (archivo.tipo === "pdf") {
+    state.pdfArchivo = { nombre: archivo.nombre, carpetaNombre: state.carpetaActual.nombre };
+    pdfTabTipo = "pdf";
+    // Mobile: cada tipo tiene su propia pestaña en el bottom-nav — cambiar
+    // a "pdf" acá para que abrir un archivo lleve a la pestaña correcta.
+    if (esMobileUI()) aplicarModo("pdf");
     pedirArchivo(".pdf", buf => cargarPDF(buf));
   } else if (archivo.tipo === "glb" || archivo.tipo === "stl") {
     // GLB/STL → abrir en PlantView (tab 3D)
@@ -2604,17 +2742,55 @@ function abrirVisor(archivo) {
     }
     return;
   } else if (archivo.tipo === "imagen") {
+    // Las imágenes viven en la pestaña PDF/Images, no en eDrawings — mismo
+    // slot que un PDF, con su propio elemento <img> (no el iframe).
+    state.pdfArchivo = { nombre: archivo.nombre, carpetaNombre: state.carpetaActual.nombre };
+    pdfTabTipo = "imagen";
+    if (esMobileUI()) aplicarModo("pdf");
     pedirArchivo(".png,.jpg,.jpeg", buf => {
       const blob = new Blob([buf]);
       const url = URL.createObjectURL(blob);
       ocultarCarga();
       document.getElementById("visor-carga").classList.remove("show");
-      visorFrame.src = url;
-      visorFrame.classList.add("show");
+      if (state.imagenBlobURL) URL.revokeObjectURL(state.imagenBlobURL);
+      state.imagenBlobURL = url;
+      visorImagen.src = url;
+      // Volver al zoom/posición que tenía la última vez que se abrió ESTA
+      // imagen — si es la primera vez, arranca en 100% centrada.
+      const memoria = imagenMemoria.get(archivo.id);
+      imagenZoom = memoria?.zoom ?? 1;
+      imagenPanXY = memoria ? { x: memoria.x, y: memoria.y } : { x: 0, y: 0 };
+      aplicarTransformImagen();
+      if (!esMobileUI() || modoActual === "pdf") {
+        visorImagenWrap.classList.add("show");
+        document.getElementById("imagen-toolbar").classList.add("show");
+        document.getElementById("visor-empty").style.display = "none";
+      }
     });
-  } else {
-    // eDrawing HTML
+  } else if (archivo.tipo === "dxf") {
+    // CAD 2D — misma pestaña que eDrawings, con su propio elemento (no el
+    // iframe): así un DXF y un eDrawing HTML pueden convivir, cada uno
+    // recordado en su slot, igual que PDF/imagen.
+    state.edrawingArchivo = { nombre: archivo.nombre, carpetaNombre: state.carpetaActual.nombre };
+    edrawingTabTipo = "dxf";
+    if (esMobileUI()) aplicarModo("edrawing");
+    pedirArchivo(".dxf", buf => cargarDXF(buf));
+  } else if (archivo.tipo === "dwg") {
+    // DWG es un binario propietario de Autodesk — no hay lector gratuito
+    // client-side (a diferencia de DXF, que es un formato abierto). Mensaje
+    // claro en vez de intentar cargarlo como HTML y fallar en silencio.
+    ocultarCarga();
+    mostrarError("Los archivos .dwg todavía no se pueden visualizar acá. Exportalo como .dxf desde tu programa de CAD.");
+  } else if (archivo.tipo === "edrawing") {
+    state.edrawingArchivo = { nombre: archivo.nombre, carpetaNombre: state.carpetaActual.nombre };
+    edrawingTabTipo = "html";
+    if (esMobileUI()) aplicarModo("edrawing");
     pedirArchivo(".html,.htm", null);
+  } else {
+    // xlsx / docx u otro formato aceptado por esArchivoValido() sin visor
+    // propio todavía.
+    ocultarCarga();
+    mostrarError("Este formato (." + archivo.nombre.split(".").pop() + ") todavía no tiene visor en PlantView.");
   }
 
   renderArchivos();
@@ -2732,8 +2908,20 @@ visorFrame.addEventListener("load", () => {
   if (visorFrame.src && visorFrame.src !== "about:blank") {
     ocultarCarga();
     document.getElementById("visor-error").classList.remove("show");
-    visorFrame.classList.add("show");
-    document.getElementById("btn-visor-reload").style.display = "flex";
+    // Mobile: si mientras esto cargaba en background el usuario ya se fue a
+    // otra pestaña (PDF/Files), no lo mostramos por encima de lo que está
+    // viendo ahora — actualizarVisorSegunModo() lo revela solo si vuelve acá.
+    if (edrawingTabTipo === "html" && (!esMobileUI() || modoActual === "edrawing")) {
+      visorFrame.classList.add("show");
+      document.getElementById("btn-visor-reload").style.display = "flex";
+      // Clave: apagar el estado vacío recién ACÁ (cuando el contenido de
+      // verdad terminó de cargar), no antes. Si se apaga especulativamente
+      // al abrir la pestaña (actualizarVisorSegunModo, antes de que este
+      // 'load' dispare), queda mostrándose en paralelo al iframe — como
+      // ambos son flex:1 dentro de visor-inner, se reparten el alto a la
+      // mitad y el visor queda "achicado" en vez de ocupar toda la pantalla.
+      document.getElementById("visor-empty").style.display = "none";
+    }
   }
 });
 visorFrame.addEventListener("error", mostrarError);
@@ -2753,14 +2941,240 @@ async function cargarPDF(buffer) {
     await renderizarPDF();
     if (memoria?.scroll) document.getElementById("pdf-canvas-wrap").scrollTop = memoria.scroll;
     ocultarCarga();
-    document.getElementById("pdf-toolbar").classList.add("show");
-    document.getElementById("pdf-canvas-wrap").classList.add("show");
-    document.getElementById("btn-visor-reload").style.display = "flex";
+    // Mismo criterio que el iframe de eDrawing: no aparecer encima de otra
+    // pestaña si el usuario ya navegó a otro lado mientras esto cargaba.
+    if (!esMobileUI() || modoActual === "pdf") {
+      document.getElementById("pdf-toolbar").classList.add("show");
+      document.getElementById("pdf-canvas-wrap").classList.add("show");
+      document.getElementById("btn-visor-reload").style.display = "flex";
+      // Mismo motivo que en el load del iframe de eDrawing: recién acá,
+      // no antes, para no competir por el alto flex con el visor vacío.
+      document.getElementById("visor-empty").style.display = "none";
+    }
   } catch(e) {
     console.error(e);
     mostrarError(e.message);
   }
 }
+
+/* ============================================================
+   DXF (CAD 2D) — parseo client-side con dxf-parser + render a SVG.
+   Sin librería de pan/zoom: reusa el mismo patrón simple de transform
+   CSS (scale+translate) que el resto del visor.
+   ============================================================ */
+let dxfPan = { x: 0, y: 0, zoom: 1 };
+
+function entidadesABBox(entities) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const punto = (x, y) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+  };
+  entities.forEach(e => {
+    if (e.vertices) e.vertices.forEach(v => punto(v.x, v.y));
+    if (e.center && e.radius != null) {
+      punto(e.center.x - e.radius, e.center.y - e.radius);
+      punto(e.center.x + e.radius, e.center.y + e.radius);
+    }
+    if (e.startPoint) punto(e.startPoint.x, e.startPoint.y);
+    if (e.controlPoints) e.controlPoints.forEach(v => punto(v.x, v.y));
+  });
+  if (!Number.isFinite(minX)) return null;
+  return { minX, minY, maxX, maxY };
+}
+
+// Construye el <path>/elemento SVG de una entidad DXF. Cubre los tipos más
+// comunes en planos de fabricación/estructura — entidades más exóticas
+// (HATCH, DIMENSION, SPLINE con curvas reales) se omiten en silencio en
+// vez de romper el render completo.
+function entidadASVG(e, alturaTotal) {
+  // DXF es Y-arriba, SVG es Y-abajo — invertimos acá en vez de con
+  // transform, así el texto no queda espejado.
+  const y = (v) => alturaTotal - v;
+  switch (e.type) {
+    case "LINE": {
+      if (!e.vertices || e.vertices.length < 2) return "";
+      const [a, b] = e.vertices;
+      return `<line x1="${a.x}" y1="${y(a.y)}" x2="${b.x}" y2="${y(b.y)}" />`;
+    }
+    case "LWPOLYLINE":
+    case "POLYLINE": {
+      if (!e.vertices || !e.vertices.length) return "";
+      const pts = e.vertices.map(v => `${v.x},${y(v.y)}`).join(" ");
+      const tag = e.shape ? "polygon" : "polyline";
+      return `<${tag} points="${pts}" />`;
+    }
+    case "CIRCLE":
+      return `<circle cx="${e.center.x}" cy="${y(e.center.y)}" r="${e.radius}" />`;
+    case "ARC": {
+      // Arco como <path> con comando A — SVG arcos son sentido horario en
+      // pantalla; con Y ya invertida, esto da la orientación correcta.
+      const { center: c, radius: r, startAngle: a0, endAngle: a1 } = e;
+      const p0 = { x: c.x + r * Math.cos(a0), y: c.y + r * Math.sin(a0) };
+      const p1 = { x: c.x + r * Math.cos(a1), y: c.y + r * Math.sin(a1) };
+      let delta = a1 - a0; while (delta < 0) delta += Math.PI * 2;
+      const largeArc = delta > Math.PI ? 1 : 0;
+      return `<path d="M ${p0.x} ${y(p0.y)} A ${r} ${r} 0 ${largeArc} 0 ${p1.x} ${y(p1.y)}" />`;
+    }
+    case "TEXT":
+    case "MTEXT": {
+      if (!e.startPoint || !e.text) return "";
+      const h = e.textHeight || e.height || 2.5;
+      const texto = String(e.text).replace(/\\P/g, " ").replace(/[{}]/g, "")
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      return `<text x="${e.startPoint.x}" y="${y(e.startPoint.y)}" font-size="${h}">${texto}</text>`;
+    }
+    case "POINT":
+      return `<circle cx="${e.position.x}" cy="${y(e.position.y)}" r="0.3" />`;
+    default:
+      return ""; // entidad no soportada — se omite, no rompe el resto
+  }
+}
+
+function aplicarTransformDxf() {
+  visorDxf.style.transform = `translate(${dxfPan.x}px, ${dxfPan.y}px) scale(${dxfPan.zoom})`;
+}
+
+async function cargarDXF(buffer) {
+  try {
+    if (typeof DxfParser === "undefined") {
+      throw new Error("No se pudo cargar el lector de DXF (sin conexión a internet?).");
+    }
+    const texto = new TextDecoder("utf-8").decode(buffer);
+    const dxf = new DxfParser().parseSync(texto);
+    const entities = dxf?.entities || [];
+    const bbox = entidadesABBox(entities);
+    if (!bbox) throw new Error("El DXF no tiene entidades reconocidas para dibujar.");
+
+    const ancho = Math.max(bbox.maxX - bbox.minX, 1);
+    const alto  = Math.max(bbox.maxY - bbox.minY, 1);
+    const margen = Math.max(ancho, alto) * 0.03;
+    const alturaSVG = bbox.maxY + margen; // para invertir Y consistentemente
+    const trazos = entities.map(e => entidadASVG(e, alturaSVG)).join("");
+
+    visorDxf.innerHTML = `<svg viewBox="${bbox.minX - margen} ${(alturaSVG - bbox.maxY) - margen} ${ancho + margen*2} ${alto + margen*2}"
+      width="100%" height="100%" preserveAspectRatio="xMidYMid meet"
+      stroke="#1a1a1a" stroke-width="${Math.max(ancho, alto) * 0.0015}" fill="none"
+      font-family="monospace">${trazos}</svg>`;
+
+    dxfPan = { x: 0, y: 0, zoom: 1 };
+    aplicarTransformDxf();
+
+    ocultarCarga();
+    if (edrawingTabTipo === "dxf" && (!esMobileUI() || modoActual === "edrawing")) {
+      visorDxfWrap.classList.add("show");
+      document.getElementById("btn-visor-reload").style.display = "flex";
+      document.getElementById("visor-empty").style.display = "none";
+    }
+  } catch(e) {
+    console.error("Error al cargar DXF:", e);
+    mostrarError(e.message);
+  }
+}
+
+// Pan (arrastrar) y zoom (rueda / pinch) sobre el DXF — mismo espíritu
+// simple que el resto del visor, sin dependencias nuevas.
+(function() {
+  let arrastrando = false, ultimoX = 0, ultimoY = 0;
+  visorDxfWrap.addEventListener("pointerdown", e => {
+    arrastrando = true; ultimoX = e.clientX; ultimoY = e.clientY;
+    visorDxfWrap.classList.add("arrastrando");
+    visorDxfWrap.setPointerCapture(e.pointerId);
+  });
+  visorDxfWrap.addEventListener("pointermove", e => {
+    if (!arrastrando) return;
+    dxfPan.x += e.clientX - ultimoX;
+    dxfPan.y += e.clientY - ultimoY;
+    ultimoX = e.clientX; ultimoY = e.clientY;
+    aplicarTransformDxf();
+  });
+  ["pointerup", "pointercancel"].forEach(ev => visorDxfWrap.addEventListener(ev, () => {
+    arrastrando = false;
+    visorDxfWrap.classList.remove("arrastrando");
+  }));
+  visorDxfWrap.addEventListener("wheel", e => {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.12 : 1/1.12;
+    dxfPan.zoom = Math.min(Math.max(dxfPan.zoom * factor, 0.1), 20);
+    aplicarTransformDxf();
+  }, { passive: false });
+
+  // Pinch-to-zoom (mobile) — mismo patrón que el pinch del PDF
+  let distInicial = 0, zoomInicial = 1;
+  visorDxfWrap.addEventListener("touchstart", e => {
+    if (e.touches.length !== 2) return;
+    const [t1, t2] = e.touches;
+    distInicial = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+    zoomInicial = dxfPan.zoom;
+  }, { passive: true });
+  visorDxfWrap.addEventListener("touchmove", e => {
+    if (e.touches.length !== 2) return;
+    e.preventDefault();
+    const [t1, t2] = e.touches;
+    const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+    dxfPan.zoom = Math.min(Math.max(zoomInicial * (dist / distInicial), 0.1), 20);
+    aplicarTransformDxf();
+  }, { passive: false });
+})();
+
+// Pan (arrastrar) y zoom (rueda / pinch) sobre la imagen — mismo patrón
+// que el DXF, con memoria por archivo vía guardarEstadoImagen().
+(function() {
+  let arrastrando = false, ultimoX = 0, ultimoY = 0;
+  visorImagenWrap.addEventListener("pointerdown", e => {
+    arrastrando = true; ultimoX = e.clientX; ultimoY = e.clientY;
+    visorImagenWrap.classList.add("arrastrando");
+    visorImagenWrap.setPointerCapture(e.pointerId);
+  });
+  visorImagenWrap.addEventListener("pointermove", e => {
+    if (!arrastrando) return;
+    imagenPanXY.x += e.clientX - ultimoX;
+    imagenPanXY.y += e.clientY - ultimoY;
+    ultimoX = e.clientX; ultimoY = e.clientY;
+    aplicarTransformImagen();
+  });
+  ["pointerup", "pointercancel"].forEach(ev => visorImagenWrap.addEventListener(ev, () => {
+    if (arrastrando) guardarEstadoImagen();
+    arrastrando = false;
+    visorImagenWrap.classList.remove("arrastrando");
+  }));
+  visorImagenWrap.addEventListener("wheel", e => {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.15 : 1/1.15;
+    imagenZoom = Math.min(Math.max(imagenZoom * factor, 0.2), 15);
+    aplicarTransformImagen();
+    guardarEstadoImagen();
+  }, { passive: false });
+
+  let distInicialImg = 0, zoomInicialImg = 1;
+  visorImagenWrap.addEventListener("touchstart", e => {
+    if (e.touches.length !== 2) return;
+    const [t1, t2] = e.touches;
+    distInicialImg = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+    zoomInicialImg = imagenZoom;
+  }, { passive: true });
+  visorImagenWrap.addEventListener("touchmove", e => {
+    if (e.touches.length !== 2) return;
+    e.preventDefault();
+    const [t1, t2] = e.touches;
+    const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+    imagenZoom = Math.min(Math.max(zoomInicialImg * (dist / distInicialImg), 0.2), 15);
+    aplicarTransformImagen();
+  }, { passive: false });
+  visorImagenWrap.addEventListener("touchend", () => guardarEstadoImagen());
+
+  document.getElementById("imagen-zoom-in").addEventListener("click", () => {
+    imagenZoom = Math.min(imagenZoom * 1.25, 15);
+    aplicarTransformImagen();
+    guardarEstadoImagen();
+  });
+  document.getElementById("imagen-zoom-out").addEventListener("click", () => {
+    imagenZoom = Math.max(imagenZoom / 1.25, 0.2);
+    aplicarTransformImagen();
+    guardarEstadoImagen();
+  });
+})();
 
 // Calcula zoom inicial para que la página entre en el panel
 function calcZoomFit() {
@@ -2900,22 +3314,13 @@ document.getElementById("btn-visor-reload").addEventListener("click", () => {
   if (state.archivoActual) abrirVisor(state.archivoActual);
 });
 
-// Reintentar manual
+// Reintentar manual — reabrir el mismo archivo reusa toda la lógica de
+// abrirVisor (tipo correcto, pestaña correcta, elemento correcto), en vez
+// de duplicarla acá con su propio switch por tipo (que había quedado
+// desactualizado: mandaba las imágenes al iframe de eDrawings en vez del
+// <img> propio de la pestaña PDF/Images).
 document.getElementById("btn-retry").addEventListener("click", () => {
-  if (!state.archivoActual) return;
-  resetVisor();
-  mostrarCarga();
-  const accept = (() => {
-    const t = state.archivoActual?.tipo;
-    if (t === "pdf") return ".pdf";
-    if (t === "glb") return ".glb";
-    if (t === "stl") return ".stl";
-    if (t === "dxf") return ".dxf";
-    if (t === "imagen") return ".png,.jpg,.jpeg";
-    return ".html,.htm";
-  })();
-  const onBuf  = state.archivoActual.tipo === "pdf" ? buf => cargarPDF(buf) : null;
-  pedirArchivo(accept, onBuf);
+  if (state.archivoActual) abrirVisor(state.archivoActual);
 });
 
 /* ============================================================
@@ -3636,6 +4041,58 @@ function enviarAlVisor3D(mensaje, transfer) {
   if (pvReady) flushColaVisor3D();
 }
 
+/* ============================================================
+   PESTAÑAS PDF / eDRAWINGS (mobile) — cada una muestra su propio
+   contenido recordado, sin destruir el del otro tipo.
+   ============================================================ */
+function mostrarSoloVisorPara(modo) {
+  setSplit(true);
+  gestorColapsado = true;
+  panelExplorer.style.display = "none";
+  divider.style.display = "none";
+  panelVisor.style.flex = "1 1 auto";
+  // El botón de expandir el drawer no aplica acá — "Files" ya es su propia
+  // pestaña, no hace falta un atajo para volver al explorador desde acá.
+  document.getElementById("btn-expand-sidebar").style.display = "none";
+  actualizarVisorSegunModo(modo);
+}
+
+function actualizarVisorSegunModo(modo) {
+  const esPDF = modo === "pdf";
+  // Cada pestaña puede tener cargados DOS tipos distintos que comparten
+  // slot (PDF/Images: pdf o imagen — eDrawings: html o dxf). *TabTipo dice
+  // cuál de los dos corresponde mostrar (nunca ambos a la vez).
+  const hayPDFdoc = !!pdfDoc;
+  const hayImagen = !!(visorImagen.src && visorImagen.src !== "about:blank" && visorImagen.src !== location.href);
+  const hayEdr = !!(visorFrame.src && visorFrame.src !== "about:blank");
+  const hayDxf = visorDxf.children.length > 0;
+  const hayContenido = esPDF
+    ? (pdfTabTipo === "imagen" ? hayImagen : hayPDFdoc)
+    : (edrawingTabTipo === "dxf" ? hayDxf : hayEdr);
+
+  document.getElementById("pdf-toolbar").classList.toggle("show", esPDF && pdfTabTipo === "pdf" && hayPDFdoc);
+  document.getElementById("pdf-canvas-wrap").classList.toggle("show", esPDF && pdfTabTipo === "pdf" && hayPDFdoc);
+  visorImagenWrap.classList.toggle("show", esPDF && pdfTabTipo === "imagen" && hayImagen);
+  document.getElementById("imagen-toolbar").classList.toggle("show", esPDF && pdfTabTipo === "imagen" && hayImagen);
+  visorFrame.classList.toggle("show", !esPDF && edrawingTabTipo === "html" && hayEdr);
+  visorDxfWrap.classList.toggle("show", !esPDF && edrawingTabTipo === "dxf" && hayDxf);
+  document.getElementById("visor-carga").classList.remove("show");
+  document.getElementById("visor-error").classList.remove("show");
+
+  const empty = document.getElementById("visor-empty");
+  empty.style.display = hayContenido ? "none" : "flex";
+  if (!hayContenido) {
+    empty.querySelector("p").innerHTML = esPDF
+      ? "<strong>Sin PDF ni imagen abierto</strong>Abrí un PDF o una imagen desde Files para verlo acá."
+      : "<strong>Sin eDrawing ni DXF abierto</strong>Abrí un eDrawing o un DXF desde Files para verlo acá.";
+  }
+
+  const archivoTab = esPDF ? state.pdfArchivo : state.edrawingArchivo;
+  document.getElementById("visor-chip-name").textContent = archivoTab ? archivoTab.nombre : "—";
+  document.getElementById("visor-chip-folder").textContent = archivoTab ? archivoTab.carpetaNombre : "—";
+  document.getElementById("btn-visor-reload").style.display = hayContenido ? "flex" : "none";
+}
+
 function aplicarModo(modo, save = true) {
   modoActual = modo;
   if (save) localStorage.setItem("pv_modo", modo);
@@ -3654,8 +4111,15 @@ function aplicarModo(modo, save = true) {
   const backBtn = document.getElementById("pv-back-btn");
 
   if (modo === "planos") {
-    // DriveDoc fullscreen — nada más
     if (backBtn) backBtn.classList.add("hidden");
+    // Mobile: "Files" es su propia pestaña — el visor (con lo que sea que
+    // tenga cargado PDF/eDrawings) se oculta, no se destruye. En desktop no
+    // hay pestañas por tipo, así que no tocamos el split (lo maneja el propio
+    // usuario con el divisor, como siempre).
+    if (esMobileUI()) setSplit(false);
+  } else if (modo === "pdf" || modo === "edrawing") {
+    if (backBtn) backBtn.classList.add("hidden");
+    mostrarSoloVisorPara(modo);
   } else if (modo === "3d") {
     // Entrada de historial: atrás desde 3D vuelve a Planos, no saca de la app
     if (save) pushNav("3d");
@@ -3813,6 +4277,17 @@ canvas{display:block;width:100%;height:100%}
 .fab svg{width:20px;height:20px;flex-shrink:0;position:relative;z-index:1}
 .fab span{font-size:9px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;position:relative;z-index:1}
 .fab-sep{width:1px;height:30px;background:var(--border);flex-shrink:0}
+
+/* 6 botones ya no entran en un ancho de mobile angosto (320-390px) con el
+   tamaño de escritorio — versión compacta solo-ícono debajo de 480px, y
+   scroll horizontal como red de seguridad si algún equipo es aún más chico. */
+@media (max-width: 480px) {
+  .fab-dock{max-width:calc(100vw - 16px); overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none; gap:2px; padding:6px}
+  .fab-dock::-webkit-scrollbar{display:none}
+  .fab{width:44px; height:44px; flex-shrink:0}
+  .fab span{display:none}
+  .fab-sep{height:22px}
+}
 .hover-label{position:fixed;bottom:calc(104px + var(--safe-bottom));left:50%;transform:translateX(-50%);background:rgba(58,107,232,.12);border:1px solid rgba(58,107,232,.25);backdrop-filter:blur(8px);border-radius:20px;padding:6px 14px;font-size:11px;color:var(--acc);white-space:nowrap;pointer-events:none;z-index:190;opacity:0;transition:opacity .2s;max-width:220px;overflow:hidden;text-overflow:ellipsis}
 .hover-label.show{opacity:1}
 .mode-pill{position:fixed;top:calc(var(--safe-top) + 14px);left:50%;transform:translateX(-50%);background:rgba(232,234,239,.9);border:1px solid var(--border);backdrop-filter:blur(12px);border-radius:20px;padding:5px 14px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);z-index:200;pointer-events:none;white-space:nowrap}
@@ -4163,17 +4638,17 @@ window.onerror=function(msg,src,line){
 
 <!-- FAB Dock -->
 <div class="fab-dock">
-  <button class="fab on" id="bOrbit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></svg><span>Órbita</span></button>
+  <button class="fab on" id="bOrbit" title="Órbita"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></svg><span>Órbita</span></button>
   <div class="fab-sep"></div>
-  <button class="fab" id="bPan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg><span>Mover</span></button>
+  <button class="fab" id="bPan" title="Mover"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg><span>Mover</span></button>
   <div class="fab-sep"></div>
-  <button class="fab" id="bSelect"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 3 7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg><span>Info</span></button>
+  <button class="fab" id="bSelect" title="Info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 3 7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg><span>Info</span></button>
   <div class="fab-sep"></div>
-  <button class="fab" id="bMeasure"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 6H3M21 12H3M21 18H3"/><line x1="9" y1="3" x2="9" y2="21"/></svg><span>Medir</span></button>
+  <button class="fab" id="bMeasure" title="Medir"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 6H3M21 12H3M21 18H3"/><line x1="9" y1="3" x2="9" y2="21"/></svg><span>Medir</span></button>
   <div class="fab-sep"></div>
-  <button class="fab" id="bExplode"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h6M4 4v6M4 4l6 6"/><path d="M20 4h-6M20 4v6M20 4l-6 6"/><path d="M4 20h6M4 20v-6M4 20l6-6"/><path d="M20 20h-6M20 20v-6M20 20l-6-6"/></svg><span>Explosión</span></button>
+  <button class="fab" id="bExplode" title="Explosión"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h6M4 4v6M4 4l6 6"/><path d="M20 4h-6M20 4v6M20 4l-6 6"/><path d="M4 20h6M4 20v-6M4 20l6-6"/><path d="M20 20h-6M20 20v-6M20 20l-6-6"/></svg><span>Explosión</span></button>
   <div class="fab-sep"></div>
-  <button class="fab" id="bClear"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span>Limpiar</span></button>
+  <button class="fab" id="bClear" title="Limpiar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg><span>Limpiar</span></button>
 </div>
 
 <!-- Barra de explosión — slider estilo eDrawings, separa subensamblajes desde el centro -->
