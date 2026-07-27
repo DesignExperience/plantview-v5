@@ -1540,7 +1540,7 @@ const CONFIG = {
 let driveTokenClient = null;
 let driveAccessToken = null;
 let driveTokenExpira = 0;
-let notasGuardarPendiente = null; // request de guardado de notas 3D en espera de login OAuth
+let subidasDrivePendientes = []; // cola de subidas (notas 3D, adjuntos) en espera de login OAuth
 
 /* ============================================================
    DEMO DATA
@@ -3756,10 +3756,10 @@ function initDriveOAuth() {
       driveTokenExpira = Date.now() + (resp.expires_in * 1000) - 30000;
       actualizarUIEscrituraDrive();
       showToast("Escritura en Drive conectada ✓");
-      if (notasGuardarPendiente) {
-        const pend = notasGuardarPendiente;
-        notasGuardarPendiente = null;
-        ejecutarGuardadoNotas(pend);
+      if (subidasDrivePendientes.length) {
+        const cola = subidasDrivePendientes.slice();
+        subidasDrivePendientes = [];
+        cola.forEach(ejecutarSubidaDrive);
       }
     },
   });
@@ -4232,24 +4232,25 @@ function enviarAlVisor3D(mensaje, transfer) {
   if (pvReady) flushColaVisor3D();
 }
 
-// Notas 3D: el iframe no tiene el token OAuth, así que le pide a la app
-// externa (la única que lo tiene) que suba el JSON de notas a Drive.
-async function ejecutarGuardadoNotas(payload) {
-  const { nombre, contenido, carpetaId, reqId } = payload;
+// Notas 3D y sus adjuntos: el iframe no tiene el token OAuth, así que le
+// pide a la app externa (la única que lo tiene) que suba el archivo a Drive.
+// "archivo" viaja como Blob/File — postMessage los clona sin problema aunque
+// el iframe esté en un origen blob: distinto al de esta página.
+async function ejecutarSubidaDrive(payload) {
+  const { nombre, archivo, carpetaId, reqId } = payload;
   try {
-    const blob = new Blob([contenido], { type: "application/json" });
-    await subirArchivoADrive(nombre, blob, carpetaId);
-    enviarAlVisor3D({ tipo: "guardarNotasDriveOK", reqId });
+    const fileId = await subirArchivoADrive(nombre, archivo, carpetaId);
+    enviarAlVisor3D({ tipo: "subidaDriveOK", reqId, fileId });
   } catch (err) {
-    enviarAlVisor3D({ tipo: "guardarNotasDriveError", reqId, error: err.message || String(err) });
+    enviarAlVisor3D({ tipo: "subidaDriveError", reqId, error: err.message || String(err) });
   }
 }
 window.addEventListener("message", (e) => {
-  if (!e.data || e.data.tipo !== "guardarNotasDrive") return;
+  if (!e.data || e.data.tipo !== "subidaDrive") return;
   if (driveEscrituraConectada()) {
-    ejecutarGuardadoNotas(e.data);
+    ejecutarSubidaDrive(e.data);
   } else {
-    notasGuardarPendiente = e.data;
+    subidasDrivePendientes.push(e.data);
     conectarEscrituraDrive();
   }
 });
@@ -4632,6 +4633,13 @@ canvas{display:block;width:100%;height:100%}
 #notaTexto3D{width:100%;resize:vertical;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--text);font-size:13px;padding:8px;line-height:1.5;font-family:inherit}
 #notaMeta3D{font-size:9.5px;color:var(--muted)}
 #notaSinLogin3D{font-size:11px;color:var(--danger);line-height:1.5;display:none}
+#notaAdjuntarBtn3D{display:flex;align-items:center;justify-content:center;gap:7px;height:36px;border-radius:9px;border:1px dashed var(--border);background:none;color:var(--muted);font-family:inherit;font-size:12px;cursor:pointer}
+#notaAdjuntarBtn3D:active{border-color:var(--acc);color:var(--acc)}
+#notaAdjuntoPreview3D{display:flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:9px;padding:6px}
+#notaAdjuntoPreview3D img{width:44px;height:44px;object-fit:cover;border-radius:6px;flex-shrink:0;cursor:pointer}
+#notaAdjuntoPreview3D .adj-pdf{width:44px;height:44px;border-radius:6px;background:rgba(58,107,232,.1);color:#3A6BE8;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0}
+#notaAdjuntoPreview3D .adj-nombre{flex:1;font-size:11px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+#notaAdjuntoQuitar3D{width:24px;height:24px;border:none;background:none;color:var(--muted);font-size:16px;cursor:pointer;flex-shrink:0}
 .nota-actions3D{display:flex;gap:8px}
 .nota-actions3D button{flex:1;height:38px;border-radius:9px;border:none;font-weight:700;font-size:12px;cursor:pointer}
 #notaGuardar3D{background:#3A6BE8;color:#fff}
@@ -4921,6 +4929,14 @@ window.onerror=function(msg,src,line){
   </div>
   <div id="notaPieza3D">—</div>
   <textarea id="notaTexto3D" rows="3" placeholder="Escribí la nota… (ej: cambiar por DN80)"></textarea>
+
+  <input type="file" id="notaAdjuntoInput3D" accept="image/*,application/pdf" style="display:none">
+  <div id="notaAdjuntoPreview3D" style="display:none"></div>
+  <button id="notaAdjuntarBtn3D" type="button">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a5 5 0 0 1-7.07-7.07l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+    <span id="notaAdjuntarTxt3D">Adjuntar foto o PDF</span>
+  </button>
+
   <div id="notaMeta3D"></div>
   <div id="notaSinLogin3D">Necesitás conectar edición (Drive) para guardar notas — son compartidas con todo el equipo.</div>
   <div class="nota-actions3D">
@@ -6421,32 +6437,100 @@ async function cargarNotasDrive(){
   }
 }
 
-function guardarNotasDrive(){
+// Sube un archivo (Blob/File) a la carpeta de Drive del modelo, delegando
+// en la app externa (tiene el token OAuth que este iframe no tiene).
+function subirArchivoADriveDesdeVisor(nombre, archivo, carpetaId){
   return new Promise((resolve,reject)=>{
-    const carpetaId=carpetaDriveIdActual;
-    const archivo=nombreArchivoNotas();
-    if(!archivo || !carpetaId){ reject(new Error('No hay carpeta de Drive asociada a este modelo')); return; }
+    if(!carpetaId){ reject(new Error('No hay carpeta de Drive asociada a este modelo')); return; }
     const reqId=++notasReqSeq;
     notasReqPendientes[reqId]={resolve,reject};
-    window.parent.postMessage({
-      tipo:'guardarNotasDrive',
-      reqId,
-      nombre:archivo,
-      carpetaId,
-      contenido: JSON.stringify(notas3d),
-    }, '*');
+    window.parent.postMessage({ tipo:'subidaDrive', reqId, nombre, carpetaId, archivo }, '*');
   });
+}
+
+function guardarNotasDrive(){
+  const archivo=nombreArchivoNotas();
+  if(!archivo) return Promise.reject(new Error('No hay carpeta de Drive asociada a este modelo'));
+  const blob=new Blob([JSON.stringify(notas3d)],{type:'application/json'});
+  return subirArchivoADriveDesdeVisor(archivo, blob, carpetaDriveIdActual);
 }
 
 window.addEventListener('message',(e)=>{
   if(!e.data) return;
-  if(e.data.tipo==='guardarNotasDriveOK' && notasReqPendientes[e.data.reqId]){
-    notasReqPendientes[e.data.reqId].resolve();
+  if(e.data.tipo==='subidaDriveOK' && notasReqPendientes[e.data.reqId]){
+    notasReqPendientes[e.data.reqId].resolve(e.data.fileId);
     delete notasReqPendientes[e.data.reqId];
-  }else if(e.data.tipo==='guardarNotasDriveError' && notasReqPendientes[e.data.reqId]){
+  }else if(e.data.tipo==='subidaDriveError' && notasReqPendientes[e.data.reqId]){
     notasReqPendientes[e.data.reqId].reject(new Error(e.data.error||'Error al guardar en Drive'));
     delete notasReqPendientes[e.data.reqId];
   }
+});
+
+// URL pública (vía proxy propio) para ver/descargar un adjunto guardado en Drive
+function urlAdjuntoDrive(fileId){
+  if(!appBaseUrlActual || !driveApiKeyActual) return null;
+  const origen=new URL(appBaseUrlActual).origin;
+  return `${origen}/api/drive-proxy?fileId=${fileId}&key=${encodeURIComponent(driveApiKeyActual)}`;
+}
+
+const ADJUNTO_MAX_BYTES = 15*1024*1024; // 15MB, para no trabar subidas desde celular
+let notaAdjuntoNuevo=null;   // File recién elegido, pendiente de subir al guardar
+let notaAdjuntoQuitar=false; // true = al guardar, borrar el adjunto existente de la nota
+
+function renderAdjuntoPreview(){
+  const cont=document.getElementById('notaAdjuntoPreview3D');
+  const n=notaAbiertaId ? notas3d.find(x=>x.id===notaAbiertaId) : null;
+  const adjuntoExistente = (n && n.adjunto && !notaAdjuntoQuitar) ? n.adjunto : null;
+
+  if(!notaAdjuntoNuevo && !adjuntoExistente){ cont.style.display='none'; cont.innerHTML=''; return; }
+
+  cont.style.display='flex';
+  const esImagen = notaAdjuntoNuevo ? notaAdjuntoNuevo.type.startsWith('image/') : (adjuntoExistente.mime||'').startsWith('image/');
+  const nombre = notaAdjuntoNuevo ? notaAdjuntoNuevo.name : adjuntoExistente.nombre;
+  const previewUrl = notaAdjuntoNuevo ? URL.createObjectURL(notaAdjuntoNuevo) : (esImagen ? urlAdjuntoDrive(adjuntoExistente.fileId) : null);
+
+  cont.innerHTML='';
+  if(esImagen && previewUrl){
+    const img=document.createElement('img');
+    img.src=previewUrl;
+    img.alt='Adjunto';
+    if(!notaAdjuntoNuevo) img.addEventListener('click',()=>window.open(previewUrl,'_blank'));
+    cont.appendChild(img);
+  }else{
+    const box=document.createElement('div');
+    box.className='adj-pdf';
+    box.textContent='PDF';
+    cont.appendChild(box);
+  }
+  const lbl=document.createElement('div');
+  lbl.className='adj-nombre';
+  lbl.textContent=nombre||'Adjunto';
+  cont.appendChild(lbl);
+
+  const btnX=document.createElement('button');
+  btnX.id='notaAdjuntoQuitar3D';
+  btnX.type='button';
+  btnX.textContent='×';
+  btnX.title='Quitar adjunto';
+  btnX.addEventListener('click',()=>{
+    notaAdjuntoNuevo=null;
+    notaAdjuntoQuitar=true;
+    document.getElementById('notaAdjuntoInput3D').value='';
+    renderAdjuntoPreview();
+  });
+  cont.appendChild(btnX);
+}
+
+document.getElementById('notaAdjuntarBtn3D').addEventListener('click',()=>{
+  document.getElementById('notaAdjuntoInput3D').click();
+});
+document.getElementById('notaAdjuntoInput3D').addEventListener('change',(e)=>{
+  const file=e.target.files[0];
+  if(!file) return;
+  if(file.size>ADJUNTO_MAX_BYTES){ toast('El archivo es muy grande (máx 15MB)'); e.target.value=''; return; }
+  notaAdjuntoNuevo=file;
+  notaAdjuntoQuitar=false;
+  renderAdjuntoPreview();
 });
 
 function abrirNota3D(notaId){
@@ -6454,11 +6538,15 @@ function abrirNota3D(notaId){
   if(!n) return;
   notaAbiertaId=notaId;
   notaHitPendiente=null;
+  notaAdjuntoNuevo=null;
+  notaAdjuntoQuitar=false;
+  document.getElementById('notaAdjuntoInput3D').value='';
   document.getElementById('notaTitulo3D').textContent='Nota';
   document.getElementById('notaPieza3D').textContent=n.objName||'—';
   document.getElementById('notaTexto3D').value=n.texto||'';
   document.getElementById('notaMeta3D').textContent=n.autor?`${n.autor} · ${n.fecha||''}`:'';
   document.getElementById('notaBorrar3D').style.display='block';
+  renderAdjuntoPreview();
   actualizarPanelNotaSegunLogin();
   document.getElementById('panelNota').classList.add('show');
 }
@@ -6466,12 +6554,16 @@ function abrirNota3D(notaId){
 function abrirFormNota3D(hit){
   notaAbiertaId=null;
   notaHitPendiente=hit;
+  notaAdjuntoNuevo=null;
+  notaAdjuntoQuitar=false;
+  document.getElementById('notaAdjuntoInput3D').value='';
   const zone=ZONES.find(z=>z.id===hit.object.userData.zoneId);
   document.getElementById('notaTitulo3D').textContent='Nueva nota';
   document.getElementById('notaPieza3D').textContent=hit.object.userData.objName||(zone?zone.name:'Pieza');
   document.getElementById('notaTexto3D').value='';
   document.getElementById('notaMeta3D').textContent='';
   document.getElementById('notaBorrar3D').style.display='none';
+  renderAdjuntoPreview();
   actualizarPanelNotaSegunLogin();
   document.getElementById('panelNota').classList.add('show');
 }
@@ -6487,6 +6579,8 @@ function cerrarPanelNota3D(){
   document.getElementById('panelNota').classList.remove('show');
   notaAbiertaId=null;
   notaHitPendiente=null;
+  notaAdjuntoNuevo=null;
+  notaAdjuntoQuitar=false;
 }
 
 document.getElementById('btnNotas3D').addEventListener('click',()=>{
@@ -6503,21 +6597,33 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
   const btn=document.getElementById('notaGuardar3D');
   btn.disabled=true;
   try{
+    let n=null;
     if(notaAbiertaId){
-      const n=notas3d.find(x=>x.id===notaAbiertaId);
+      n=notas3d.find(x=>x.id===notaAbiertaId);
       if(n) n.texto=texto;
     }else if(notaHitPendiente){
       const hit=notaHitPendiente;
       const zone=ZONES.find(z=>z.id===hit.object.userData.zoneId);
-      notas3d.push({
+      n={
         id:'n'+Date.now()+Math.random().toString(36).slice(2,7),
         zoneId:hit.object.userData.zoneId||null,
         objName:hit.object.userData.objName||(zone?zone.name:null),
         point:{x:hit.point.x,y:hit.point.y,z:hit.point.z},
         texto,
         fecha:new Date().toISOString().slice(0,10),
-      });
+      };
+      notas3d.push(n);
     }
+
+    if(n && notaAdjuntoNuevo){
+      const ext=(notaAdjuntoNuevo.name.match(/\.[a-zA-Z0-9]+$/)||[''])[0];
+      const nombreAdj=`plantview-adjunto-${n.id}${ext}`;
+      const fileId=await subirArchivoADriveDesdeVisor(nombreAdj, notaAdjuntoNuevo, carpetaDriveIdActual);
+      n.adjunto={fileId, nombre:notaAdjuntoNuevo.name, mime:notaAdjuntoNuevo.type};
+    }else if(n && notaAdjuntoQuitar){
+      delete n.adjunto;
+    }
+
     renderPinesNotas();
     await guardarNotasDrive();
     toast('Nota guardada ✓');
