@@ -25,6 +25,9 @@
      terceros. DWG (binario propietario de Autodesk) no tiene equivalente
      gratuito: queda fuera de alcance, ver mostrarError en la rama "dwg". -->
 <script src="https://cdn.jsdelivr.net/npm/dxf-parser/dist/dxf-parser.js"></script>
+<!-- Google Identity Services — sign-in OAuth para ESCRITURA en Drive.
+     Flujo 100% client-side (token client), sin backend ni Client Secret. -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
 :root {
   /* Tema oscuro (default) */
@@ -287,6 +290,7 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
    que nunca se oculta), alterna colapsado/expandido directamente.
    ============================================================ */
 .btn-toggle-sidebar.activo { color: var(--accent); border-color: var(--accent); }
+#btn-drive-escritura.activo { color: var(--accent); border-color: var(--accent); background: rgba(58,107,232,.08); }
 
 /* ============================================================
    VISOR INTERNO
@@ -1017,6 +1021,20 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
         </svg>
         <span>Google Drive</span>
       </button>
+      <button id="btn-drive-escritura" type="button" title="Conectar edición — permite subir/guardar en Drive, no solo leer" style="
+        height:32px; padding:0 10px; flex:none;
+        display:flex; align-items:center; gap:6px;
+        border:1px solid var(--line); border-radius:var(--radius);
+        background:var(--surface-2); color:var(--muted);
+        font-family:'Chakra Petch',sans-serif; font-weight:600;
+        font-size:10px; letter-spacing:.04em; text-transform:uppercase;
+        cursor:pointer;
+      ">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+        </svg>
+        <span>Conectar edición (Drive)</span>
+      </button>
       <button id="btn-desvincular-carpeta" type="button" title="Desvincular carpeta y volver al estado inicial" style="
         height:32px; padding:0 10px; flex:none; display:none;
         align-items:center; gap:6px;
@@ -1506,10 +1524,23 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 const CONFIG = {
   DRIVE_API_KEY: "",
   DRIVE_ROOT_FOLDER_ID: "",
+  // Client ID de OAuth (Google Cloud → Credenciales → ID de cliente de OAuth,
+  // tipo "Aplicación web"). Habilita ESCRITURA en Drive (subir/actualizar
+  // archivos) — la API Key de arriba solo sirve para lectura. Vacío = la app
+  // sigue funcionando en modo solo-lectura, como hasta ahora.
+  DRIVE_OAUTH_CLIENT_ID: "244883210833-v8qaeu3l2g4a0adofaq2vicda67nbbsc.apps.googleusercontent.com",
   APP_URL: window.location.origin,
   POLLING_MS: 60000,
   USE_DRIVE: false,
 };
+
+// Estado de la sesión OAuth de Drive (escritura) — declarado bien arriba,
+// lejos del código que lo usa, para que nunca más un reorder accidental
+// dispare un "Cannot access before initialization" (ya nos pasó una vez).
+let driveTokenClient = null;
+let driveAccessToken = null;
+let driveTokenExpira = 0;
+let notasGuardarPendiente = null; // request de guardado de notas 3D en espera de login OAuth
 
 /* ============================================================
    DEMO DATA
@@ -1567,6 +1598,9 @@ const state = {
   edrawingArchivo: null,
   blobURL: null,
   imagenBlobURL: null,
+  // Vista de cámara 3D pendiente de aplicar — viene de un link "?file=...&cx=..."
+  // (ver DEEP LINK más abajo) o de compartir la vista actual desde el visor.
+  vistaGuardadaPendiente: null,
   nuevos: [],
   conocidos: new Set(JSON.parse(localStorage.getItem("dd_conocidos") || "[]")),
   recientes: JSON.parse(localStorage.getItem("dd_recientes") || "[]"),
@@ -2712,13 +2746,32 @@ function abrirVisor(archivo) {
     aplicarModo && aplicarModo("3d");
     showToast("📦 " + archivo.nombre + " — abrí en el visor 3D");
 
+    // Vista de cámara guardada en el link (?cx=...&cy=...) — se consume una
+    // sola vez, solo si corresponde a ESTE archivo, y se manda al iframe para
+    // que la aplique apenas termine de cargar el modelo. fileId/appBaseUrl
+    // viajan siempre (los necesita el botón "Guardar vista" del visor 3D
+    // para armar el link — el iframe corre en un blob:, no conoce la URL real).
+    const vista = (state.vistaGuardadaPendiente?.fileId === archivo.id) ? state.vistaGuardadaPendiente : null;
+    state.vistaGuardadaPendiente = null;
+    const datosComunes = {
+      fileId: archivo.id,
+      appBaseUrl: location.origin + location.pathname,
+      camPos: vista?.camPos, camTarget: vista?.camTarget, explode: vista?.explode,
+      // Para notas 3D compartidas: leer (con la API Key, sin login) y guardar
+      // (con el login de escritura) un JSON de notas junto al GLB en Drive.
+      // Sin estos dos ids (archivo local, no-Drive) la feature queda deshabilitada.
+      driveApiKey: driveConfig.apiKey || CONFIG.DRIVE_API_KEY || null,
+      archivoDriveId: archivo.driveId || null,
+      carpetaDriveId: state.carpetaActual?.driveId || null,
+    };
+
     if (archivo.handle) {
       // Carpeta local: leer el archivo directamente y mandar el buffer al iframe
       // (transferable — evita depender de una URL servida por el servidor).
       archivo.handle.getFile()
         .then(file => file.arrayBuffer())
         .then(buffer => {
-          enviarAlVisor3D({ tipo: "abrirGLB", buffer, nombre: archivo.nombre }, [buffer]);
+          enviarAlVisor3D({ tipo: "abrirGLB", buffer, nombre: archivo.nombre, ...datosComunes }, [buffer]);
         })
         .catch(e => {
           console.error("Error leyendo archivo 3D local:", e);
@@ -2728,7 +2781,7 @@ function abrirVisor(archivo) {
       // Google Drive: descargar bytes vía API y mandarlos igual que un archivo local
       descargarBufferDrive(archivo.driveId)
         .then(buffer => {
-          enviarAlVisor3D({ tipo: "abrirGLB", buffer, nombre: archivo.nombre }, [buffer]);
+          enviarAlVisor3D({ tipo: "abrirGLB", buffer, nombre: archivo.nombre, ...datosComunes }, [buffer]);
         })
         .catch(e => {
           console.error("Error descargando 3D desde Drive:", e);
@@ -2738,7 +2791,7 @@ function abrirVisor(archivo) {
       const [carpetaId, nombre] = archivo.id.split("||");
       // URL absoluta: el iframe del visor 3D corre en un blob:, donde las rutas relativas no resuelven
       const urlArchivo = `${location.origin}/${carpetaId}/${encodeURIComponent(nombre)}`;
-      enviarAlVisor3D({ tipo: "abrirGLB", url: urlArchivo, nombre: archivo.nombre });
+      enviarAlVisor3D({ tipo: "abrirGLB", url: urlArchivo, nombre: archivo.nombre, ...datosComunes });
     }
     return;
   } else if (archivo.tipo === "imagen") {
@@ -3356,9 +3409,27 @@ document.getElementById("btn-qr-dl").addEventListener("click", () => {
    DEEP LINK
    ============================================================ */
 (function() {
-  const fid = new URLSearchParams(window.location.search).get("file");
+  const params = new URLSearchParams(window.location.search);
+  const fid = params.get("file");
   if (!fid) return;
   const cid = fid.split("||")[0];
+
+  // Vista de cámara 3D guardada en el link (?cx=&cy=&cz=&tx=&ty=&tz=) — si
+  // los 6 números están presentes y son válidos, se aplican una sola vez
+  // al abrir ESTE archivo (chequeo de fileId en abrirVisor). Un link sin
+  // estos parámetros simplemente abre el archivo con la cámara por defecto.
+  const nums = ["cx","cy","cz","tx","ty","tz"].map(k => parseFloat(params.get(k)));
+  if (nums.every(n => Number.isFinite(n))) {
+    // "ex" (nivel de explosión 0-100) es opcional — un link viejo sin ese
+    // parámetro simplemente no toca el slider de explosión.
+    const exRaw = parseFloat(params.get("ex"));
+    state.vistaGuardadaPendiente = {
+      fileId: fid,
+      camPos: [nums[0], nums[1], nums[2]],
+      camTarget: [nums[3], nums[4], nums[5]],
+      explode: Number.isFinite(exRaw) ? Math.min(Math.max(exRaw, 0), 100) : 0,
+    };
+  }
 
   // La carpeta puede tardar en aparecer (conexión a Drive es asíncrona en modo equipo),
   // así que reintentamos por un rato en vez de asumir que ya está disponible.
@@ -3503,6 +3574,19 @@ document.getElementById("btn-drive-conectar").addEventListener("click", () => {
 });
 document.getElementById("btn-drive-cerrar").addEventListener("click", () =>
   document.getElementById("modal-drive").classList.remove("visible"));
+
+document.getElementById("btn-drive-escritura").addEventListener("click", () => {
+  if (driveEscrituraConectada()) desconectarEscrituraDrive();
+  else conectarEscrituraDrive();
+});
+// Reflejar el estado inicial (botón oculto si no hay Client ID configurado
+// todavía — no tiene sentido mostrar una acción que va a fallar seguro).
+if (!driveEscrituraDisponible()) {
+  document.getElementById("btn-drive-escritura").style.display = "none";
+} else {
+  initDriveOAuth();
+  actualizarUIEscrituraDrive();
+}
 document.getElementById("modal-drive").addEventListener("click", e => {
   if (e.target === document.getElementById("modal-drive"))
     document.getElementById("modal-drive").classList.remove("visible");
@@ -3640,8 +3724,115 @@ document.getElementById("btn-drop-solo-ver").addEventListener("click", () => {
   abrirVisor(archivo);
 });
 
-// "Subir a Drive" queda deshabilitado hasta conectar el login de Google (OAuth) —
-// una API Key sola no puede escribir en Drive. Ver conversación sobre autorización incremental.
+/* ============================================================
+   GOOGLE DRIVE — OAuth (escritura)
+   La API Key de arriba es de SOLO LECTURA — Drive no permite escribir con
+   una API Key sola. Esto agrega un flujo de login 100% client-side (Google
+   Identity Services, "token client"): el usuario autoriza una vez, se pide
+   solo el scope drive.file (la app solo puede tocar los archivos que ELLA
+   misma crea, no toda la Drive del usuario), y con ese token ya se puede
+   subir/actualizar archivos. Sin backend, sin Client Secret.
+   ============================================================ */
+function driveEscrituraDisponible() {
+  return !!CONFIG.DRIVE_OAUTH_CLIENT_ID;
+}
+function driveEscrituraConectada() {
+  return !!driveAccessToken && Date.now() < driveTokenExpira;
+}
+
+function initDriveOAuth() {
+  if (!driveEscrituraDisponible() || typeof google === "undefined" || !google.accounts?.oauth2) return;
+  driveTokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: CONFIG.DRIVE_OAUTH_CLIENT_ID,
+    scope: "https://www.googleapis.com/auth/drive.file",
+    callback: (resp) => {
+      if (resp.error) {
+        console.error("Error de OAuth Drive:", resp);
+        showToast("No se pudo conectar la escritura a Drive: " + resp.error);
+        return;
+      }
+      driveAccessToken = resp.access_token;
+      // margen de 30s para no operar con un token a punto de vencer
+      driveTokenExpira = Date.now() + (resp.expires_in * 1000) - 30000;
+      actualizarUIEscrituraDrive();
+      showToast("Escritura en Drive conectada ✓");
+      if (notasGuardarPendiente) {
+        const pend = notasGuardarPendiente;
+        notasGuardarPendiente = null;
+        ejecutarGuardadoNotas(pend);
+      }
+    },
+  });
+}
+
+function conectarEscrituraDrive() {
+  if (!driveEscrituraDisponible()) {
+    showToast("Falta configurar el Client ID de OAuth en CONFIG.DRIVE_OAUTH_CLIENT_ID");
+    return;
+  }
+  if (!driveTokenClient) initDriveOAuth();
+  if (!driveTokenClient) {
+    showToast("Google todavía no cargó — probá de nuevo en un segundo");
+    return;
+  }
+  // Ya autorizado antes en esta sesión: pedir token sin mostrar el consentimiento de nuevo.
+  driveTokenClient.requestAccessToken({ prompt: driveAccessToken ? "" : "consent" });
+}
+
+function desconectarEscrituraDrive() {
+  if (driveAccessToken && typeof google !== "undefined" && google.accounts?.oauth2) {
+    google.accounts.oauth2.revoke(driveAccessToken, () => {});
+  }
+  driveAccessToken = null;
+  driveTokenExpira = 0;
+  actualizarUIEscrituraDrive();
+  showToast("Escritura en Drive desconectada");
+}
+
+function actualizarUIEscrituraDrive() {
+  const btn = document.getElementById("btn-drive-escritura");
+  if (!btn) return;
+  const conectado = driveEscrituraConectada();
+  btn.classList.toggle("activo", conectado);
+  const label = btn.querySelector("span");
+  if (label) label.textContent = conectado ? "Edición: conectada ✓" : "Conectar edición (Drive)";
+}
+
+// Sube un Blob a Drive — si ya existe un archivo con ese nombre en la
+// carpeta, lo ACTUALIZA (misma versión) en vez de duplicarlo. Requiere
+// driveEscrituraConectada() en true. Devuelve el fileId final.
+async function subirArchivoADrive(nombre, blob, carpetaIdPadre) {
+  if (!driveEscrituraConectada()) throw new Error("La escritura a Drive no está conectada");
+
+  const nombreEscapado = nombre.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  const q = encodeURIComponent(`name='${nombreEscapado}' and '${carpetaIdPadre}' in parents and trashed=false`);
+  const listResp = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)`, {
+    headers: { Authorization: `Bearer ${driveAccessToken}` },
+  });
+  if (!listResp.ok) throw new Error(`No se pudo consultar Drive (HTTP ${listResp.status})`);
+  const listData = await listResp.json();
+  const existente = listData.files?.[0];
+
+  const metadata = existente ? {} : { name: nombre, parents: [carpetaIdPadre] };
+  const form = new FormData();
+  form.append("metadata", new Blob([JSON.stringify(metadata)], { type: "application/json" }));
+  form.append("file", blob);
+
+  const url = existente
+    ? `https://www.googleapis.com/upload/drive/v3/files/${existente.id}?uploadType=multipart`
+    : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
+
+  const resp = await fetch(url, {
+    method: existente ? "PATCH" : "POST",
+    headers: { Authorization: `Bearer ${driveAccessToken}` },
+    body: form,
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.error?.message || `HTTP ${resp.status} al subir a Drive`);
+  }
+  return (await resp.json()).id;
+}
 
 /* ============================================================
    GOOGLE DRIVE — conectar carpeta pública vía API Key
@@ -4041,6 +4232,28 @@ function enviarAlVisor3D(mensaje, transfer) {
   if (pvReady) flushColaVisor3D();
 }
 
+// Notas 3D: el iframe no tiene el token OAuth, así que le pide a la app
+// externa (la única que lo tiene) que suba el JSON de notas a Drive.
+async function ejecutarGuardadoNotas(payload) {
+  const { nombre, contenido, carpetaId, reqId } = payload;
+  try {
+    const blob = new Blob([contenido], { type: "application/json" });
+    await subirArchivoADrive(nombre, blob, carpetaId);
+    enviarAlVisor3D({ tipo: "guardarNotasDriveOK", reqId });
+  } catch (err) {
+    enviarAlVisor3D({ tipo: "guardarNotasDriveError", reqId, error: err.message || String(err) });
+  }
+}
+window.addEventListener("message", (e) => {
+  if (!e.data || e.data.tipo !== "guardarNotasDrive") return;
+  if (driveEscrituraConectada()) {
+    ejecutarGuardadoNotas(e.data);
+  } else {
+    notasGuardarPendiente = e.data;
+    conectarEscrituraDrive();
+  }
+});
+
 /* ============================================================
    PESTAÑAS PDF / eDRAWINGS (mobile) — cada una muestra su propio
    contenido recordado, sin destruir el del otro tipo.
@@ -4208,6 +4421,8 @@ aplicarModo(modoActual, false);
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>PlantView</title>
+<!-- QR para "Guardar vista" — mismo CDN que ya usa el documento principal -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>/**
  * @license
  * Copyright 2010-2021 Three.js Authors
@@ -4399,6 +4614,42 @@ canvas{display:block;width:100%;height:100%}
 .orbit-empty{width:36px;height:36px}
 .zoom-sep{height:1px;background:var(--border);margin:0 8px}
 .compass{position:fixed;top:calc(var(--safe-top) + 68px);right:16px;width:36px;height:36px;border-radius:10px;background:rgba(232,234,239,.88);border:1px solid var(--border);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:190;cursor:pointer}
+
+/* Guardar vista — botón flotante debajo de la brújula (reset view) */
+#btnGuardarVista{position:fixed;top:calc(var(--safe-top) + 112px);right:16px;width:36px;height:36px;border-radius:10px;background:rgba(232,234,239,.88);border:1px solid var(--border);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:190;cursor:pointer;color:var(--text)}
+#btnGuardarVista:active{color:var(--acc)}
+
+/* Notas 3D — botón flotante debajo de "Guardar vista" */
+#btnNotas3D{position:fixed;top:calc(var(--safe-top) + 156px);right:16px;width:36px;height:36px;border-radius:10px;background:rgba(232,234,239,.88);border:1px solid var(--border);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:190;cursor:pointer;color:var(--text)}
+#btnNotas3D.on{color:#fff;background:var(--acc);border-color:var(--acc)}
+
+#panelNota{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);display:none;flex-direction:column;gap:10px;width:min(320px,calc(100vw - 32px));background:rgba(240,242,246,.98);border:1px solid var(--border);border-radius:14px;padding:14px;z-index:410;box-shadow:0 12px 40px rgba(0,0,0,.3)}
+#panelNota.show{display:flex}
+.nota-head{display:flex;align-items:center;justify-content:space-between}
+#notaTitulo3D{font-weight:700;font-size:13px}
+#notaCerrar3D{width:28px;height:28px;border:none;background:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1}
+#notaPieza3D{font-family:monospace;font-size:10px;color:#3A6BE8;background:rgba(58,107,232,.08);border:1px solid rgba(58,107,232,.25);border-radius:6px;padding:4px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#notaTexto3D{width:100%;resize:vertical;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--text);font-size:13px;padding:8px;line-height:1.5;font-family:inherit}
+#notaMeta3D{font-size:9.5px;color:var(--muted)}
+#notaSinLogin3D{font-size:11px;color:var(--danger);line-height:1.5;display:none}
+.nota-actions3D{display:flex;gap:8px}
+.nota-actions3D button{flex:1;height:38px;border-radius:9px;border:none;font-weight:700;font-size:12px;cursor:pointer}
+#notaGuardar3D{background:#3A6BE8;color:#fff}
+#notaGuardar3D:disabled{opacity:.5;cursor:default}
+#notaBorrar3D{background:none;border:1px solid #e03050 !important;color:#e03050}
+
+/* Modal "Vista guardada" — captura + QR + link, mismo espíritu que el QR de archivos del doc principal */
+#modalVista{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:400;display:none;align-items:center;justify-content:center;padding:20px}
+#modalVista.show{display:flex}
+.vista-sheet{background:var(--surf);border:1px solid var(--border);border-radius:16px;padding:20px;max-width:340px;width:100%;display:flex;flex-direction:column;align-items:center;gap:12px;max-height:90vh;overflow-y:auto}
+.vista-sheet h3{font-size:14px;font-weight:700;align-self:flex-start}
+#vistaThumb{width:100%;border-radius:10px;border:1px solid var(--border);background:#000}
+#vistaQR{background:#fff;padding:10px;border-radius:8px}
+.vista-sheet .vista-actions{display:flex;gap:8px;width:100%}
+.vista-sheet .vista-actions button{flex:1;height:40px;border-radius:10px;font-family:inherit;font-weight:600;font-size:12px;cursor:pointer;border:none}
+#btnVistaDescargar{background:var(--acc);color:#fff}
+#btnVistaCopiar{background:var(--surf2);color:var(--text);border:1px solid var(--border) !important}
+#btnVistaCerrar{background:none;color:var(--muted);border:1px solid var(--border) !important;width:100%;height:36px;border-radius:10px;font-family:inherit;font-size:12px;cursor:pointer}
 .compass svg{width:20px;height:20px}
 .tap-guide{position:fixed;bottom:calc(104px + var(--safe-bottom));left:16px;background:rgba(232,234,239,.88);border:1px solid var(--border);backdrop-filter:blur(8px);border-radius:12px;padding:8px 12px;font-size:10px;color:var(--muted);z-index:190;pointer-events:none;line-height:1.6}
 .tap-guide strong{color:var(--text);display:block;margin-bottom:2px;font-size:11px}
@@ -4631,6 +4882,51 @@ window.onerror=function(msg,src,line){
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
     <circle cx="12" cy="12" r="10"/><polygon points="12,4 10,12 12,11 14,12" fill="#5B8BFF" stroke="none"/><polygon points="12,20 14,12 12,13 10,12" fill="#555e75" stroke="none"/>
   </svg>
+</div>
+
+<!-- Guardar vista: cámara + captura + link + QR, para que otro usuario que
+     abra el link/escanee el QR entre directo a esta misma vista del GLB -->
+<button id="btnGuardarVista" type="button" title="Guardar vista" aria-label="Guardar vista">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+    <circle cx="12" cy="13" r="4"/>
+  </svg>
+</button>
+
+<div id="modalVista">
+  <div class="vista-sheet">
+    <h3>Vista guardada</h3>
+    <img id="vistaThumb" alt="Captura de la vista">
+    <div id="vistaQR"></div>
+    <div class="vista-actions">
+      <button id="btnVistaCopiar" type="button">Copiar link</button>
+      <button id="btnVistaDescargar" type="button">Descargar PNG</button>
+    </div>
+    <button id="btnVistaCerrar" type="button">Cerrar</button>
+  </div>
+</div>
+
+<!-- Notas 3D — compartidas vía Drive: cualquiera las ve, solo alguien
+     logueado (Conectar edición) puede agregar/editar/borrar -->
+<button id="btnNotas3D" type="button" title="Notas" aria-label="Notas">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
+  </svg>
+</button>
+
+<div id="panelNota">
+  <div class="nota-head">
+    <span id="notaTitulo3D">Nueva nota</span>
+    <button id="notaCerrar3D" type="button" aria-label="Cerrar">×</button>
+  </div>
+  <div id="notaPieza3D">—</div>
+  <textarea id="notaTexto3D" rows="3" placeholder="Escribí la nota… (ej: cambiar por DN80)"></textarea>
+  <div id="notaMeta3D"></div>
+  <div id="notaSinLogin3D">Necesitás conectar edición (Drive) para guardar notas — son compartidas con todo el equipo.</div>
+  <div class="nota-actions3D">
+    <button id="notaGuardar3D" type="button">Guardar</button>
+    <button id="notaBorrar3D" type="button" style="display:none">Borrar</button>
+  </div>
 </div>
 
 <div class="hover-label" id="hoverLabel">—</div>
@@ -5176,6 +5472,32 @@ async function buildSceneFromGLB(glbData, selectedIndices){
     computeExplodeData(rootGrp);
     applyScaleAndCamera(rootGrp);
 
+    // Vista guardada en el link (?cx=...) — pisa la cámara "encuadre automático"
+    // que acaba de setear applyScaleAndCamera, con la posición exacta que
+    // guardó quien compartió el link.
+    if (vistaGuardadaPendienteIframe) {
+      camera.position.set(...vistaGuardadaPendienteIframe.camPos);
+      target.set(...vistaGuardadaPendienteIframe.camTarget);
+      camera.lookAt(target);
+
+      // Nivel de explosión guardado — computeExplodeData(rootGrp) ya corrió
+      // arriba, así que zoneGroups ya tiene basePos/explodeDir listos.
+      const exPct = vistaGuardadaPendienteIframe.explode || 0;
+      if (exPct > 0) {
+        setExplode(exPct / 100);
+        const slider = document.getElementById('explodeSlider');
+        if (slider) slider.value = exPct;
+        const label = document.getElementById('explodeLabel');
+        if (label) label.textContent = exPct + '%';
+        document.getElementById('explodeBar')?.classList.add('show');
+        document.getElementById('bExplode')?.classList.add('on');
+      }
+
+      vistaGuardadaPendienteIframe = null;
+    }
+
+    cargarNotasDrive();
+
     if(loadBar) loadBar.style.width='100%';
     await new Promise(r=>setTimeout(r,300));
     loadOverlay.classList.add('hidden');
@@ -5331,8 +5653,15 @@ function applyScaleAndCamera(rootGrp){
   const s=box2.getSize(new THREE.Vector3());
   const maxS=Math.max(s.x,s.y,s.z);
 
-  RMIN=maxS*0.002;
-  RMAX=maxS*100;
+  // Límites de distancia MUCHO más permisivos que antes (0.002x/100x) —
+  // el problema real que reportaste no era tanto el rango de distancia,
+  // sino que camera.near/far quedaban FIJOS (0.01/2000) sin importar cuánto
+  // acercabas o alejabas. Sketchfab/GrabCAD/eDrawings recalculan near/far
+  // en cada frame según la distancia actual a la cámara — eso es lo que
+  // agrega actualizarNearFar() más abajo, llamado en cada frame. Estos
+  // límites ahora son más una red de seguridad que el límite real.
+  RMIN=maxS*0.0003;
+  RMAX=maxS*1000;
 
   target.set(c.x, c.y, c.z);
   const dist=maxS*1.8;
@@ -5450,22 +5779,27 @@ function updateCamera(){
 // Órbita alrededor del target actual (se actualiza con pan)
 function orbitCamera(dTheta, dPhi){
   const offset=new THREE.Vector3().subVectors(camera.position, target);
-  
-  // Rotar alrededor del eje Y global (horizontal)
+
+  // Rotar alrededor del eje Y global (horizontal) — sin límite, da toda la vuelta
   const qY=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), dTheta);
   offset.applyQuaternion(qY);
-  
-  // Rotar alrededor del eje derecho de la cámara (vertical)
+
+  // Rotar alrededor del eje derecho de la cámara (vertical). Antes, si el
+  // movimiento completo cruzaba el polo (mirar derecho hacia arriba/abajo),
+  // se RECHAZABA entero — la cámara se sentía "trabada" de golpe apenas te
+  // acercabas al techo o al piso. Ahora en vez de rechazar, se reduce el
+  // ángulo a la mitad hasta encontrar cuánto sí se puede rotar sin flipear:
+  // se frena suave justo en el límite, en vez de no responder más.
   const right=new THREE.Vector3().crossVectors(camera.getWorldDirection(new THREE.Vector3()), camera.up).normalize();
-  const qX=new THREE.Quaternion().setFromAxisAngle(right, dPhi);
-  const newOffset=offset.clone().applyQuaternion(qX);
-  
-  // Evitar flip (no pasar el polo)
-  const newUp=new THREE.Vector3(0,1,0).applyQuaternion(qX);
-  if(newUp.y > 0){
-    offset.copy(newOffset);
+  let phi=dPhi;
+  for(let i=0;i<8;i++){
+    const qX=new THREE.Quaternion().setFromAxisAngle(right, phi);
+    const newUp=new THREE.Vector3(0,1,0).applyQuaternion(qX);
+    if(newUp.y > 0.015){ offset.applyQuaternion(qX); break; }
+    phi*=0.5;
+    if(i===7) break; // rotación remanente despreciable — no rotar más
   }
-  
+
   camera.position.copy(target).add(offset);
   camera.lookAt(target);
 }
@@ -5473,7 +5807,7 @@ function orbitCamera(dTheta, dPhi){
 // Pan mueve TANTO la cámara como el target — cámara libre, no sujeta
 function panCamera(dx, dy){
   const distance=camera.position.distanceTo(target);
-  const spd=distance*0.0015;
+  const spd=distance*0.0022;
   const right=new THREE.Vector3().crossVectors(
     camera.getWorldDirection(new THREE.Vector3()), camera.up
   ).normalize();
@@ -5501,7 +5835,22 @@ function applyZoom(){
   zoomTarget*=0.8;
   if(Math.abs(zoomTarget)<0.0001) zoomTarget=0;
 }
-function updateZoom(){ applyZoom(); }
+
+// Near/far DINÁMICOS según la distancia actual a la cámara — el estándar
+// que usan Sketchfab/GrabCAD/eDrawings para poder acercar hasta un tornillo
+// Y alejar hasta ver el ensamblaje completo, sin un plano fijo que recorte
+// la geometría. Antes camera.near/far quedaban fijos en 0.01/2000 desde la
+// creación de la cámara — eso era el límite real, no RMIN/RMAX.
+function actualizarNearFar(){
+  const dist = camera.position.distanceTo(target);
+  const near = Math.max(dist / 1000, 0.0001);
+  const far  = Math.max(dist * 1000, RMAX * 2, 10);
+  camera.near = near;
+  camera.far = far;
+  camera.updateProjectionMatrix();
+}
+
+function updateZoom(){ applyZoom(); actualizarNearFar(); }
 
 const cvwrap=document.getElementById('canvas-wrap');
 
@@ -5522,7 +5871,7 @@ window.addEventListener('mousemove',e=>{
   if(navMode==='pan'){
     panCamera(dx, dy);
   } else {
-    orbitCamera(-dx*0.004, -dy*0.004);
+    orbitCamera(-dx*0.0055, -dy*0.0055);
   }
   ox=e.clientX; oy=e.clientY;
 });
@@ -5570,7 +5919,7 @@ cvwrap.addEventListener('touchmove',e=>{
     if(navMode==='pan'){
       panCamera(dx,dy);
     } else {
-      orbitCamera(-dx*0.004, -dy*0.004);
+      orbitCamera(-dx*0.0055, -dy*0.0055);
     }
     ox=e.touches[0].clientX; oy=e.touches[0].clientY;
   }
@@ -5616,7 +5965,7 @@ cvwrap.addEventListener('touchmove',e=>{
     if(navMode==='pan'){
       panCamera(dx,dy);
     } else {
-      orbitCamera(-dx*0.004, -dy*0.004);
+      orbitCamera(-dx*0.0055, -dy*0.0055);
     }
     ox=e.touches[0].clientX; oy=e.touches[0].clientY;
   }
@@ -5658,8 +6007,8 @@ cvwrap.addEventListener('touchend',e=>{
   isDragging=false; pinchDist=null;
 },{passive:false});
 
-document.getElementById('bZoomIn').addEventListener('click',()=>{ zoomTarget+=0.07; });
-document.getElementById('bZoomOut').addEventListener('click',()=>{ zoomTarget-=0.07; });
+document.getElementById('bZoomIn').addEventListener('click',()=>{ zoomTarget+=0.1; });
+document.getElementById('bZoomOut').addEventListener('click',()=>{ zoomTarget-=0.1; });
 
 // Orbit joystick — hold to repeat
 const ORBIT_STEP = Math.PI/96;
@@ -5702,6 +6051,103 @@ document.getElementById('btnReset').addEventListener('click',()=>{
   toast('Vista reseteada');
 });
 
+/* ============================================================
+   GUARDAR VISTA — cámara actual + captura + link + QR, para que
+   otro usuario que abra el link (o escanee el QR) entre directo
+   a esta misma vista del modelo. No requiere login ni backend:
+   la cámara viaja codificada en la URL.
+   ============================================================ */
+let vistaLinkActual = null;
+
+function construirLinkVistaActual() {
+  if (!archivoActualFileId || !appBaseUrlActual) return null;
+  const p = camera.position, t = target;
+  const params = new URLSearchParams({
+    file: archivoActualFileId,
+    cx: p.x.toFixed(2), cy: p.y.toFixed(2), cz: p.z.toFixed(2),
+    tx: t.x.toFixed(2), ty: t.y.toFixed(2), tz: t.z.toFixed(2),
+  });
+  // Nivel de explosión actual (0-100) — solo si el slider está abierto/activo,
+  // para no ensuciar el link con "ex=0" en el caso normal (armado).
+  const explodeSliderEl = document.getElementById('explodeSlider');
+  const exPct = explodeSliderEl ? Number(explodeSliderEl.value) : 0;
+  if (exPct > 0) params.set('ex', String(exPct));
+  return `${appBaseUrlActual}?${params.toString()}`;
+}
+
+document.getElementById('btnGuardarVista').addEventListener('click', () => {
+  vistaLinkActual = construirLinkVistaActual();
+  if (!vistaLinkActual) {
+    toast('Todavía no se pudo identificar este archivo — probá recargarlo desde Files');
+    return;
+  }
+
+  // Captura real de la vista actual — hay que renderizar justo antes de leer
+  // el canvas: sin preserveDrawingBuffer, el navegador puede limpiar el buffer
+  // apenas termina el frame, así que se hace todo en el mismo tick síncrono.
+  renderer.render(scene, camera);
+  document.getElementById('vistaThumb').src = renderer.domElement.toDataURL('image/png');
+
+  const qrEl = document.getElementById('vistaQR');
+  qrEl.innerHTML = '';
+  new QRCode(qrEl, { text: vistaLinkActual, width: 160, height: 160, correctLevel: QRCode.CorrectLevel.M });
+
+  document.getElementById('modalVista').classList.add('show');
+});
+
+document.getElementById('btnVistaCerrar').addEventListener('click', () => {
+  document.getElementById('modalVista').classList.remove('show');
+});
+document.getElementById('modalVista').addEventListener('click', e => {
+  if (e.target.id === 'modalVista') document.getElementById('modalVista').classList.remove('show');
+});
+
+document.getElementById('btnVistaCopiar').addEventListener('click', () => {
+  if (!vistaLinkActual) return;
+  navigator.clipboard.writeText(vistaLinkActual)
+    .then(() => toast('Link copiado ✓'))
+    .catch(() => toast('No se pudo copiar — copialo manualmente de la barra de direcciones'));
+});
+
+// Compone captura + QR + link en un solo PNG descargable — mismo espíritu
+// que el QR de archivos del doc principal, pero con la imagen de la vista
+// de fondo en vez de solo el código.
+document.getElementById('btnVistaDescargar').addEventListener('click', () => {
+  if (!vistaLinkActual) return;
+  const thumb = document.getElementById('vistaThumb');
+  const qrCanvas = document.querySelector('#vistaQR canvas');
+  if (!thumb.src || !qrCanvas) { toast('Todavía no hay captura para descargar'); return; }
+
+  const img = new Image();
+  img.onload = () => {
+    const PAD = 24, QR_SIZE = 140, FOOTER = QR_SIZE + PAD * 3;
+    const w = Math.max(img.width, 480);
+    const scale = w / img.width;
+    const h = img.height * scale;
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h + FOOTER;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#0d0f14'; ctx.fillRect(0, 0, c.width, c.height);
+    ctx.drawImage(img, 0, 0, w, h);
+    ctx.drawImage(qrCanvas, PAD, h + PAD, QR_SIZE, QR_SIZE);
+    ctx.fillStyle = '#e8eaef';
+    ctx.font = '600 15px sans-serif';
+    ctx.fillText('Vista guardada — PlantView', PAD + QR_SIZE + PAD, h + PAD + 26);
+    ctx.font = '12px monospace';
+    ctx.fillStyle = '#9aa0ac';
+    const linkCorto = vistaLinkActual.length > 54 ? vistaLinkActual.slice(0, 54) + '…' : vistaLinkActual;
+    ctx.fillText(linkCorto, PAD + QR_SIZE + PAD, h + PAD + 48);
+    ctx.fillText('Escaneá el QR para entrar directo a esta vista', PAD + QR_SIZE + PAD, h + PAD + 68);
+
+    const a = document.createElement('a');
+    a.download = 'vista-' + (archivoActualFileId || 'plantview').split('||').pop().replace(/\.[^.]+$/, '') + '.png';
+    a.href = c.toDataURL('image/png');
+    a.click();
+    toast('PNG descargado ✓');
+  };
+  img.src = thumb.src;
+});
+
 // ── RAYCASTER ────────────────────────────────────────────────────────
 const raycaster=new THREE.Raycaster();
 const canvas=document.getElementById('cv');
@@ -5742,15 +6188,16 @@ function setMode(m){
     clearMeasureSVG();
   }
   mode=m;
-  ['bOrbit','bPan','bSelect','bMeasure'].forEach(id=>document.getElementById(id).classList.remove('on'));
-  const map={orbit:'bOrbit',pan:'bPan',select:'bSelect',measure:'bMeasure'};
+  ['bOrbit','bPan','bSelect','bMeasure','btnNotas3D'].forEach(id=>document.getElementById(id).classList.remove('on'));
+  const map={orbit:'bOrbit',pan:'bPan',select:'bSelect',measure:'bMeasure',notas:'btnNotas3D'};
   if(map[m]) document.getElementById(map[m]).classList.add('on');
-  const labels={orbit:'Órbita libre',pan:'Modo mover',select:'Selección',measure:'Medición'};
+  const labels={orbit:'Órbita libre',pan:'Modo mover',select:'Selección',measure:'Medición',notas:'Notas'};
   document.getElementById('modePill').textContent=labels[m]||'';
   document.getElementById('canvas-wrap').style.cursor=navMode==='pan'?'grab':'default';
   if(m==='select'){tapGuide.innerHTML='<strong>Modo selección</strong>Tap en un subensamblaje → ficha técnica';tapGuide.style.display='block';}
   else if(m==='measure'){tapGuide.innerHTML='<strong>Modo medición</strong>Tap → seleccionar cara · Arrastrar → orbitar · Pinch → zoom';tapGuide.style.display='block';}
   else if(m==='pan'){tapGuide.innerHTML='<strong>Modo mover</strong>Arrastrá para desplazar · doble tap para volver a órbita';tapGuide.style.display='block';}
+  else if(m==='notas'){tapGuide.innerHTML='<strong>Modo notas</strong>Tap en una pieza → agregar nota · tap en un pin → verla';tapGuide.style.display='block';}
   else{tapGuide.style.display='none';}
 }
 // navMode controla gestos de cámara independientemente del modo activo
@@ -5908,14 +6355,215 @@ function setFaceHighlight(slot, mesh, faceIndex){
   faceHighlights[slot]={hlMesh, normal};
 }
 
+// ── NOTAS 3D (compartidas por Drive, un pin por nota) ─────────────────
+let notas3d=[];                 // [{id,zoneId,objName,point:{x,y,z},texto,autor,fecha}]
+const notasGroup=new THREE.Group();
+scene.add(notasGroup);
+let notaAbiertaId=null;         // id de la nota que está en el panel (null = nota nueva)
+let notaHitPendiente=null;      // hit de raycast para la nota nueva sin guardar aún
+let notasReqSeq=0;
+const notasReqPendientes={};    // reqId -> {resolve,reject}
+
+function nombreArchivoNotas(){
+  return archivoDriveIdActual ? `plantview-notas-${archivoDriveIdActual}.json` : null;
+}
+
+function crearPinSprite(){
+  const cv=document.createElement('canvas');
+  cv.width=64;cv.height=64;
+  const ctx=cv.getContext('2d');
+  ctx.beginPath();ctx.arc(32,30,24,0,Math.PI*2);
+  ctx.fillStyle='#3A6BE8';ctx.fill();
+  ctx.lineWidth=4;ctx.strokeStyle='#fff';ctx.stroke();
+  ctx.beginPath();ctx.moveTo(24,50);ctx.lineTo(32,62);ctx.lineTo(40,50);ctx.closePath();
+  ctx.fillStyle='#3A6BE8';ctx.fill();
+  ctx.fillStyle='#fff';ctx.font='bold 30px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillText('!',32,30);
+  const tex=new THREE.CanvasTexture(cv);
+  const mat=new THREE.SpriteMaterial({map:tex,depthTest:false,sizeAttenuation:true});
+  const spr=new THREE.Sprite(mat);
+  const s=Math.max(RMAX*0.00006,0.05);
+  spr.scale.set(s,s,1);
+  spr.renderOrder=999;
+  return spr;
+}
+
+function renderPinesNotas(){
+  notasGroup.clear();
+  for(const n of notas3d){
+    const spr=crearPinSprite();
+    spr.position.set(n.point.x,n.point.y,n.point.z);
+    spr.userData.notaId=n.id;
+    notasGroup.add(spr);
+  }
+}
+
+async function cargarNotasDrive(){
+  notas3d=[];
+  renderPinesNotas();
+  const archivo=nombreArchivoNotas();
+  if(!archivo || !driveApiKeyActual || !carpetaDriveIdActual || !appBaseUrlActual) return;
+  try{
+    const q=encodeURIComponent(`name='${archivo}' and '${carpetaDriveIdActual}' in parents and trashed=false`);
+    const metaUrl=`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&key=${driveApiKeyActual}`;
+    const meta=await (await fetch(metaUrl)).json();
+    const found=meta.files && meta.files[0];
+    if(!found) return;
+    const origen=new URL(appBaseUrlActual).origin;
+    const proxyUrl=`${origen}/api/drive-proxy?fileId=${found.id}&key=${encodeURIComponent(driveApiKeyActual)}`;
+    const res=await fetch(proxyUrl);
+    if(!res.ok) return;
+    const data=await res.json();
+    if(Array.isArray(data)) notas3d=data;
+    renderPinesNotas();
+  }catch(err){
+    console.warn('No se pudieron cargar las notas:',err);
+  }
+}
+
+function guardarNotasDrive(){
+  return new Promise((resolve,reject)=>{
+    const carpetaId=carpetaDriveIdActual;
+    const archivo=nombreArchivoNotas();
+    if(!archivo || !carpetaId){ reject(new Error('No hay carpeta de Drive asociada a este modelo')); return; }
+    const reqId=++notasReqSeq;
+    notasReqPendientes[reqId]={resolve,reject};
+    window.parent.postMessage({
+      tipo:'guardarNotasDrive',
+      reqId,
+      nombre:archivo,
+      carpetaId,
+      contenido: JSON.stringify(notas3d),
+    }, '*');
+  });
+}
+
+window.addEventListener('message',(e)=>{
+  if(!e.data) return;
+  if(e.data.tipo==='guardarNotasDriveOK' && notasReqPendientes[e.data.reqId]){
+    notasReqPendientes[e.data.reqId].resolve();
+    delete notasReqPendientes[e.data.reqId];
+  }else if(e.data.tipo==='guardarNotasDriveError' && notasReqPendientes[e.data.reqId]){
+    notasReqPendientes[e.data.reqId].reject(new Error(e.data.error||'Error al guardar en Drive'));
+    delete notasReqPendientes[e.data.reqId];
+  }
+});
+
+function abrirNota3D(notaId){
+  const n=notas3d.find(x=>x.id===notaId);
+  if(!n) return;
+  notaAbiertaId=notaId;
+  notaHitPendiente=null;
+  document.getElementById('notaTitulo3D').textContent='Nota';
+  document.getElementById('notaPieza3D').textContent=n.objName||'—';
+  document.getElementById('notaTexto3D').value=n.texto||'';
+  document.getElementById('notaMeta3D').textContent=n.autor?`${n.autor} · ${n.fecha||''}`:'';
+  document.getElementById('notaBorrar3D').style.display='block';
+  actualizarPanelNotaSegunLogin();
+  document.getElementById('panelNota').classList.add('show');
+}
+
+function abrirFormNota3D(hit){
+  notaAbiertaId=null;
+  notaHitPendiente=hit;
+  const zone=ZONES.find(z=>z.id===hit.object.userData.zoneId);
+  document.getElementById('notaTitulo3D').textContent='Nueva nota';
+  document.getElementById('notaPieza3D').textContent=hit.object.userData.objName||(zone?zone.name:'Pieza');
+  document.getElementById('notaTexto3D').value='';
+  document.getElementById('notaMeta3D').textContent='';
+  document.getElementById('notaBorrar3D').style.display='none';
+  actualizarPanelNotaSegunLogin();
+  document.getElementById('panelNota').classList.add('show');
+}
+
+function actualizarPanelNotaSegunLogin(){
+  // La escritura requiere login OAuth (lo maneja la app externa); acá solo
+  // avisamos si probablemente no está conectada — el guardado real igual
+  // dispara el login si hace falta.
+  document.getElementById('notaSinLogin3D').style.display = archivoDriveIdActual ? 'none' : 'block';
+}
+
+function cerrarPanelNota3D(){
+  document.getElementById('panelNota').classList.remove('show');
+  notaAbiertaId=null;
+  notaHitPendiente=null;
+}
+
+document.getElementById('btnNotas3D').addEventListener('click',()=>{
+  const activar = mode!=='notas';
+  setMode(activar ? 'notas' : 'orbit');
+  if(!activar) cerrarPanelNota3D();
+});
+
+document.getElementById('notaCerrar3D').addEventListener('click', cerrarPanelNota3D);
+
+document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
+  const texto=document.getElementById('notaTexto3D').value.trim();
+  if(!texto){ toast('Escribí un texto para la nota'); return; }
+  const btn=document.getElementById('notaGuardar3D');
+  btn.disabled=true;
+  try{
+    if(notaAbiertaId){
+      const n=notas3d.find(x=>x.id===notaAbiertaId);
+      if(n) n.texto=texto;
+    }else if(notaHitPendiente){
+      const hit=notaHitPendiente;
+      const zone=ZONES.find(z=>z.id===hit.object.userData.zoneId);
+      notas3d.push({
+        id:'n'+Date.now()+Math.random().toString(36).slice(2,7),
+        zoneId:hit.object.userData.zoneId||null,
+        objName:hit.object.userData.objName||(zone?zone.name:null),
+        point:{x:hit.point.x,y:hit.point.y,z:hit.point.z},
+        texto,
+        fecha:new Date().toISOString().slice(0,10),
+      });
+    }
+    renderPinesNotas();
+    await guardarNotasDrive();
+    toast('Nota guardada ✓');
+    cerrarPanelNota3D();
+  }catch(err){
+    toast('No se pudo guardar: '+err.message);
+  }finally{
+    btn.disabled=false;
+  }
+});
+
+document.getElementById('notaBorrar3D').addEventListener('click', async ()=>{
+  if(!notaAbiertaId) return;
+  notas3d=notas3d.filter(n=>n.id!==notaAbiertaId);
+  renderPinesNotas();
+  try{
+    await guardarNotasDrive();
+    toast('Nota borrada');
+  }catch(err){
+    toast('No se pudo borrar: '+err.message);
+  }
+  cerrarPanelNota3D();
+});
+
 // ── CLICK ────────────────────────────────────────────────────────────
 let measurePts=[];    // world-space THREE.Vector3 points (max 2)
 let measureHits=[];   // raw hit objects for face re-highlight on replace
 
 function handleClick(cx,cy){
   const el=document.elementFromPoint(cx,cy);
-  if(el&&el.closest('.fab-dock,.topbar,.sheet,.msr-panel,.compass'))return;
+  if(el&&el.closest('.fab-dock,.topbar,.sheet,.msr-panel,.compass,#panelNota,#btnNotas3D,#btnGuardarVista,#modalVista'))return;
   const hits=getIntersects(cx,cy);
+
+  // Pins de notas: tocar uno los abre, en cualquier modo salvo medición
+  // (ahí el tap ya tiene un significado propio: elegir cara a medir).
+  if(mode!=='measure' && notasGroup && notasGroup.children.length){
+    const ndcPin=raycaster.intersectObjects(notasGroup.children,false);
+    if(ndcPin.length){ abrirNota3D(ndcPin[0].object.userData.notaId); return; }
+  }
+
+  if(mode==='notas'){
+    if(hits.length===0){ toast('Tocá sobre una pieza del modelo'); return; }
+    abrirFormNota3D(hits[0]);
+    return;
+  }
+
   if(mode==='select'){
     if(hits.length>0){
       const m=hits[0].object;
@@ -6483,9 +7131,26 @@ document.getElementById('bBadges').onclick=()=>{
 // NOTA: para GLB, buildSceneFromGLB() (disparado por el click en importConfirmBtn)
 // maneja su PROPIO ciclo de vida del loadOverlay (progreso + error). Este listener
 // NO debe ocultar el overlay después de hacer click, o le pisa el progreso/error.
+// Identidad del archivo actual + datos para armar el link de "Guardar vista"
+// (este documento corre en un blob:, no conoce la URL real de la app).
+let archivoActualFileId = null;
+let appBaseUrlActual = null;
+let vistaGuardadaPendienteIframe = null;
+// Identidad Drive del GLB actual — necesaria para notas 3D compartidas
+// (leer con la API Key, escribir con el login de edición).
+let driveApiKeyActual = null;
+let archivoDriveIdActual = null;
+let carpetaDriveIdActual = null;
+
 window.addEventListener('message', async (e) => {
   if (!e.data || e.data.tipo !== 'abrirGLB') return;
-  const { url, nombre } = e.data;
+  const { url, nombre, fileId, appBaseUrl, camPos, camTarget, explode, driveApiKey, archivoDriveId, carpetaDriveId } = e.data;
+  archivoActualFileId = fileId || null;
+  appBaseUrlActual = appBaseUrl || null;
+  vistaGuardadaPendienteIframe = (camPos && camTarget) ? { camPos, camTarget, explode: explode || 0 } : null;
+  driveApiKeyActual = driveApiKey || null;
+  archivoDriveIdActual = archivoDriveId || null;
+  carpetaDriveIdActual = carpetaDriveId || null;
   let buffer = e.data.buffer;
   const lo = document.getElementById('loadOverlay');
   const lm = document.getElementById('loadMsg');
