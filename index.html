@@ -7261,6 +7261,11 @@ function sincronizarBurbujasNotas(){
       div.textContent=n.texto||'';
       div.classList.toggle('negrita',!!n.negrita);
       div.style.color=NOTA_COLORES[n.color]||NOTA_COLORES.negro;
+      // El borde de la burbuja tiene que coincidir con el color del pin: el
+      // del estado de la tarea/OT si es una tarea, o el azul de siempre
+      // si es una nota común — mismo criterio que pintarPinSegunEstado().
+      const colorPin=n.esTarea ? colorEstadoTarea(n.estado) : '#3a6be8';
+      div.style.borderColor=colorPin;
     }
   });
 }
