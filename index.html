@@ -5826,6 +5826,7 @@ async function buildSceneFromGLB(glbData, selectedIndices){
   });
   scene.add(gridHelper);scene.add(floor);
   zoneGroups={};allMeshes=[];ZONES=[];
+  Object.keys(notaMeshCache).forEach(id=>delete notaMeshCache[id]); // modelo nuevo: las piezas cacheadas del anterior ya no existen
   resetExplodeUI();
 
   const {subassemblies,buildNode}=glbData;
@@ -7350,9 +7351,20 @@ document.getElementById('notaEsTarea3D').addEventListener('change',(e)=>{
 
 const notaMeshCache={};         // id -> THREE.Mesh
 function resolveMeshNota(n){
-  const cached=notaMeshCache[n.id];
-  if(cached && cached.parent) return cached;
-  if(!n.zoneId) return null;
+  // OJO: distinguir "todavía no se buscó" (clave ausente) de "se buscó y
+  // no hay pieza" (clave presente con null) es crítico acá — esta función
+  // se llama en cada frame vía actualizarPosicionesNotas(). Si se cacheara
+  // solo el `mesh||null` sin marcar el intento fallido, una nota huérfana
+  // (zoneId que ya no existe en el modelo) dispara este filtro completo
+  // con Box3 por candidato, 60 veces por segundo, para siempre — el
+  // cuelgue/crash real que reportó el usuario en un modelo con notas
+  // desactualizadas.
+  if(Object.prototype.hasOwnProperty.call(notaMeshCache,n.id)){
+    const cached=notaMeshCache[n.id];
+    if(cached===null) return null;
+    if(cached && cached.parent) return cached;
+  }
+  if(!n.zoneId){ notaMeshCache[n.id]=null; return null; }
   let candidatos=allMeshes.filter(m=>m.userData.zoneId===n.zoneId && m.userData.objName===n.objName);
   if(candidatos.length===0) candidatos=allMeshes.filter(m=>m.userData.zoneId===n.zoneId);
   let mesh=null;
