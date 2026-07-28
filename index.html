@@ -4909,6 +4909,21 @@ canvas{display:block;width:100%;height:100%}
 #notaGuardar3D:disabled{opacity:.5;cursor:default}
 #notaBorrar3D{background:none;border:1px solid #e03050 !important;color:#e03050}
 
+/* Toggle "Mostrar nota en el pin" — activa la burbuja de texto pegada al
+   marcador en el modelo, para leerla sin abrir este panel cada vez. */
+.nota-toggle-row{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12.5px;color:var(--text);cursor:pointer}
+.nota-switch{position:relative;width:36px;height:20px;flex-shrink:0}
+.nota-switch input{position:absolute;inset:0;opacity:0;margin:0;cursor:pointer;z-index:1}
+.nota-switch-track{position:absolute;inset:0;background:var(--border);border-radius:999px;transition:background .15s}
+.nota-switch-track::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform .15s}
+.nota-switch input:checked ~ .nota-switch-track{background:#3A6BE8}
+.nota-switch input:checked ~ .nota-switch-track::after{transform:translateX(16px)}
+
+/* Burbuja de texto de la nota, pegada al pin en el modelo cuando el toggle
+   "Mostrar nota en el pin" está activo — mismo patrón de leader line que el
+   marcador, así se lee la nota sin abrir el panel. */
+.nota-burbuja{position:fixed;max-width:200px;background:var(--surf);border:1px solid rgba(58,107,232,.35);border-radius:10px;padding:7px 9px;font-size:11.5px;line-height:1.4;color:var(--text);box-shadow:0 6px 20px rgba(0,0,0,.22);pointer-events:none;z-index:87}
+
 /* Modal "Vista guardada" — un solo modal compacto para los dos momentos:
    guardar una vista nueva y compartir una ya guardada. Miniatura chica
    (no ocupa media pantalla) + QR y acciones lado a lado para que quepa
@@ -5083,6 +5098,7 @@ window.onerror=function(msg,src,line){
 <div id="canvas-wrap"><canvas id="cv"></canvas></div>
 <svg id="badges-svg" style="position:fixed;inset:0;pointer-events:none;z-index:85;overflow:visible"></svg>
 <svg id="notas-svg" style="position:fixed;inset:0;pointer-events:none;z-index:86;overflow:visible"></svg>
+<div id="notas-burbujas" style="position:fixed;inset:0;pointer-events:none;z-index:87"></div>
 <svg id="msr-svg">
   <defs>
     <!-- Arrow markers for each axis color -->
@@ -5251,6 +5267,14 @@ window.onerror=function(msg,src,line){
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a5 5 0 0 1-7.07-7.07l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
     <span id="notaAdjuntarTxt3D">Adjuntar foto o PDF</span>
   </button>
+
+  <label id="notaMostrarPinRow3D" class="nota-toggle-row">
+    <span>Mostrar nota en el pin</span>
+    <span class="nota-switch">
+      <input type="checkbox" id="notaMostrarPin3D">
+      <span class="nota-switch-track"></span>
+    </span>
+  </label>
 
   <div id="notaMeta3D"></div>
   <div id="notaSinLogin3D">Necesitás conectar edición (Drive) para guardar notas — son compartidas con todo el equipo.</div>
@@ -7009,9 +7033,11 @@ function setFaceHighlight(slot, mesh, faceIndex){
 // documentos — worldToScreen + línea punteada), NO sprites 3D: así el
 // tamaño es fijo en píxeles (no tapa piezas al acercarse) y se pueden
 // arrastrar para desambiguar notas apiladas, sin tocar la escena de three.js.
-let notas3d=[];                 // [{id,zoneId,objName,point:{x,y,z},texto,autor,fecha}]
+let notas3d=[];                 // [{id,zoneId,objName,point:{x,y,z},texto,autor,fecha,mostrarPin}]
 const notasSvg=document.getElementById('notas-svg');
+const notasBurbujasEl=document.getElementById('notas-burbujas');
 const notaMarkerEls={};         // id -> {g,leader,anchor,handle}
+const notaBurbujaEls={};        // id -> div.nota-burbuja (solo si n.mostrarPin)
 let notaOffsets={};             // id -> {dx,dy} en px, desplazamiento manual del marcador (solo esta sesión)
 let notaAbiertaId=null;         // id de la nota que está en el panel (null = nota nueva)
 let notaHitPendiente=null;      // hit de raycast para la nota nueva sin guardar aún
@@ -7115,21 +7141,53 @@ function renderPinesNotas(){
       delete notaOffsets[id];
     }
   });
+  Object.keys(notaBurbujaEls).forEach(id=>{
+    if(!idsActuales.has(id)){ notaBurbujaEls[id].remove(); delete notaBurbujaEls[id]; }
+  });
+  Object.keys(notaMeshCache).forEach(id=>{
+    if(!idsActuales.has(id)) delete notaMeshCache[id];
+  });
   notas3d.forEach(n=>{ if(!notaMarkerEls[n.id]) crearMarcadorNota(n); });
   // Numerar los marcadores según el orden de la lista — así "nota 3" en el
   // pin y "nota 3" en el panel de lista son la misma.
   notas3d.forEach((n,idx)=>{ notaMarkerEls[n.id].num.textContent=String(idx+1); });
+  sincronizarBurbujasNotas();
   actualizarBadgeNotas();
   actualizarPosicionesNotas();
+}
+
+// Crea/borra los divs de burbuja según qué notas tienen el toggle
+// "Mostrar nota en el pin" activo — separado de crearMarcadorNota porque
+// el pin siempre existe, la burbuja es opcional por nota.
+function sincronizarBurbujasNotas(){
+  notas3d.forEach(n=>{
+    const debeExistir=!!n.mostrarPin;
+    const existe=!!notaBurbujaEls[n.id];
+    if(debeExistir && !existe){
+      const div=document.createElement('div');
+      div.className='nota-burbuja';
+      notasBurbujasEl.appendChild(div);
+      notaBurbujaEls[n.id]=div;
+    }else if(!debeExistir && existe){
+      notaBurbujaEls[n.id].remove();
+      delete notaBurbujaEls[n.id];
+    }
+    if(notaBurbujaEls[n.id]) notaBurbujaEls[n.id].textContent=n.texto||'';
+  });
 }
 
 // Resuelve la pieza (mesh) a la que quedó anclada la nota, para poder
 // recalcular su posición mundial cada frame — así el pin sigue a la pieza
 // cuando se mueve por la explosión, en vez de quedar flotando en el punto
-// fijo donde se creó. Se cachea en n._mesh; si la pieza fue removida de la
-// escena (modelo recargado), se busca de nuevo por zoneId+objName.
+// fijo donde se creó. Se cachea en notaMeshCache (NO en el objeto de la
+// nota — es un THREE.Object3D con referencias circulares, no serializable,
+// y notas3d se guarda tal cual con JSON.stringify). Si la pieza fue
+// removida de la escena (modelo recargado), se busca de nuevo por
+// zoneId+objName.
+const notaMeshCache={};         // id -> THREE.Mesh
 function resolveMeshNota(n){
-  if(n._mesh && n._mesh.parent) return n._mesh;
+  const cached=notaMeshCache[n.id];
+  if(cached && cached.parent) return cached;
   if(!n.zoneId) return null;
   let candidatos=allMeshes.filter(m=>m.userData.zoneId===n.zoneId && m.userData.objName===n.objName);
   if(candidatos.length===0) candidatos=allMeshes.filter(m=>m.userData.zoneId===n.zoneId);
@@ -7148,8 +7206,8 @@ function resolveMeshNota(n){
       if(d<mejorDist){mejorDist=d;mesh=m;}
     });
   }
-  n._mesh=mesh||null;
-  return n._mesh;
+  notaMeshCache[n.id]=mesh||null;
+  return notaMeshCache[n.id];
 }
 
 function actualizarPosicionesNotas(){
@@ -7170,7 +7228,11 @@ function actualizarPosicionesNotas(){
       worldPos=mesh.localToWorld(new THREE.Vector3(n.local.x,n.local.y,n.local.z));
     }
     const p=project(worldPos);
-    if(p.behind){refs.g.style.display='none';return;}
+    if(p.behind){
+      refs.g.style.display='none';
+      if(notaBurbujaEls[id]) notaBurbujaEls[id].style.display='none';
+      return;
+    }
     refs.g.style.display='';
     const off=notaOffsets[id]||{dx:0,dy:0};
     const mx=p.x+off.dx,my=p.y+off.dy;
@@ -7181,6 +7243,18 @@ function actualizarPosicionesNotas(){
     refs.anchor.setAttribute('cx',p.x);refs.anchor.setAttribute('cy',p.y);
     refs.anchor.setAttribute('opacity',tieneOffset?'1':'0');
     refs.handle.setAttribute('transform',`translate(${mx},${my})`);
+
+    const burbuja=notaBurbujaEls[id];
+    if(burbuja){
+      burbuja.style.display='';
+      // Pegada al pin, corrida a la derecha — si no entra a la derecha
+      // (cerca del borde), se muestra a la izquierda en su lugar.
+      const anchoAprox=Math.min(200,burbuja.offsetWidth||200);
+      const irIzquierda=(mx+14+anchoAprox)>window.innerWidth;
+      burbuja.style.left=irIzquierda ? '' : (mx+14)+'px';
+      burbuja.style.right=irIzquierda ? (window.innerWidth-mx+14)+'px' : '';
+      burbuja.style.top=Math.max(4,my-10)+'px';
+    }
   });
 }
 
@@ -7331,6 +7405,7 @@ function abrirNota3D(notaId){
   document.getElementById('notaTexto3D').value=n.texto||'';
   document.getElementById('notaMeta3D').textContent=n.autor?`${n.autor} · ${n.fecha||''}`:'';
   document.getElementById('notaBorrar3D').style.display='block';
+  document.getElementById('notaMostrarPin3D').checked=!!n.mostrarPin;
   renderAdjuntoPreview();
   actualizarPanelNotaSegunLogin();
   document.getElementById('panelNota').classList.add('show');
@@ -7348,6 +7423,7 @@ function abrirFormNota3D(hit){
   document.getElementById('notaTexto3D').value='';
   document.getElementById('notaMeta3D').textContent='';
   document.getElementById('notaBorrar3D').style.display='none';
+  document.getElementById('notaMostrarPin3D').checked=false;
   renderAdjuntoPreview();
   actualizarPanelNotaSegunLogin();
   document.getElementById('panelNota').classList.add('show');
@@ -7460,10 +7536,11 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
   const btn=document.getElementById('notaGuardar3D');
   btn.disabled=true;
   try{
+    const mostrarPin=document.getElementById('notaMostrarPin3D').checked;
     let n=null;
     if(notaAbiertaId){
       n=notas3d.find(x=>x.id===notaAbiertaId);
-      if(n) n.texto=texto;
+      if(n){ n.texto=texto; n.mostrarPin=mostrarPin; }
     }else if(notaHitPendiente){
       const hit=notaHitPendiente;
       const zone=ZONES.find(z=>z.id===hit.object.userData.zoneId);
@@ -7475,9 +7552,10 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
         point:{x:hit.point.x,y:hit.point.y,z:hit.point.z}, // fallback si no se puede re-anclar a la pieza
         local:{x:local.x,y:local.y,z:local.z}, // en espacio local de la pieza — sigue el explode
         texto,
+        mostrarPin,
         fecha:new Date().toISOString().slice(0,10),
       };
-      n._mesh=hit.object;
+      notaMeshCache[n.id]=hit.object;
       notas3d.push(n);
     }
 
