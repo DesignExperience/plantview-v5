@@ -4797,7 +4797,7 @@ canvas{display:block;width:100%;height:100%}
 .sb-title-edit-btn:active{color:var(--acc)}
 .sb-title-input{flex:1;min-width:0;font-family:'Syne',sans-serif;font-size:15px;font-weight:700;background:var(--surf2);border:1px solid var(--acc);border-radius:6px;padding:3px 6px;color:var(--text)}
 .sb-title-ok-btn{flex-shrink:0;width:24px;height:24px;border:none;border-radius:6px;background:var(--surf2);color:var(--text);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center}
-.sheet-body{flex:1;overflow-y:auto;padding:12px 16px;-webkit-overflow-scrolling:touch}
+.sheet-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:12px 16px;-webkit-overflow-scrolling:touch}
 .zone-card{background:var(--surf2);border:1px solid var(--border);border-radius:14px;margin-bottom:10px;overflow:hidden;cursor:pointer}
 .zone-card-hdr{display:flex;align-items:center;gap:12px;padding:14px 16px}
 .zone-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
@@ -4942,6 +4942,11 @@ canvas{display:block;width:100%;height:100%}
 .nota-colores{display:flex;gap:6px}
 .nota-color-sw{width:20px;height:20px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0}
 .nota-color-sw.sel{border-color:var(--acc)}
+
+/* Form de edición inline de una nota, dentro del sidebar de la pieza */
+.nota-sb-edit{display:flex;flex-direction:column;gap:10px;padding:12px 0}
+.nota-sb-texto{width:100%;resize:vertical;border:1px solid var(--border);border-radius:8px;background:var(--surf);color:var(--text);font-size:12.5px;padding:8px;line-height:1.5;font-family:inherit}
+.nota-sb-edit .nota-actions3D button{height:34px;font-size:11.5px}
 
 /* Modal "Vista guardada" — un solo modal compacto para los dos momentos:
    guardar una vista nueva y compartir una ya guardada. Miniatura chica
@@ -7998,6 +8003,7 @@ function openSidebar(zone,objName){
   closeZones();closeImport();
   currentZone=zone;currentObjName=objName;
   currentEquipoKey=equipoKey(zone,objName);
+  notaEditandoIdSb=null;
   document.getElementById('sb-title').textContent=objName||nombreZona(zone);
   document.getElementById('sb-sub').textContent=objName?nombreZona(zone):'Subensamblaje';
   cancelarEdicionNombreZona();
@@ -8060,12 +8066,102 @@ function escNota(s){
     .replaceAll('"','&quot;').replaceAll("'",'&#39;');
 }
 
+let notaEditandoIdSb=null; // id de la nota en edición inline dentro del sidebar (null = ninguna)
+
 function renderNotaSbRow(n,idx){
+  if(n.id===notaEditandoIdSb) return renderNotaSbEditForm(n,idx);
   const color=NOTA_COLORES[n.color]||NOTA_COLORES.negro;
   return `<div class="doc-row nota-sb-row" data-nota-id="${n.id}">
     <div class="doc-icon" style="background:${color}22;border:1px solid ${color}66;color:${color};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700">${idx+1}</div>
     <div style="flex:1;min-width:0"><div class="doc-name" style="${n.negrita?'font-weight:700;':''}color:${color}">${escNota(n.texto||'')}</div><div class="doc-meta">${n.fecha||''}</div></div>
   </div>`;
+}
+
+// Formulario de edición inline, dentro del propio sidebar de la pieza — no
+// hace falta saltar al panel flotante (#panelNota) para editar una nota.
+function renderNotaSbEditForm(n,idx){
+  return `<div class="nota-sb-edit" data-nota-id="${n.id}">
+    <textarea class="nota-sb-texto" rows="3">${escNota(n.texto||'')}</textarea>
+    <label class="nota-toggle-row">
+      <span>Mostrar nota en el pin</span>
+      <span class="nota-switch"><input type="checkbox" class="nota-sb-mostrarpin" ${n.mostrarPin?'checked':''}><span class="nota-switch-track"></span></span>
+    </label>
+    <label class="nota-toggle-row">
+      <span>Negrita</span>
+      <span class="nota-switch"><input type="checkbox" class="nota-sb-negrita" ${n.negrita?'checked':''}><span class="nota-switch-track"></span></span>
+    </label>
+    <div class="nota-color-row"><span>Color</span><div class="nota-colores nota-sb-colores"></div></div>
+    <div class="nota-actions3D">
+      <button type="button" class="nota-sb-guardar">Guardar</button>
+      <button type="button" class="nota-sb-cancelar" style="background:var(--surf);border:1px solid var(--border) !important;color:var(--text)">Cancelar</button>
+      <button type="button" class="nota-sb-borrar" style="background:none;border:1px solid #e03050 !important;color:#e03050">Borrar</button>
+    </div>
+  </div>`;
+}
+
+// Arma los swatches de color dentro de un contenedor dado, con el mismo
+// juego de colores que el panel flotante — reutilizable para el form
+// inline del sidebar.
+function crearSelectorColoresEn(cont,seleccionado){
+  cont.innerHTML='';
+  Object.keys(NOTA_COLORES).forEach(key=>{
+    const b=document.createElement('button');
+    b.type='button';
+    b.className='nota-color-sw'+(key===(seleccionado||'negro')?' sel':'');
+    b.dataset.color=key;
+    b.style.background=NOTA_COLORES[key];
+    b.title=key;
+    b.addEventListener('click',()=>{
+      cont.querySelectorAll('.nota-color-sw').forEach(x=>x.classList.remove('sel'));
+      b.classList.add('sel');
+    });
+    cont.appendChild(b);
+  });
+}
+
+function wireNotaSbEditForm(zone){
+  const form=document.querySelector('.nota-sb-edit');
+  if(!form) return;
+  const notaId=form.dataset.notaId;
+  const n=notas3d.find(x=>x.id===notaId);
+  if(!n) return;
+  crearSelectorColoresEn(form.querySelector('.nota-sb-colores'), n.color);
+  form.querySelector('.nota-sb-texto').addEventListener('click',e=>e.stopPropagation());
+  form.addEventListener('click',e=>e.stopPropagation());
+  form.querySelector('.nota-sb-cancelar').addEventListener('click',()=>{
+    notaEditandoIdSb=null;
+    renderSidebarBody(zone,currentObjName);
+  });
+  form.querySelector('.nota-sb-guardar').addEventListener('click', async ()=>{
+    const texto=form.querySelector('.nota-sb-texto').value.trim();
+    if(!texto){ toast('Escribí un texto para la nota'); return; }
+    n.texto=texto;
+    n.mostrarPin=form.querySelector('.nota-sb-mostrarpin').checked;
+    n.negrita=form.querySelector('.nota-sb-negrita').checked;
+    const sel=form.querySelector('.nota-sb-colores .nota-color-sw.sel');
+    n.color=sel?sel.dataset.color:'negro';
+    notaEditandoIdSb=null;
+    renderPinesNotas();
+    renderSidebarBody(zone,currentObjName);
+    try{
+      await guardarNotasDrive();
+      toast('Nota guardada ✓');
+    }catch(err){
+      toast('No se pudo guardar: '+err.message);
+    }
+  });
+  form.querySelector('.nota-sb-borrar').addEventListener('click', async ()=>{
+    notas3d=notas3d.filter(x=>x.id!==notaId);
+    notaEditandoIdSb=null;
+    renderPinesNotas();
+    renderSidebarBody(zone,currentObjName);
+    try{
+      await guardarNotasDrive();
+      toast('Nota borrada');
+    }catch(err){
+      toast('No se pudo borrar: '+err.message);
+    }
+  });
 }
 
 function renderSidebarBody(zone,objName){
@@ -8121,8 +8217,12 @@ function renderSidebarBody(zone,objName){
     });
   });
   document.querySelectorAll('.nota-sb-row[data-nota-id]').forEach(el=>{
-    el.addEventListener('click',()=>abrirNota3D(el.dataset.notaId));
+    el.addEventListener('click',()=>{
+      notaEditandoIdSb=el.dataset.notaId;
+      renderSidebarBody(zone,objName);
+    });
   });
+  wireNotaSbEditForm(zone);
   const btnAgregarNota=document.getElementById('sbNotaAgregar');
   if(btnAgregarNota) btnAgregarNota.addEventListener('click',()=>agregarNotaParaZona(zone));
 }
