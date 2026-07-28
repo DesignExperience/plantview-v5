@@ -5731,7 +5731,19 @@ function parseGLBFull(buffer){
   function buildNode(ni,userData){
     const n=nodes[ni];
     const g=new THREE.Group();
-    g.userData={...userData};
+    // Nombre propio del nodo GLTF (la pieza individual) si lo tiene — si no,
+    // hereda el objName pasado desde el padre (en la raíz, el subensamblaje).
+    // CRÍTICO además de cosmético: resolveMeshNota() (notas 3D) usa
+    // zoneId+objName para acotar a UNA pieza candidata por nota. Si todas
+    // las piezas de un subensamblaje comparten el mismo objName, esa
+    // búsqueda no filtra nada y cae al fallback de calcular un Box3 (recorre
+    // todos los vértices) por CADA pieza del subensamblaje, por CADA nota —
+    // en un modelo pesado con geometría grande y varias notas guardadas,
+    // eso es suficiente para colgar/crashear el dispositivo justo al
+    // terminar de cargar. Con el nombre propio, la búsqueda matchea 1 sola
+    // pieza casi siempre y ese fallback caro ni se ejecuta.
+    const objNamePropio=n.name||userData.objName;
+    g.userData={...userData, objName:objNamePropio};
     if(n.matrix){g.matrix.fromArray(n.matrix);g.matrix.decompose(g.position,g.quaternion,g.scale);}
     else{
       if(n.translation)g.position.fromArray(n.translation);
@@ -5741,7 +5753,7 @@ function parseGLBFull(buffer){
     if(n.mesh!==undefined){
       gltf.meshes[n.mesh].primitives.forEach(prim=>{
         const m=buildMesh(prim);
-        m.userData={...userData};
+        m.userData={...userData, objName:objNamePropio};
         g.add(m);
       });
     }
@@ -5905,9 +5917,11 @@ async function buildSceneFromGLB(glbData, selectedIndices){
         continue;
       }
 
+      // zoneId sí se pisa acá (identifica el subensamblaje al que
+      // pertenece), pero objName NO — buildNode ya le puso a cada nodo su
+      // nombre propio (o el del subensamblaje como fallback si no tenía).
       subGrp.traverse(child=>{
         child.userData.zoneId=zoneId;
-        child.userData.objName=sub.name;
         if(child.isMesh) allMeshes.push(child);
       });
 
@@ -7394,10 +7408,18 @@ function resolveMeshNota(n){
   }else if(candidatos.length>1){
     // Varias piezas comparten zoneId/objName (chapas, tornillería, etc. bajo
     // el mismo subensamblaje) — nos quedamos con la más cercana al punto
-    // mundial guardado, para no atar la nota a la pieza equivocada.
+    // mundial guardado, para no atar la nota a la pieza equivocada. Cada
+    // candidato cuesta un THREE.Box3().setFromObject() (recorre TODOS sus
+    // vértices) — con geometría pesada (ej. Draco descomprimido) y muchos
+    // candidatos, esto solo puede colgar el dispositivo. Tope duro: más
+    // allá de MAX_CANDIDATOS probamos con los primeros nomás — perder
+    // precisión en un caso raro (objName no matcheó y hay muchísimas
+    // piezas en la zona) es preferible a arriesgar un crash.
+    const MAX_CANDIDATOS=12;
+    const aProbar=candidatos.length>MAX_CANDIDATOS ? candidatos.slice(0,MAX_CANDIDATOS) : candidatos;
     const target=new THREE.Vector3(n.point.x,n.point.y,n.point.z);
     let mejorDist=Infinity;
-    candidatos.forEach(m=>{
+    aProbar.forEach(m=>{
       const c=new THREE.Box3().setFromObject(m).getCenter(new THREE.Vector3());
       const d=c.distanceToSquared(target);
       if(d<mejorDist){mejorDist=d;mesh=m;}
