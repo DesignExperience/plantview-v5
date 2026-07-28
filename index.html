@@ -7123,12 +7123,31 @@ function renderPinesNotas(){
   actualizarPosicionesNotas();
 }
 
+// Resuelve la pieza (mesh) a la que quedó anclada la nota, para poder
+// recalcular su posición mundial cada frame — así el pin sigue a la pieza
+// cuando se mueve por la explosión, en vez de quedar flotando en el punto
+// fijo donde se creó. Se cachea en n._mesh; si la pieza fue removida de la
+// escena (modelo recargado), se busca de nuevo por zoneId+objName.
+function resolveMeshNota(n){
+  if(n._mesh && n._mesh.parent) return n._mesh;
+  if(!n.zoneId) return null;
+  const mesh=allMeshes.find(m=>m.userData.zoneId===n.zoneId && m.userData.objName===n.objName)
+    || allMeshes.find(m=>m.userData.zoneId===n.zoneId);
+  n._mesh=mesh||null;
+  return n._mesh;
+}
+
 function actualizarPosicionesNotas(){
   Object.keys(notaMarkerEls).forEach(id=>{
     const n=notas3d.find(x=>x.id===id);
     const refs=notaMarkerEls[id];
     if(!n)return;
-    const p=project(new THREE.Vector3(n.point.x,n.point.y,n.point.z));
+    let worldPos=new THREE.Vector3(n.point.x,n.point.y,n.point.z);
+    if(n.local){
+      const mesh=resolveMeshNota(n);
+      if(mesh) worldPos=mesh.localToWorld(new THREE.Vector3(n.local.x,n.local.y,n.local.z));
+    }
+    const p=project(worldPos);
     if(p.behind){refs.g.style.display='none';return;}
     refs.g.style.display='';
     const off=notaOffsets[id]||{dx:0,dy:0};
@@ -7426,14 +7445,17 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
     }else if(notaHitPendiente){
       const hit=notaHitPendiente;
       const zone=ZONES.find(z=>z.id===hit.object.userData.zoneId);
+      const local=hit.object.worldToLocal(hit.point.clone());
       n={
         id:'n'+Date.now()+Math.random().toString(36).slice(2,7),
         zoneId:hit.object.userData.zoneId||null,
         objName:hit.object.userData.objName||(zone?zone.name:null),
-        point:{x:hit.point.x,y:hit.point.y,z:hit.point.z},
+        point:{x:hit.point.x,y:hit.point.y,z:hit.point.z}, // fallback si no se puede re-anclar a la pieza
+        local:{x:local.x,y:local.y,z:local.z}, // en espacio local de la pieza — sigue el explode
         texto,
         fecha:new Date().toISOString().slice(0,10),
       };
+      n._mesh=hit.object;
       notas3d.push(n);
     }
 
