@@ -7131,8 +7131,23 @@ function renderPinesNotas(){
 function resolveMeshNota(n){
   if(n._mesh && n._mesh.parent) return n._mesh;
   if(!n.zoneId) return null;
-  const mesh=allMeshes.find(m=>m.userData.zoneId===n.zoneId && m.userData.objName===n.objName)
-    || allMeshes.find(m=>m.userData.zoneId===n.zoneId);
+  let candidatos=allMeshes.filter(m=>m.userData.zoneId===n.zoneId && m.userData.objName===n.objName);
+  if(candidatos.length===0) candidatos=allMeshes.filter(m=>m.userData.zoneId===n.zoneId);
+  let mesh=null;
+  if(candidatos.length===1){
+    mesh=candidatos[0];
+  }else if(candidatos.length>1){
+    // Varias piezas comparten zoneId/objName (chapas, tornillería, etc. bajo
+    // el mismo subensamblaje) — nos quedamos con la más cercana al punto
+    // mundial guardado, para no atar la nota a la pieza equivocada.
+    const target=new THREE.Vector3(n.point.x,n.point.y,n.point.z);
+    let mejorDist=Infinity;
+    candidatos.forEach(m=>{
+      const c=new THREE.Box3().setFromObject(m).getCenter(new THREE.Vector3());
+      const d=c.distanceToSquared(target);
+      if(d<mejorDist){mejorDist=d;mesh=m;}
+    });
+  }
   n._mesh=mesh||null;
   return n._mesh;
 }
@@ -7143,9 +7158,16 @@ function actualizarPosicionesNotas(){
     const refs=notaMarkerEls[id];
     if(!n)return;
     let worldPos=new THREE.Vector3(n.point.x,n.point.y,n.point.z);
-    if(n.local){
-      const mesh=resolveMeshNota(n);
-      if(mesh) worldPos=mesh.localToWorld(new THREE.Vector3(n.local.x,n.local.y,n.local.z));
+    const mesh=resolveMeshNota(n);
+    if(mesh){
+      // Notas viejas (guardadas antes de que existiera el punto local): se
+      // migran acá mismo, calculando su posición local a partir de la pieza
+      // más cercana — así también quedan ancladas sin tener que recrearlas.
+      if(!n.local){
+        const local=mesh.worldToLocal(new THREE.Vector3(n.point.x,n.point.y,n.point.z));
+        n.local={x:local.x,y:local.y,z:local.z};
+      }
+      worldPos=mesh.localToWorld(new THREE.Vector3(n.local.x,n.local.y,n.local.z));
     }
     const p=project(worldPos);
     if(p.behind){refs.g.style.display='none';return;}
