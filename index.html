@@ -716,6 +716,7 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 }
 .modal-overlay.visible { display: flex; }
 .modal-sheet {
+  position: relative;
   background: var(--surface); border: 1px solid var(--line);
   border-radius: 14px 14px 0 0;
   padding: 18px 20px calc(20px + var(--safe-b));
@@ -723,6 +724,7 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
   display: flex; flex-direction: column; align-items: center; gap: 12px;
   animation: slideUp .25s cubic-bezier(.4,0,.2,1);
 }
+.sheet-x{position:absolute;top:14px;right:14px;width:28px;height:28px;border-radius:8px;background:transparent;border:1px solid var(--line);color:var(--muted);font-size:16px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer}
 @keyframes slideUp { from { transform: translateY(100%); } }
 .sheet-handle { width: 36px; height: 4px; background: var(--line); border-radius: 2px; margin-bottom: 4px; }
 .sheet-title { font-family: "Chakra Petch", sans-serif; font-weight: 700; font-size: 14px; letter-spacing: .04em; text-transform: uppercase; align-self: flex-start; }
@@ -1400,6 +1402,7 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 <!-- Modal QR -->
 <div class="modal-overlay" id="modal-qr">
   <div class="modal-sheet">
+    <button class="sheet-x" id="btn-qr-x" aria-label="Cerrar">×</button>
     <div class="sheet-handle"></div>
     <p class="sheet-title">Código QR del plano</p>
     <p class="sheet-sub" id="qr-filename">—</p>
@@ -1412,7 +1415,7 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 3v12m0 0-4-4m4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
         Descargar PNG
       </button>
-      <button class="btn-sheet btn-sheet-secondary" id="btn-qr-cerrar">Cerrar</button>
+      <button class="btn-sheet btn-sheet-secondary" id="btn-qr-copiar">Copiar link</button>
     </div>
   </div>
 </div>
@@ -2542,9 +2545,53 @@ let imagenZoom = 1;
 let imagenPanXY = { x: 0, y: 0 };
 const imagenMemoria = new Map();
 
+const IMG_ZOOM_MIN = 0.2, IMG_ZOOM_MAX = 10;
+
 function aplicarTransformImagen() {
   visorImagen.style.transform = `translate(${imagenPanXY.x}px, ${imagenPanXY.y}px) scale(${imagenZoom})`;
   document.getElementById("imagen-zoom-label").textContent = Math.round(imagenZoom * 100) + "%";
+}
+
+// No deja perder la imagen arrastrándola fuera de pantalla — con un margen
+// de "escape" del 15% para que no se sienta trabado contra el borde, como
+// en Google Photos / Apple Preview.
+function clampPanImagen() {
+  const wrapRect = visorImagenWrap.getBoundingClientRect();
+  const w = visorImagen.clientWidth * imagenZoom;
+  const h = visorImagen.clientHeight * imagenZoom;
+  const maxX = Math.max(0, (w - wrapRect.width) / 2 + wrapRect.width * 0.15);
+  const maxY = Math.max(0, (h - wrapRect.height) / 2 + wrapRect.height * 0.15);
+  imagenPanXY.x = Math.min(Math.max(imagenPanXY.x, -maxX), maxX);
+  imagenPanXY.y = Math.min(Math.max(imagenPanXY.y, -maxY), maxY);
+}
+
+// Punto de un evento (mouse o dedo), relativo al centro del wrap — lo que
+// usa zoomHaciaPunto para anclar el zoom ahí en vez de siempre al centro.
+function puntoRelCentroImagen(clientX, clientY) {
+  const r = visorImagenWrap.getBoundingClientRect();
+  return { x: clientX - (r.left + r.width / 2), y: clientY - (r.top + r.height / 2) };
+}
+
+// Cambia el zoom manteniendo fijo en pantalla el punto pRel (cursor, dedo,
+// o punto medio del pinch) — el estándar en cualquier visor/mapa moderno,
+// en vez de siempre re-centrar en el medio de la imagen.
+function zoomHaciaPunto(nuevoZoom, pRel) {
+  nuevoZoom = Math.min(Math.max(nuevoZoom, IMG_ZOOM_MIN), IMG_ZOOM_MAX);
+  const f = nuevoZoom / imagenZoom;
+  imagenPanXY.x = pRel.x * (1 - f) + imagenPanXY.x * f;
+  imagenPanXY.y = pRel.y * (1 - f) + imagenPanXY.y * f;
+  imagenZoom = nuevoZoom;
+  clampPanImagen();
+  aplicarTransformImagen();
+}
+
+// Doble click / doble tap — alterna entre 100% y un acercamiento cómodo
+// (2.5x), anclado al punto tocado. Gesto esperado en cualquier visor.
+function dobleTapImagen(clientX, clientY) {
+  const objetivo = imagenZoom > 1.05 ? 1 : 2.5;
+  zoomHaciaPunto(objetivo, puntoRelCentroImagen(clientX, clientY));
+  if (objetivo === 1) { imagenPanXY = { x: 0, y: 0 }; aplicarTransformImagen(); }
+  guardarEstadoImagen();
 }
 function guardarEstadoImagen() {
   if (!state.archivoActual || pdfTabTipo !== "imagen") return;
@@ -3171,12 +3218,13 @@ async function cargarDXF(buffer) {
   }, { passive: false });
 })();
 
-// Pan (arrastrar) y zoom (rueda / pinch) sobre la imagen — mismo patrón
-// que el DXF, con memoria por archivo vía guardarEstadoImagen().
+// Pan (arrastrar), zoom (rueda / pinch, anclados al puntero) y doble-tap —
+// mismos gestos que cualquier visor de imágenes estándar. Memoria por
+// archivo vía guardarEstadoImagen() (igual que antes).
 (function() {
-  let arrastrando = false, ultimoX = 0, ultimoY = 0;
+  let arrastrando = false, ultimoX = 0, ultimoY = 0, movioAlgo = false;
   visorImagenWrap.addEventListener("pointerdown", e => {
-    arrastrando = true; ultimoX = e.clientX; ultimoY = e.clientY;
+    arrastrando = true; movioAlgo = false; ultimoX = e.clientX; ultimoY = e.clientY;
     visorImagenWrap.classList.add("arrastrando");
     visorImagenWrap.setPointerCapture(e.pointerId);
   });
@@ -3184,21 +3232,23 @@ async function cargarDXF(buffer) {
     if (!arrastrando) return;
     imagenPanXY.x += e.clientX - ultimoX;
     imagenPanXY.y += e.clientY - ultimoY;
+    if (Math.abs(e.clientX - ultimoX) > 2 || Math.abs(e.clientY - ultimoY) > 2) movioAlgo = true;
     ultimoX = e.clientX; ultimoY = e.clientY;
+    if (movioAlgo) clampPanImagen();
     aplicarTransformImagen();
   });
   ["pointerup", "pointercancel"].forEach(ev => visorImagenWrap.addEventListener(ev, () => {
-    if (arrastrando) guardarEstadoImagen();
+    if (arrastrando && movioAlgo) { clampPanImagen(); aplicarTransformImagen(); guardarEstadoImagen(); }
     arrastrando = false;
     visorImagenWrap.classList.remove("arrastrando");
   }));
   visorImagenWrap.addEventListener("wheel", e => {
     e.preventDefault();
-    const factor = e.deltaY < 0 ? 1.15 : 1/1.15;
-    imagenZoom = Math.min(Math.max(imagenZoom * factor, 0.2), 15);
-    aplicarTransformImagen();
+    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    zoomHaciaPunto(imagenZoom * factor, puntoRelCentroImagen(e.clientX, e.clientY));
     guardarEstadoImagen();
   }, { passive: false });
+  visorImagenWrap.addEventListener("dblclick", e => dobleTapImagen(e.clientX, e.clientY));
 
   let distInicialImg = 0, zoomInicialImg = 1;
   visorImagenWrap.addEventListener("touchstart", e => {
@@ -3212,18 +3262,45 @@ async function cargarDXF(buffer) {
     e.preventDefault();
     const [t1, t2] = e.touches;
     const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
-    imagenZoom = Math.min(Math.max(zoomInicialImg * (dist / distInicialImg), 0.2), 15);
-    aplicarTransformImagen();
+    const midX = (t1.clientX + t2.clientX) / 2, midY = (t1.clientY + t2.clientY) / 2;
+    // Anclar cada frame al punto medio actual hace zoom Y pan a la vez —
+    // el pinch sigue a los dedos en vez de quedarse fijo al centro.
+    zoomHaciaPunto(zoomInicialImg * (dist / distInicialImg), puntoRelCentroImagen(midX, midY));
   }, { passive: false });
-  visorImagenWrap.addEventListener("touchend", () => guardarEstadoImagen());
+  visorImagenWrap.addEventListener("touchend", e => {
+    if (e.touches.length === 0) guardarEstadoImagen();
+  });
+
+  // Doble-tap táctil (dos toques de un dedo, cerca en tiempo y espacio) —
+  // dblclick no dispara con touch en la mayoría de los navegadores móviles.
+  let ultimoTapTime = 0, ultimoTapPos = null;
+  visorImagenWrap.addEventListener("touchend", e => {
+    if (e.changedTouches.length !== 1 || e.touches.length !== 0) return;
+    const t = e.changedTouches[0];
+    const ahora = Date.now();
+    if (ultimoTapPos && ahora - ultimoTapTime < 300 && Math.hypot(t.clientX - ultimoTapPos.x, t.clientY - ultimoTapPos.y) < 30) {
+      dobleTapImagen(t.clientX, t.clientY);
+      ultimoTapTime = 0; ultimoTapPos = null;
+    } else {
+      ultimoTapTime = ahora; ultimoTapPos = { x: t.clientX, y: t.clientY };
+    }
+  });
 
   document.getElementById("imagen-zoom-in").addEventListener("click", () => {
-    imagenZoom = Math.min(imagenZoom * 1.25, 15);
-    aplicarTransformImagen();
+    zoomHaciaPunto(imagenZoom * 1.25, { x: 0, y: 0 });
     guardarEstadoImagen();
   });
   document.getElementById("imagen-zoom-out").addEventListener("click", () => {
-    imagenZoom = Math.max(imagenZoom / 1.25, 0.2);
+    zoomHaciaPunto(imagenZoom / 1.25, { x: 0, y: 0 });
+    guardarEstadoImagen();
+  });
+  // Tocar el porcentaje resetea a 100% — la salida rápida esperada cuando
+  // te perdiste zoomeando, sin tener que golpear "-" varias veces.
+  const zoomLabel = document.getElementById("imagen-zoom-label");
+  zoomLabel.style.cursor = "pointer";
+  zoomLabel.title = "Restablecer zoom";
+  zoomLabel.addEventListener("click", () => {
+    imagenZoom = 1; imagenPanXY = { x: 0, y: 0 };
     aplicarTransformImagen();
     guardarEstadoImagen();
   });
@@ -3243,34 +3320,62 @@ async function renderizarPDF() {
   // al tamaño lógico en CSS — si no, en celulares con pantalla Retina el canvas
   // queda "estirado" y se ve borroso aunque el zoom diga 100%.
   const dpr = window.devicePixelRatio || 1;
+
+  // Los canvases de TODAS las páginas se crean ya con el tamaño correcto
+  // (para que el scroll y el salto a una página específica funcionen bien
+  // desde el primer momento), pero el contenido pesado (page.render) recién
+  // se dibuja cuando la página está visible o a punto de estarlo — como
+  // hace cualquier visor real (Chrome, Adobe, Preview) con documentos
+  // largos, en vez de congelar la UI renderizando las 80 páginas de una.
+  const paginas = [];
   for (let n = 1; n <= total; n++) {
-    const page     = await pdfDoc.getPage(n);
+    const page = await pdfDoc.getPage(n);
     const viewport = page.getViewport({ scale: pdfZoom });
-    const canvas   = document.createElement("canvas");
+    const canvas = document.createElement("canvas");
     canvas.className = "pdf-page-canvas";
-    canvas.width  = Math.floor(viewport.width * dpr);
+    canvas.width = Math.floor(viewport.width * dpr);
     canvas.height = Math.floor(viewport.height * dpr);
-    canvas.style.width  = viewport.width + "px";
+    canvas.style.width = viewport.width + "px";
     canvas.style.height = viewport.height + "px";
     canvas.dataset.pagina = n;
     wrap.appendChild(canvas);
-    const ctx = canvas.getContext("2d");
-    await page.render({
+    paginas.push({ n, page, viewport, canvas, renderizada: false });
+  }
+
+  async function renderPagina(item) {
+    if (item.renderizada) return;
+    item.renderizada = true;
+    const ctx = item.canvas.getContext("2d");
+    await item.page.render({
       canvasContext: ctx,
-      viewport,
+      viewport: item.viewport,
       transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : undefined,
     }).promise;
   }
 
-  // IntersectionObserver para actualizar número de página al scrollear
-  const obs = new IntersectionObserver(entries => {
+  // Lo que se ve al abrir el documento, sin esperar a que scrollee.
+  await Promise.all(paginas.slice(0, 2).map(renderPagina));
+
+  // Dispara el render real ANTES de que la página entre en pantalla del
+  // todo (rootMargin de +600px de buffer), para que no se vea el blanco
+  // del canvas vacío al scrollear rápido.
+  const obsRender = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) renderPagina(paginas[parseInt(e.target.dataset.pagina, 10) - 1]);
+    });
+  }, { root: wrap, rootMargin: "600px 0px", threshold: 0.01 });
+  paginas.forEach(item => obsRender.observe(item.canvas));
+
+  // Observer aparte (sin el margen extra) para saber cuál es la página
+  // "actual" en el número de arriba — mismo criterio que antes.
+  const obsNumero = new IntersectionObserver(entries => {
     const vis = entries.filter(e => e.isIntersecting)
-      .sort((a,b) => b.intersectionRatio - a.intersectionRatio);
+      .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
     if (vis.length) {
       document.getElementById("pdf-page-cur").value = vis[0].target.dataset.pagina;
     }
   }, { root: wrap, threshold: 0.4 });
-  wrap.querySelectorAll(".pdf-page-canvas").forEach(c => obs.observe(c));
+  paginas.forEach(item => obsNumero.observe(item.canvas));
 }
 
 function scrollPagina(n) {
@@ -3291,6 +3396,32 @@ document.getElementById("pdf-next").addEventListener("click", () => {
 document.getElementById("pdf-page-cur").addEventListener("change", e => {
   scrollPagina(parseInt(e.target.value) || 1);
 });
+
+// Atajos de teclado — PageUp/Down, flechas, Home/End para navegar, Ctrl
+// +/-/0 para zoom. Estándar en Chrome PDF viewer, Adobe, Preview. Se
+// ignoran mientras el foco está en un input/textarea para no pisar la
+// edición de texto en otras partes de la app.
+document.addEventListener("keydown", e => {
+  if (!pdfDoc || !document.getElementById("pdf-canvas-wrap").classList.contains("show")) return;
+  const tag = document.activeElement?.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA") return;
+  const cur = () => parseInt(document.getElementById("pdf-page-cur").value) || 1;
+  if (e.key === "PageDown" || e.key === "ArrowRight" || e.key === "ArrowDown") {
+    e.preventDefault(); scrollPagina(cur() + 1);
+  } else if (e.key === "PageUp" || e.key === "ArrowLeft" || e.key === "ArrowUp") {
+    e.preventDefault(); scrollPagina(cur() - 1);
+  } else if (e.key === "Home") {
+    e.preventDefault(); scrollPagina(1);
+  } else if (e.key === "End") {
+    e.preventDefault(); scrollPagina(pdfDoc.numPages);
+  } else if ((e.ctrlKey || e.metaKey) && (e.key === "+" || e.key === "=")) {
+    e.preventDefault(); document.getElementById("pdf-zoom-in").click();
+  } else if ((e.ctrlKey || e.metaKey) && e.key === "-") {
+    e.preventDefault(); document.getElementById("pdf-zoom-out").click();
+  } else if ((e.ctrlKey || e.metaKey) && e.key === "0") {
+    e.preventDefault(); document.getElementById("pdf-zoom-label").click();
+  }
+});
 document.getElementById("pdf-zoom-in").addEventListener("click", async () => {
   if (!pdfDoc) return;
   pdfZoom = Math.min(pdfZoom + 0.2, 3.0);
@@ -3301,6 +3432,17 @@ document.getElementById("pdf-zoom-in").addEventListener("click", async () => {
 document.getElementById("pdf-zoom-out").addEventListener("click", async () => {
   if (!pdfDoc) return;
   pdfZoom = Math.max(pdfZoom - 0.2, 0.4);
+  document.getElementById("pdf-zoom-label").textContent = Math.round(pdfZoom*100)+"%";
+  await renderizarPDF();
+  guardarEstadoPDF();
+});
+// Tocar el porcentaje resetea al zoom de ajuste a pantalla — misma idea
+// que en el visor de imágenes, para salir rápido si te perdiste zoomeando.
+document.getElementById("pdf-zoom-label").style.cursor = "pointer";
+document.getElementById("pdf-zoom-label").title = "Restablecer zoom";
+document.getElementById("pdf-zoom-label").addEventListener("click", async () => {
+  if (!pdfDoc) return;
+  pdfZoom = calcZoomFit();
   document.getElementById("pdf-zoom-label").textContent = Math.round(pdfZoom*100)+"%";
   await renderizarPDF();
   guardarEstadoPDF();
@@ -3325,6 +3467,16 @@ document.getElementById("pdf-zoom-out").addEventListener("click", async () => {
     return Math.hypot(dx, dy);
   }
 
+  // Origen del transform en % relativo al viewport visible del wrap — así
+  // el preview de zoom ancla al punto tocado/apuntado, no siempre arriba-
+  // centro (que hacía que el contenido "se escapara" al pinchar abajo).
+  function fijarOrigenTransform(clientX, clientY) {
+    const r = wrap.getBoundingClientRect();
+    const ox = ((clientX - r.left) / r.width) * 100;
+    const oy = ((clientY - r.top) / r.height) * 100;
+    wrap.style.transformOrigin = `${ox}% ${oy}%`;
+  }
+
   wrap.addEventListener("touchstart", e => {
     if (e.touches.length === 2 && pdfDoc) {
       pinchActivo = true;
@@ -3339,7 +3491,9 @@ document.getElementById("pdf-zoom-out").addEventListener("click", async () => {
     const dist = distanciaEntreDedos(e.touches);
     const factor = dist / distInicial;
     zoomPendiente = Math.min(Math.max(zoomInicial * factor, 0.4), 3.0);
-    wrap.style.transformOrigin = "50% 0";
+    const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+    const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    fijarOrigenTransform(midX, midY);
     wrap.style.transform = `scale(${zoomPendiente / pdfZoom})`;
   }, { passive: false });
 
@@ -3360,6 +3514,30 @@ document.getElementById("pdf-zoom-out").addEventListener("click", async () => {
     wrap.style.transform = "";
     zoomPendiente = null;
   });
+
+  // Ctrl/Cmd + rueda para zoom — estándar en Chrome PDF viewer / Adobe /
+  // Preview. Sin Ctrl, la rueda sigue haciendo scroll normal de páginas.
+  // Se previsualiza con transform (barato) y recién se re-renderiza con
+  // pdf.js (caro, nítido) cuando el usuario deja de girar la rueda.
+  let wheelZoomTimeout = null;
+  wrap.addEventListener("wheel", e => {
+    if (!(e.ctrlKey || e.metaKey) || !pdfDoc) return;
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+    zoomPendiente = Math.min(Math.max((zoomPendiente ?? pdfZoom) * factor, 0.4), 3.0);
+    fijarOrigenTransform(e.clientX, e.clientY);
+    wrap.style.transform = `scale(${zoomPendiente / pdfZoom})`;
+    clearTimeout(wheelZoomTimeout);
+    wheelZoomTimeout = setTimeout(async () => {
+      wrap.style.transform = "";
+      if (zoomPendiente && pdfDoc) {
+        pdfZoom = zoomPendiente;
+        document.getElementById("pdf-zoom-label").textContent = Math.round(pdfZoom * 100) + "%";
+        await renderizarPDF();
+      }
+      zoomPendiente = null;
+    }, 220);
+  }, { passive: false });
 })();
 
 // Recargar
@@ -3379,19 +3557,30 @@ document.getElementById("btn-retry").addEventListener("click", () => {
 /* ============================================================
    QR
    ============================================================ */
+let qrLinkActual = null;
 function mostrarQR(id, nombre) {
+  qrLinkActual = `${CONFIG.APP_URL}/?file=${id}`;
   document.getElementById("qr-filename").textContent = nombre;
   document.getElementById("qr-canvas").innerHTML = "";
   new QRCode(document.getElementById("qr-canvas"), {
-    text: `${CONFIG.APP_URL}/?file=${id}`,
+    text: qrLinkActual,
     width: 180, height: 180,
     colorDark: "#14161A", colorLight: "#ffffff",
     correctLevel: QRCode.CorrectLevel.M,
   });
   document.getElementById("modal-qr").classList.add("visible");
 }
-document.getElementById("btn-qr-cerrar").addEventListener("click", () =>
+document.getElementById("btn-qr-x").addEventListener("click", () =>
   document.getElementById("modal-qr").classList.remove("visible"));
+document.getElementById("btn-qr-copiar").addEventListener("click", async () => {
+  if (!qrLinkActual) return;
+  try {
+    await navigator.clipboard.writeText(qrLinkActual);
+    showToast("Link copiado ✓");
+  } catch (e) {
+    showToast("No se pudo copiar el link");
+  }
+});
 document.getElementById("modal-qr").addEventListener("click", e => {
   if (e.target === document.getElementById("modal-qr"))
     document.getElementById("modal-qr").classList.remove("visible");
@@ -3759,7 +3948,7 @@ function initDriveOAuth() {
       if (subidasDrivePendientes.length) {
         const cola = subidasDrivePendientes.slice();
         subidasDrivePendientes = [];
-        cola.forEach(ejecutarSubidaDrive);
+        cola.forEach(item => EJECUTORES_DRIVE[item.tipo] && EJECUTORES_DRIVE[item.tipo](item));
       }
     },
   });
@@ -4245,10 +4434,63 @@ async function ejecutarSubidaDrive(payload) {
     enviarAlVisor3D({ tipo: "subidaDriveError", reqId, error: err.message || String(err) });
   }
 }
+
+// Vistas guardadas: cada modelo guarda sus capturas en una subcarpeta propia
+// ("<nombre del glb> - vistas guardadas") dentro de la carpeta del modelo.
+// Buscarla/crearla requiere el token de escritura (listar podría hacerse con
+// la API Key, pero crear no), así que todo pasa por acá igual que el resto.
+async function ejecutarResolverCarpetaVistas(payload) {
+  const { nombreGlb, carpetaPadreId, reqId } = payload;
+  try {
+    const nombreCarpeta = `${nombreGlb} - vistas guardadas`;
+    const nombreEscapado = nombreCarpeta.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+    const q = encodeURIComponent(`name='${nombreEscapado}' and '${carpetaPadreId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+    const listResp = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)`, {
+      headers: { Authorization: `Bearer ${driveAccessToken}` },
+    });
+    if (!listResp.ok) throw new Error(`No se pudo buscar la carpeta (HTTP ${listResp.status})`);
+    const listData = await listResp.json();
+    let folderId = listData.files?.[0]?.id;
+    if (!folderId) {
+      const createResp = await fetch("https://www.googleapis.com/drive/v3/files", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${driveAccessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ name: nombreCarpeta, mimeType: "application/vnd.google-apps.folder", parents: [carpetaPadreId] }),
+      });
+      if (!createResp.ok) throw new Error(`No se pudo crear la carpeta (HTTP ${createResp.status})`);
+      folderId = (await createResp.json()).id;
+    }
+    enviarAlVisor3D({ tipo: "resolverCarpetaVistasOK", reqId, carpetaId: folderId });
+  } catch (err) {
+    enviarAlVisor3D({ tipo: "resolverCarpetaVistasError", reqId, error: err.message || String(err) });
+  }
+}
+
+// Borra un archivo de Drive (imagen de una vista guardada eliminada) —
+// mantiene sincronizada la carpeta de capturas con la lista de vistas.
+async function ejecutarBorrarArchivoDrive(payload) {
+  const { fileId, reqId } = payload;
+  try {
+    const resp = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${driveAccessToken}` },
+    });
+    if (!resp.ok && resp.status !== 404) throw new Error(`No se pudo borrar (HTTP ${resp.status})`);
+    enviarAlVisor3D({ tipo: "borrarArchivoDriveOK", reqId });
+  } catch (err) {
+    enviarAlVisor3D({ tipo: "borrarArchivoDriveError", reqId, error: err.message || String(err) });
+  }
+}
+
+const EJECUTORES_DRIVE = {
+  subidaDrive: ejecutarSubidaDrive,
+  resolverCarpetaVistas: ejecutarResolverCarpetaVistas,
+  borrarArchivoDrive: ejecutarBorrarArchivoDrive,
+};
 window.addEventListener("message", (e) => {
-  if (!e.data || e.data.tipo !== "subidaDrive") return;
+  if (!e.data || !EJECUTORES_DRIVE[e.data.tipo]) return;
   if (driveEscrituraConectada()) {
-    ejecutarSubidaDrive(e.data);
+    EJECUTORES_DRIVE[e.data.tipo](e.data);
   } else {
     subidasDrivePendientes.push(e.data);
     conectarEscrituraDrive();
@@ -4619,10 +4861,31 @@ canvas{display:block;width:100%;height:100%}
 /* Guardar vista — botón flotante debajo de la brújula (reset view) */
 #btnGuardarVista{position:fixed;top:calc(var(--safe-top) + 112px);right:16px;width:36px;height:36px;border-radius:10px;background:rgba(232,234,239,.88);border:1px solid var(--border);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:190;cursor:pointer;color:var(--text)}
 #btnGuardarVista:active{color:var(--acc)}
+#vistasBadge3D{position:absolute;top:-5px;right:-5px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:#3A6BE8;color:#fff;font-size:9.5px;font-weight:700;display:none;align-items:center;justify-content:center;line-height:1;border:1.5px solid var(--surf)}
+#vistasBadge3D.show{display:flex}
 
 /* Notas 3D — botón flotante debajo de "Guardar vista" */
 #btnNotas3D{position:fixed;top:calc(var(--safe-top) + 156px);right:16px;width:36px;height:36px;border-radius:10px;background:rgba(232,234,239,.88);border:1px solid var(--border);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:190;cursor:pointer;color:var(--text)}
 #btnNotas3D.on{color:#fff;background:var(--acc);border-color:var(--acc)}
+#notasBadge3D{position:absolute;top:-5px;right:-5px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:#e03050;color:#fff;font-size:9.5px;font-weight:700;display:none;align-items:center;justify-content:center;line-height:1;border:1.5px solid var(--surf);cursor:pointer}
+#notasBadge3D.show{display:flex}
+
+#panelListaNotas{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);display:none;flex-direction:column;gap:10px;width:min(320px,calc(100vw - 32px));max-height:min(420px,calc(100vh - 100px));background:rgba(240,242,246,.98);border:1px solid var(--border);border-radius:14px;padding:14px;z-index:410;box-shadow:0 12px 40px rgba(0,0,0,.3)}
+#panelListaNotas.show{display:flex}
+.lista-notas-head{display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.lista-notas-head span{font-weight:700;font-size:13px}
+.lista-notas-head-btns{display:flex;align-items:center;gap:6px}
+#listaNotasAgregar{width:28px;height:28px;border:none;border-radius:8px;background:#3A6BE8;color:#fff;font-size:17px;font-weight:700;cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center}
+#listaNotasCerrar{width:28px;height:28px;border:none;background:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1}
+#listaNotasItems{display:flex;flex-direction:column;gap:6px;overflow-y:auto;min-height:0}
+.lista-notas-vacio{font-size:12px;color:var(--muted);text-align:center;padding:16px 0}
+.lista-notas-item{display:flex;flex-direction:column;gap:2px;text-align:left;width:100%;background:var(--surf2);border:1px solid var(--border);border-radius:9px;padding:8px 10px;cursor:pointer;font-family:inherit}
+.lista-notas-item:active{border-color:var(--acc)}
+.lni-top{display:flex;align-items:center;gap:5px}
+.lni-num{flex-shrink:0;width:16px;height:16px;border-radius:50%;background:rgba(58,107,232,.85);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace}
+.lni-pieza{font-family:monospace;font-size:10px;color:#3A6BE8;font-weight:700}
+.lni-clip{color:#3A6BE8;flex-shrink:0}
+.lni-texto{font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 #panelNota{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);display:none;flex-direction:column;gap:10px;width:min(320px,calc(100vw - 32px));background:rgba(240,242,246,.98);border:1px solid var(--border);border-radius:14px;padding:14px;z-index:410;box-shadow:0 12px 40px rgba(0,0,0,.3)}
 #panelNota.show{display:flex}
@@ -4646,18 +4909,45 @@ canvas{display:block;width:100%;height:100%}
 #notaGuardar3D:disabled{opacity:.5;cursor:default}
 #notaBorrar3D{background:none;border:1px solid #e03050 !important;color:#e03050}
 
-/* Modal "Vista guardada" — captura + QR + link, mismo espíritu que el QR de archivos del doc principal */
-#modalVista{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:400;display:none;align-items:center;justify-content:center;padding:20px}
+/* Modal "Vista guardada" — un solo modal compacto para los dos momentos:
+   guardar una vista nueva y compartir una ya guardada. Miniatura chica
+   (no ocupa media pantalla) + QR y acciones lado a lado para que quepa
+   todo sin scroll en la mayoría de los celulares. */
+#modalVista{position:fixed;inset:0;background:rgba(0,0,0,.5);backdrop-filter:blur(3px);z-index:400;display:none;align-items:center;justify-content:center;padding:20px}
 #modalVista.show{display:flex}
-.vista-sheet{background:var(--surf);border:1px solid var(--border);border-radius:16px;padding:20px;max-width:340px;width:100%;display:flex;flex-direction:column;align-items:center;gap:12px;max-height:90vh;overflow-y:auto}
-.vista-sheet h3{font-size:14px;font-weight:700;align-self:flex-start}
-#vistaThumb{width:100%;border-radius:10px;border:1px solid var(--border);background:#000}
-#vistaQR{background:#fff;padding:10px;border-radius:8px}
-.vista-sheet .vista-actions{display:flex;gap:8px;width:100%}
-.vista-sheet .vista-actions button{flex:1;height:40px;border-radius:10px;font-family:inherit;font-weight:600;font-size:12px;cursor:pointer;border:none}
-#btnVistaDescargar{background:var(--acc);color:#fff}
+.vista-sheet{position:relative;background:var(--surf);border:1px solid var(--border);border-radius:16px;padding:18px;max-width:300px;width:100%;display:flex;flex-direction:column;align-items:center;gap:10px;max-height:88vh;overflow-y:auto}
+.vista-sheet h3{font-size:13px;font-weight:700;align-self:flex-start}
+.sheet-x-vista{position:absolute;top:12px;right:12px;width:26px;height:26px;border-radius:8px;background:var(--surf2);border:1px solid var(--border);color:var(--muted);font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer}
+#vistaThumb{width:120px;height:120px;object-fit:cover;border-radius:10px;border:1px solid var(--border);background:#000}
+.vista-texto-label{align-self:flex-start;font-size:10.5px;font-weight:600;color:var(--muted);margin:-4px 0 -4px}
+#vistaTexto{width:100%;min-height:44px;box-sizing:border-box;resize:vertical;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--text);font-size:12.5px;padding:7px;line-height:1.4;font-family:inherit;flex-shrink:0}
+#vistaTexto:disabled{background:var(--surf2);color:var(--muted);resize:none}
+.vista-share-row{display:flex;align-items:center;gap:10px;width:100%}
+#vistaQR{background:#fff;padding:6px;border-radius:8px;flex-shrink:0;line-height:0}
+#vistaQR img,#vistaQR canvas{width:72px;height:72px}
+.vista-share-btns{flex:1;display:flex;flex-direction:column;gap:6px;min-width:0}
+.vista-share-btns button{width:100%;height:32px;border-radius:8px;font-family:inherit;font-weight:600;font-size:11px;cursor:pointer;border:none}
 #btnVistaCopiar{background:var(--surf2);color:var(--text);border:1px solid var(--border) !important}
-#btnVistaCerrar{background:none;color:var(--muted);border:1px solid var(--border) !important;width:100%;height:36px;border-radius:10px;font-family:inherit;font-size:12px;cursor:pointer}
+#btnVistaDescargar{background:var(--acc);color:#fff}
+.vista-guardar-btn{width:100%;height:38px;border-radius:10px;border:none;background:#3A6BE8;color:#fff;font-family:inherit;font-weight:700;font-size:12.5px;cursor:pointer}
+.vista-guardar-btn:disabled{opacity:.5;cursor:default}
+.vista-guardar-btn.hide,#vistaTextoLabel.hide{display:none}
+#btnVistaCerrar{background:none;color:var(--muted);border:1px solid var(--border) !important;width:100%;height:32px;border-radius:9px;font-family:inherit;font-size:11.5px;cursor:pointer}
+
+#panelListaVistas{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);display:none;flex-direction:column;gap:10px;width:min(320px,calc(100vw - 32px));max-height:min(460px,calc(100vh - 100px));background:rgba(240,242,246,.98);border:1px solid var(--border);border-radius:14px;padding:14px;z-index:410;box-shadow:0 12px 40px rgba(0,0,0,.3)}
+#panelListaVistas.show{display:flex}
+#listaVistasItems{display:flex;flex-direction:column;gap:8px;overflow-y:auto;min-height:0}
+.lista-vistas-vacio{font-size:12px;color:var(--muted);text-align:center;padding:16px 0}
+.lista-vistas-item{display:flex;align-items:center;gap:10px;text-align:left;width:100%;background:var(--surf2);border:1px solid var(--border);border-radius:9px;padding:8px;cursor:pointer;font-family:inherit}
+.lista-vistas-item:active{border-color:var(--acc)}
+.lvi-thumb{width:44px;height:44px;border-radius:7px;object-fit:cover;flex-shrink:0;background:#000}
+.lvi-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.lvi-texto{font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lvi-fecha{font-size:9.5px;color:var(--muted)}
+.lvi-compartir{width:26px;height:26px;border-radius:7px;border:none;background:none;color:var(--muted);flex-shrink:0;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.lvi-compartir:active{color:#3A6BE8}
+.lvi-borrar{width:26px;height:26px;border-radius:7px;border:none;background:none;color:var(--muted);font-size:16px;flex-shrink:0;cursor:pointer}
+.lvi-borrar:active{color:#e03050}
 .compass svg{width:20px;height:20px}
 .tap-guide{position:fixed;bottom:calc(104px + var(--safe-bottom));left:16px;background:rgba(232,234,239,.88);border:1px solid var(--border);backdrop-filter:blur(8px);border-radius:12px;padding:8px 12px;font-size:10px;color:var(--muted);z-index:190;pointer-events:none;line-height:1.6}
 .tap-guide strong{color:var(--text);display:block;margin-bottom:2px;font-size:11px}
@@ -4792,6 +5082,7 @@ window.onerror=function(msg,src,line){
 <div class="mode-pill" id="modePill">Órbita libre</div>
 <div id="canvas-wrap"><canvas id="cv"></canvas></div>
 <svg id="badges-svg" style="position:fixed;inset:0;pointer-events:none;z-index:85;overflow:visible"></svg>
+<svg id="notas-svg" style="position:fixed;inset:0;pointer-events:none;z-index:86;overflow:visible"></svg>
 <svg id="msr-svg">
   <defs>
     <!-- Arrow markers for each axis color -->
@@ -4899,19 +5190,42 @@ window.onerror=function(msg,src,line){
     <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
     <circle cx="12" cy="13" r="4"/>
   </svg>
+  <span id="vistasBadge3D" aria-hidden="true"></span>
 </button>
 
+<!-- Un solo modal compacto, con dos modos (ver .modo-nueva / .modo-compartir
+     en JS): "Nueva vista" (capturar+anotar+guardar, con link/QR ya
+     disponibles de entrada) y "Compartir vista" (una ya guardada — sin botón
+     Guardar, la nota se ve pero no se edita todavía). Miniatura chica arriba
+     para que no ocupe media pantalla. -->
 <div id="modalVista">
   <div class="vista-sheet">
-    <h3>Vista guardada</h3>
+    <button id="btnVistaX" type="button" aria-label="Cerrar" class="sheet-x-vista">×</button>
+    <h3 id="vistaModalTitulo">Nueva vista</h3>
     <img id="vistaThumb" alt="Captura de la vista">
-    <div id="vistaQR"></div>
-    <div class="vista-actions">
-      <button id="btnVistaCopiar" type="button">Copiar link</button>
-      <button id="btnVistaDescargar" type="button">Descargar PNG</button>
+    <label for="vistaTexto" id="vistaTextoLabel" class="vista-texto-label">Nota (opcional)</label>
+    <textarea id="vistaTexto" rows="2" autocomplete="off" spellcheck="false" placeholder="Ej: revisar soldadura antes de armar"></textarea>
+    <div class="vista-share-row">
+      <div id="vistaQR"></div>
+      <div class="vista-share-btns">
+        <button id="btnVistaCopiar" type="button">Copiar link</button>
+        <button id="btnVistaDescargar" type="button">Descargar QR</button>
+      </div>
     </div>
+    <button id="btnVistaGuardar" type="button" class="vista-guardar-btn">Guardar vista</button>
     <button id="btnVistaCerrar" type="button">Cerrar</button>
   </div>
+</div>
+
+<div id="panelListaVistas">
+  <div class="lista-notas-head">
+    <span>Vistas guardadas</span>
+    <div class="lista-notas-head-btns">
+      <button id="listaVistasAgregar" type="button" aria-label="Nueva vista" title="Nueva vista">+</button>
+      <button id="listaVistasCerrar" type="button" aria-label="Cerrar">×</button>
+    </div>
+  </div>
+  <div id="listaVistasItems"></div>
 </div>
 
 <!-- Notas 3D — compartidas vía Drive: cualquiera las ve, solo alguien
@@ -4920,6 +5234,7 @@ window.onerror=function(msg,src,line){
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
     <path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
   </svg>
+  <span id="notasBadge3D" aria-hidden="true"></span>
 </button>
 
 <div id="panelNota">
@@ -4928,7 +5243,7 @@ window.onerror=function(msg,src,line){
     <button id="notaCerrar3D" type="button" aria-label="Cerrar">×</button>
   </div>
   <div id="notaPieza3D">—</div>
-  <textarea id="notaTexto3D" rows="3" placeholder="Escribí la nota… (ej: cambiar por DN80)"></textarea>
+  <textarea id="notaTexto3D" rows="3" autocomplete="off" spellcheck="false" placeholder="Escribí la nota… (ej: cambiar por DN80)"></textarea>
 
   <input type="file" id="notaAdjuntoInput3D" accept="image/*,application/pdf" style="display:none">
   <div id="notaAdjuntoPreview3D" style="display:none"></div>
@@ -4943,6 +5258,17 @@ window.onerror=function(msg,src,line){
     <button id="notaGuardar3D" type="button">Guardar</button>
     <button id="notaBorrar3D" type="button" style="display:none">Borrar</button>
   </div>
+</div>
+
+<div id="panelListaNotas">
+  <div class="lista-notas-head">
+    <span>Notas del modelo</span>
+    <div class="lista-notas-head-btns">
+      <button id="listaNotasAgregar" type="button" aria-label="Agregar nota" title="Agregar nota">+</button>
+      <button id="listaNotasCerrar" type="button" aria-label="Cerrar">×</button>
+    </div>
+  </div>
+  <div id="listaNotasItems"></div>
 </div>
 
 <div class="hover-label" id="hoverLabel">—</div>
@@ -5513,6 +5839,7 @@ async function buildSceneFromGLB(glbData, selectedIndices){
     }
 
     cargarNotasDrive();
+    cargarVistasGuardadas();
 
     if(loadBar) loadBar.style.width='100%';
     await new Promise(r=>setTimeout(r,300));
@@ -6074,6 +6401,26 @@ document.getElementById('btnReset').addEventListener('click',()=>{
    la cámara viaja codificada en la URL.
    ============================================================ */
 let vistaLinkActual = null;
+let vistasGuardadas = []; // [{id,texto,fecha,camPos:[x,y,z],camTarget:[x,y,z],explode,thumbFileId}]
+let vistasReqSeq = 0;
+const vistasReqPendientes = {}; // reqId -> {resolve,reject}
+
+window.addEventListener('message', (e) => {
+  if (!e.data) return;
+  if (e.data.tipo === 'resolverCarpetaVistasOK' && vistasReqPendientes[e.data.reqId]) {
+    vistasReqPendientes[e.data.reqId].resolve(e.data.carpetaId);
+    delete vistasReqPendientes[e.data.reqId];
+  } else if (e.data.tipo === 'resolverCarpetaVistasError' && vistasReqPendientes[e.data.reqId]) {
+    vistasReqPendientes[e.data.reqId].reject(new Error(e.data.error || 'Error al resolver la carpeta de vistas'));
+    delete vistasReqPendientes[e.data.reqId];
+  } else if (e.data.tipo === 'borrarArchivoDriveOK' && vistasReqPendientes[e.data.reqId]) {
+    vistasReqPendientes[e.data.reqId].resolve();
+    delete vistasReqPendientes[e.data.reqId];
+  } else if (e.data.tipo === 'borrarArchivoDriveError' && vistasReqPendientes[e.data.reqId]) {
+    vistasReqPendientes[e.data.reqId].reject(new Error(e.data.error || 'Error al borrar el archivo'));
+    delete vistasReqPendientes[e.data.reqId];
+  }
+});
 
 function construirLinkVistaActual() {
   if (!archivoActualFileId || !appBaseUrlActual) return null;
@@ -6091,31 +6438,179 @@ function construirLinkVistaActual() {
   return `${appBaseUrlActual}?${params.toString()}`;
 }
 
-document.getElementById('btnGuardarVista').addEventListener('click', () => {
+// Captura cuadrada fija de 1000x1000 — independiente del tamaño real de
+// pantalla, para que la miniatura + el texto + el QR se vean consistentes
+// sin importar en qué dispositivo se guardó la vista. Se renderiza en el
+// mismo tick síncrono (sin preserveDrawingBuffer el navegador puede limpiar
+// el buffer apenas termina el frame) y se revierte el tamaño enseguida para
+// no dejar el canvas cuadrado pisando la vista normal.
+function capturarVista1000() {
+  const sizeAnterior = new THREE.Vector2();
+  renderer.getSize(sizeAnterior);
+  const prevAspect = camera.aspect;
+  const prevPR = renderer.getPixelRatio();
+  renderer.setPixelRatio(1);
+  renderer.setSize(1000, 1000, false);
+  camera.aspect = 1;
+  camera.updateProjectionMatrix();
+  renderer.render(scene, camera);
+  const dataUrl = renderer.domElement.toDataURL('image/png');
+  renderer.setPixelRatio(prevPR);
+  renderer.setSize(sizeAnterior.x, sizeAnterior.y, false);
+  camera.aspect = prevAspect;
+  camera.updateProjectionMatrix();
+  return dataUrl;
+}
+function dataUrlToBlob(dataUrl) {
+  const [meta, b64] = dataUrl.split(',');
+  const mime = meta.match(/:(.*?);/)[1];
+  const bin = atob(b64);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+
+function nombreArchivoVistas() {
+  return archivoDriveIdActual ? `plantview-vistas-${archivoDriveIdActual}.json` : null;
+}
+
+function actualizarBadgeVistas() {
+  const badge = document.getElementById('vistasBadge3D');
+  const n = vistasGuardadas.length;
+  badge.textContent = n > 99 ? '99+' : String(n);
+  badge.classList.toggle('show', n > 0);
+}
+
+// Lectura pública (API Key, sin login) del manifiesto de vistas guardadas —
+// mismo patrón que las notas 3D.
+async function cargarVistasGuardadas() {
+  vistasGuardadas = [];
+  const archivo = nombreArchivoVistas();
+  if (archivo && driveApiKeyActual && carpetaDriveIdActual && appBaseUrlActual) {
+    try {
+      const q = encodeURIComponent(`name='${archivo}' and '${carpetaDriveIdActual}' in parents and trashed=false`);
+      const metaUrl = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&key=${driveApiKeyActual}`;
+      const meta = await (await fetch(metaUrl)).json();
+      const found = meta.files && meta.files[0];
+      if (found) {
+        const origen = new URL(appBaseUrlActual).origin;
+        // Bucket de 20s en vez de no-store puro: sigue "vivo" para el uso
+        // normal (abrir un modelo de vez en cuando), pero si el mismo modelo
+        // se recarga varias veces seguidas (como en testing) reusa el caché
+        // del navegador en vez de pegarle a la API de Drive cada vez —
+        // ayuda a no gatillar el bloqueo anti-bot de Google por volumen.
+        const bucket = Math.floor(Date.now() / 20000);
+        const proxyUrl = `${origen}/api/drive-proxy?fileId=${found.id}&key=${encodeURIComponent(driveApiKeyActual)}&_=${bucket}`;
+        const res = await fetch(proxyUrl);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) vistasGuardadas = data;
+        }
+      }
+    } catch (err) {
+      console.warn('No se pudieron cargar las vistas guardadas:', err);
+    }
+  }
+  actualizarBadgeVistas();
+}
+
+function guardarVistasGuardadasDrive() {
+  const archivo = nombreArchivoVistas();
+  if (!archivo) return Promise.reject(new Error('No hay carpeta de Drive asociada a este modelo'));
+  const blob = new Blob([JSON.stringify(vistasGuardadas)], { type: 'application/json' });
+  return subirArchivoADriveDesdeVisor(archivo, blob, carpetaDriveIdActual);
+}
+
+// Resuelve (o crea) la subcarpeta "<nombre del glb> - vistas guardadas" —
+// requiere el token de escritura, así que pasa por la app externa como el
+// resto de las operaciones de Drive.
+function resolverCarpetaVistasDrive() {
+  return new Promise((resolve, reject) => {
+    if (!carpetaDriveIdActual) { reject(new Error('No hay carpeta de Drive asociada a este modelo')); return; }
+    const nombreGlb = (archivoNombreActual || 'modelo').replace(/\.[a-zA-Z0-9]+$/, '');
+    const reqId = ++vistasReqSeq;
+    vistasReqPendientes[reqId] = { resolve, reject };
+    window.parent.postMessage({ tipo: 'resolverCarpetaVistas', reqId, nombreGlb, carpetaPadreId: carpetaDriveIdActual }, '*');
+  });
+}
+function borrarArchivoDriveDesdeVisor(fileId) {
+  return new Promise((resolve, reject) => {
+    const reqId = ++vistasReqSeq;
+    vistasReqPendientes[reqId] = { resolve, reject };
+    window.parent.postMessage({ tipo: 'borrarArchivoDrive', reqId, fileId }, '*');
+  });
+}
+
+function cerrarModalVista() {
+  document.getElementById('modalVista').classList.remove('show');
+}
+
+// Un solo modal, dos modos:
+// - "nueva": captura la cámara actual, deja anotar y muestra el botón
+//   Guardar — el link/QR ya están disponibles de entrada aunque no se
+//   guarde nada (comparten cámara vía URL sin necesidad de persistir).
+// - "compartir": una vista YA guardada (desde la lista) — miniatura real
+//   de Drive, nota de solo lectura, sin botón Guardar.
+function abrirModalNuevaVista() {
   vistaLinkActual = construirLinkVistaActual();
   if (!vistaLinkActual) {
     toast('Todavía no se pudo identificar este archivo — probá recargarlo desde Files');
     return;
   }
-
-  // Captura real de la vista actual — hay que renderizar justo antes de leer
-  // el canvas: sin preserveDrawingBuffer, el navegador puede limpiar el buffer
-  // apenas termina el frame, así que se hace todo en el mismo tick síncrono.
-  renderer.render(scene, camera);
-  document.getElementById('vistaThumb').src = renderer.domElement.toDataURL('image/png');
+  document.getElementById('vistaModalTitulo').textContent = 'Nueva vista';
+  document.getElementById('vistaThumb').src = capturarVista1000();
+  const texto = document.getElementById('vistaTexto');
+  texto.value = '';
+  texto.disabled = false;
+  document.getElementById('vistaTextoLabel').classList.remove('hide');
+  const btnGuardar = document.getElementById('btnVistaGuardar');
+  btnGuardar.classList.remove('hide');
+  btnGuardar.disabled = false;
 
   const qrEl = document.getElementById('vistaQR');
   qrEl.innerHTML = '';
   new QRCode(qrEl, { text: vistaLinkActual, width: 160, height: 160, correctLevel: QRCode.CorrectLevel.M });
 
   document.getElementById('modalVista').classList.add('show');
+}
+
+function construirLinkParaVista(v) {
+  if (!archivoActualFileId || !appBaseUrlActual || !v.camPos || !v.camTarget) return null;
+  const params = new URLSearchParams({
+    file: archivoActualFileId,
+    cx: v.camPos[0].toFixed(2), cy: v.camPos[1].toFixed(2), cz: v.camPos[2].toFixed(2),
+    tx: v.camTarget[0].toFixed(2), ty: v.camTarget[1].toFixed(2), tz: v.camTarget[2].toFixed(2),
+  });
+  if (v.explode > 0) params.set('ex', String(v.explode));
+  return `${appBaseUrlActual}?${params.toString()}`;
+}
+function abrirModalCompartirVista(v) {
+  vistaLinkActual = construirLinkParaVista(v);
+  if (!vistaLinkActual) { toast('No se pudo generar el link de esta vista'); return; }
+  document.getElementById('vistaModalTitulo').textContent = 'Compartir vista';
+  document.getElementById('vistaThumb').src = urlAdjuntoDrive(v.thumbFileId) || '';
+  const texto = document.getElementById('vistaTexto');
+  texto.value = v.texto || '';
+  texto.disabled = true;
+  document.getElementById('vistaTextoLabel').classList.toggle('hide', !v.texto);
+  document.getElementById('btnVistaGuardar').classList.add('hide');
+
+  const qrEl = document.getElementById('vistaQR');
+  qrEl.innerHTML = '';
+  new QRCode(qrEl, { text: vistaLinkActual, width: 160, height: 160, correctLevel: QRCode.CorrectLevel.M });
+
+  document.getElementById('modalVista').classList.add('show');
+}
+
+document.getElementById('btnGuardarVista').addEventListener('click', () => {
+  if (vistasGuardadas.length > 0) abrirListaVistas();
+  else abrirModalNuevaVista();
 });
 
-document.getElementById('btnVistaCerrar').addEventListener('click', () => {
-  document.getElementById('modalVista').classList.remove('show');
-});
+document.getElementById('btnVistaCerrar').addEventListener('click', cerrarModalVista);
+document.getElementById('btnVistaX').addEventListener('click', cerrarModalVista);
 document.getElementById('modalVista').addEventListener('click', e => {
-  if (e.target.id === 'modalVista') document.getElementById('modalVista').classList.remove('show');
+  if (e.target.id === 'modalVista') cerrarModalVista();
 });
 
 document.getElementById('btnVistaCopiar').addEventListener('click', () => {
@@ -6125,9 +6620,141 @@ document.getElementById('btnVistaCopiar').addEventListener('click', () => {
     .catch(() => toast('No se pudo copiar — copialo manualmente de la barra de direcciones'));
 });
 
-// Compone captura + QR + link en un solo PNG descargable — mismo espíritu
-// que el QR de archivos del doc principal, pero con la imagen de la vista
-// de fondo en vez de solo el código.
+// Guarda la vista de verdad: captura 1000x1000, la sube a la subcarpeta de
+// vistas del modelo (creándola si hace falta) y agrega la entrada al
+// manifiesto compartido — visible después para cualquiera que abra el modelo.
+document.getElementById('btnVistaGuardar').addEventListener('click', async () => {
+  const link = construirLinkVistaActual();
+  if (!link) return;
+  const btn = document.getElementById('btnVistaGuardar');
+  btn.disabled = true;
+  try {
+    const carpetaVistas = await resolverCarpetaVistasDrive();
+    const blob = dataUrlToBlob(document.getElementById('vistaThumb').src);
+    const id = 'v' + Date.now() + Math.random().toString(36).slice(2, 7);
+    const fileId = await subirArchivoADriveDesdeVisor(`vista-${id}.png`, blob, carpetaVistas);
+    const texto = document.getElementById('vistaTexto').value.trim();
+    const explodeSliderEl = document.getElementById('explodeSlider');
+    const exPct = explodeSliderEl ? Number(explodeSliderEl.value) : 0;
+    vistasGuardadas.push({
+      id, texto,
+      fecha: new Date().toISOString().slice(0, 10),
+      camPos: [camera.position.x, camera.position.y, camera.position.z],
+      camTarget: [target.x, target.y, target.z],
+      explode: exPct,
+      thumbFileId: fileId,
+    });
+    await guardarVistasGuardadasDrive();
+    actualizarBadgeVistas();
+    toast('Vista guardada ✓');
+    cerrarModalVista();
+  } catch (err) {
+    toast('No se pudo guardar: ' + err.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function aplicarVistaGuardada(v) {
+  if (!v.camPos || !v.camTarget) return;
+  camera.position.set(v.camPos[0], v.camPos[1], v.camPos[2]);
+  target.set(v.camTarget[0], v.camTarget[1], v.camTarget[2]);
+  camera.lookAt(target);
+  actualizarNearFar();
+  const exPct = v.explode || 0;
+  if (exPct > 0) {
+    setExplode(exPct / 100);
+    const slider = document.getElementById('explodeSlider');
+    if (slider) slider.value = exPct;
+    const label = document.getElementById('explodeLabel');
+    if (label) label.textContent = exPct + '%';
+    document.getElementById('explodeBar')?.classList.add('show');
+    document.getElementById('bExplode')?.classList.add('on');
+  }
+}
+
+// Borrar sincroniza los dos lados: saca la entrada del manifiesto Y borra la
+// imagen de Drive, para que la carpeta de capturas nunca acumule huérfanos.
+async function borrarVistaGuardada(id) {
+  const v = vistasGuardadas.find(x => x.id === id);
+  if (!v) return;
+  vistasGuardadas = vistasGuardadas.filter(x => x.id !== id);
+  actualizarBadgeVistas();
+  abrirListaVistas();
+  try {
+    if (v.thumbFileId) await borrarArchivoDriveDesdeVisor(v.thumbFileId);
+    await guardarVistasGuardadasDrive();
+    toast('Vista borrada');
+  } catch (err) {
+    toast('No se pudo borrar: ' + err.message);
+  }
+}
+
+function abrirListaVistas() {
+  const cont = document.getElementById('listaVistasItems');
+  cont.innerHTML = '';
+  if (vistasGuardadas.length === 0) {
+    const vacio = document.createElement('div');
+    vacio.className = 'lista-vistas-vacio';
+    vacio.textContent = 'Todavía no hay vistas guardadas';
+    cont.appendChild(vacio);
+  } else {
+    vistasGuardadas.forEach(v => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'lista-vistas-item';
+
+      const img = document.createElement('img');
+      img.className = 'lvi-thumb';
+      img.src = urlAdjuntoDrive(v.thumbFileId) || '';
+      img.alt = '';
+      item.appendChild(img);
+
+      const info = document.createElement('div');
+      info.className = 'lvi-info';
+      const texto = document.createElement('span');
+      texto.className = 'lvi-texto';
+      texto.textContent = v.texto || 'Vista sin nota';
+      const fecha = document.createElement('span');
+      fecha.className = 'lvi-fecha';
+      fecha.textContent = v.fecha || '';
+      info.appendChild(texto);
+      info.appendChild(fecha);
+      item.appendChild(info);
+
+      const compartir = document.createElement('button');
+      compartir.type = 'button';
+      compartir.className = 'lvi-compartir';
+      compartir.title = 'Compartir vista';
+      compartir.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="10.6" x2="15.4" y2="6.4"/><line x1="8.6" y1="13.4" x2="15.4" y2="17.6"/></svg>';
+      compartir.addEventListener('click', (e) => { e.stopPropagation(); cerrarListaVistas(); abrirModalCompartirVista(v); });
+      item.appendChild(compartir);
+
+      const borrar = document.createElement('button');
+      borrar.type = 'button';
+      borrar.className = 'lvi-borrar';
+      borrar.textContent = '×';
+      borrar.title = 'Borrar vista';
+      borrar.addEventListener('click', (e) => { e.stopPropagation(); borrarVistaGuardada(v.id); });
+      item.appendChild(borrar);
+
+      item.addEventListener('click', () => { aplicarVistaGuardada(v); cerrarListaVistas(); });
+      cont.appendChild(item);
+    });
+  }
+  document.getElementById('panelListaVistas').classList.add('show');
+}
+function cerrarListaVistas() {
+  document.getElementById('panelListaVistas').classList.remove('show');
+}
+document.getElementById('listaVistasCerrar').addEventListener('click', cerrarListaVistas);
+document.getElementById('listaVistasAgregar').addEventListener('click', () => {
+  cerrarListaVistas();
+  abrirModalNuevaVista();
+});
+
+// Compone captura + QR + link en un solo PNG descargable — la base ya es
+// 1000x1000, así que el resultado queda legible también en mobile.
 document.getElementById('btnVistaDescargar').addEventListener('click', () => {
   if (!vistaLinkActual) return;
   const thumb = document.getElementById('vistaThumb');
@@ -6137,7 +6764,7 @@ document.getElementById('btnVistaDescargar').addEventListener('click', () => {
   const img = new Image();
   img.onload = () => {
     const PAD = 24, QR_SIZE = 140, FOOTER = QR_SIZE + PAD * 3;
-    const w = Math.max(img.width, 480);
+    const w = img.width;
     const scale = w / img.width;
     const h = img.height * scale;
     const c = document.createElement('canvas');
@@ -6154,6 +6781,12 @@ document.getElementById('btnVistaDescargar').addEventListener('click', () => {
     const linkCorto = vistaLinkActual.length > 54 ? vistaLinkActual.slice(0, 54) + '…' : vistaLinkActual;
     ctx.fillText(linkCorto, PAD + QR_SIZE + PAD, h + PAD + 48);
     ctx.fillText('Escaneá el QR para entrar directo a esta vista', PAD + QR_SIZE + PAD, h + PAD + 68);
+    const textoNota = document.getElementById('vistaTexto').value.trim();
+    if (textoNota) {
+      ctx.fillStyle = '#e8eaef';
+      ctx.font = '12px sans-serif';
+      ctx.fillText(textoNota.length > 60 ? textoNota.slice(0, 60) + '…' : textoNota, PAD + QR_SIZE + PAD, h + PAD + 90);
+    }
 
     const a = document.createElement('a');
     a.download = 'vista-' + (archivoActualFileId || 'plantview').split('||').pop().replace(/\.[^.]+$/, '') + '.png';
@@ -6372,9 +7005,14 @@ function setFaceHighlight(slot, mesh, faceIndex){
 }
 
 // ── NOTAS 3D (compartidas por Drive, un pin por nota) ─────────────────
+// Marcadores como overlay SVG en pantalla (mismo patrón que los badges de
+// documentos — worldToScreen + línea punteada), NO sprites 3D: así el
+// tamaño es fijo en píxeles (no tapa piezas al acercarse) y se pueden
+// arrastrar para desambiguar notas apiladas, sin tocar la escena de three.js.
 let notas3d=[];                 // [{id,zoneId,objName,point:{x,y,z},texto,autor,fecha}]
-const notasGroup=new THREE.Group();
-scene.add(notasGroup);
+const notasSvg=document.getElementById('notas-svg');
+const notaMarkerEls={};         // id -> {g,leader,anchor,handle}
+let notaOffsets={};             // id -> {dx,dy} en px, desplazamiento manual del marcador (solo esta sesión)
 let notaAbiertaId=null;         // id de la nota que está en el panel (null = nota nueva)
 let notaHitPendiente=null;      // hit de raycast para la nota nueva sin guardar aún
 let notasReqSeq=0;
@@ -6384,34 +7022,135 @@ function nombreArchivoNotas(){
   return archivoDriveIdActual ? `plantview-notas-${archivoDriveIdActual}.json` : null;
 }
 
-function crearPinSprite(){
-  const cv=document.createElement('canvas');
-  cv.width=64;cv.height=64;
-  const ctx=cv.getContext('2d');
-  ctx.beginPath();ctx.arc(32,30,24,0,Math.PI*2);
-  ctx.fillStyle='#3A6BE8';ctx.fill();
-  ctx.lineWidth=4;ctx.strokeStyle='#fff';ctx.stroke();
-  ctx.beginPath();ctx.moveTo(24,50);ctx.lineTo(32,62);ctx.lineTo(40,50);ctx.closePath();
-  ctx.fillStyle='#3A6BE8';ctx.fill();
-  ctx.fillStyle='#fff';ctx.font='bold 30px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
-  ctx.fillText('!',32,30);
-  const tex=new THREE.CanvasTexture(cv);
-  const mat=new THREE.SpriteMaterial({map:tex,depthTest:false,sizeAttenuation:true});
-  const spr=new THREE.Sprite(mat);
-  const s=Math.max(RMAX*0.00006,0.05);
-  spr.scale.set(s,s,1);
-  spr.renderOrder=999;
-  return spr;
+function crearMarcadorNota(n){
+  const svgns='http://www.w3.org/2000/svg';
+  const g=document.createElementNS(svgns,'g');
+  g.classList.add('nota-mk');
+
+  const leader=document.createElementNS(svgns,'line');
+  leader.setAttribute('stroke','rgba(58,107,232,.6)');
+  leader.setAttribute('stroke-width','1.2');
+  leader.setAttribute('stroke-dasharray','3,3');
+  leader.setAttribute('opacity','0');
+  g.appendChild(leader);
+
+  const anchor=document.createElementNS(svgns,'circle');
+  anchor.setAttribute('r','2');
+  anchor.setAttribute('fill','rgba(58,107,232,.7)');
+  anchor.setAttribute('opacity','0');
+  g.appendChild(anchor);
+
+  const handle=document.createElementNS(svgns,'g');
+  handle.style.pointerEvents='auto';
+  handle.style.cursor='pointer';
+  handle.style.touchAction='none';
+  const halo=document.createElementNS(svgns,'circle');
+  halo.setAttribute('r','9');
+  halo.setAttribute('fill','rgba(58,107,232,.16)');
+  handle.appendChild(halo);
+  const dot=document.createElementNS(svgns,'circle');
+  dot.setAttribute('r','7.5');
+  dot.setAttribute('fill','rgba(58,107,232,.85)');
+  dot.setAttribute('stroke','#fff');
+  dot.setAttribute('stroke-width','1.2');
+  handle.appendChild(dot);
+  const num=document.createElementNS(svgns,'text');
+  num.setAttribute('text-anchor','middle');
+  num.setAttribute('dy','.32em'); // centrado vertical visual, mejor que dominant-baseline en algunos renderers
+  num.setAttribute('font-size','8.5');
+  num.setAttribute('font-weight','700');
+  num.setAttribute('fill','#fff');
+  num.setAttribute('font-family','DM Mono,monospace');
+  num.style.pointerEvents='none';
+  num.style.userSelect='none';
+  handle.appendChild(num);
+  g.appendChild(handle);
+
+  notasSvg.appendChild(g);
+  const refs={g,leader,anchor,handle,num};
+  notaMarkerEls[n.id]=refs;
+  wireMarcadorDrag(handle,n.id);
 }
 
+// Arrastre del marcador: mueve solo el "label" en pantalla (no el punto real
+// de la nota), dejando una línea punteada como referencia — igual que un
+// callout de CAD. Un tap sin arrastre abre la nota, como antes.
+function wireMarcadorDrag(handle,notaId){
+  let dragging=false,moved=false,startX=0,startY=0,baseOff={dx:0,dy:0};
+  handle.addEventListener('pointerdown',(e)=>{
+    e.stopPropagation();
+    dragging=true;moved=false;
+    startX=e.clientX;startY=e.clientY;
+    baseOff=Object.assign({dx:0,dy:0},notaOffsets[notaId]);
+    try{handle.setPointerCapture(e.pointerId);}catch(err){}
+  });
+  handle.addEventListener('pointermove',(e)=>{
+    if(!dragging)return;
+    e.stopPropagation();
+    const ddx=e.clientX-startX,ddy=e.clientY-startY;
+    if(Math.abs(ddx)>4||Math.abs(ddy)>4)moved=true;
+    if(moved){
+      notaOffsets[notaId]={dx:baseOff.dx+ddx,dy:baseOff.dy+ddy};
+      actualizarPosicionesNotas();
+    }
+  });
+  const soltar=()=>{
+    if(!dragging)return;
+    dragging=false;
+    if(!moved)abrirNota3D(notaId);
+  };
+  handle.addEventListener('pointerup',soltar);
+  handle.addEventListener('pointercancel',soltar);
+}
+
+// Sincroniza el SET de marcadores con notas3d (crea/borra elementos DOM) —
+// la posición real se recalcula cada frame en actualizarPosicionesNotas(),
+// para no perder el estado de arrastre recreando nodos.
 function renderPinesNotas(){
-  notasGroup.clear();
-  for(const n of notas3d){
-    const spr=crearPinSprite();
-    spr.position.set(n.point.x,n.point.y,n.point.z);
-    spr.userData.notaId=n.id;
-    notasGroup.add(spr);
-  }
+  const idsActuales=new Set(notas3d.map(n=>n.id));
+  Object.keys(notaMarkerEls).forEach(id=>{
+    if(!idsActuales.has(id)){
+      notaMarkerEls[id].g.remove();
+      delete notaMarkerEls[id];
+      delete notaOffsets[id];
+    }
+  });
+  notas3d.forEach(n=>{ if(!notaMarkerEls[n.id]) crearMarcadorNota(n); });
+  // Numerar los marcadores según el orden de la lista — así "nota 3" en el
+  // pin y "nota 3" en el panel de lista son la misma.
+  notas3d.forEach((n,idx)=>{ notaMarkerEls[n.id].num.textContent=String(idx+1); });
+  actualizarBadgeNotas();
+  actualizarPosicionesNotas();
+}
+
+function actualizarPosicionesNotas(){
+  Object.keys(notaMarkerEls).forEach(id=>{
+    const n=notas3d.find(x=>x.id===id);
+    const refs=notaMarkerEls[id];
+    if(!n)return;
+    const p=project(new THREE.Vector3(n.point.x,n.point.y,n.point.z));
+    if(p.behind){refs.g.style.display='none';return;}
+    refs.g.style.display='';
+    const off=notaOffsets[id]||{dx:0,dy:0};
+    const mx=p.x+off.dx,my=p.y+off.dy;
+    const tieneOffset=off.dx!==0||off.dy!==0;
+    refs.leader.setAttribute('x1',p.x);refs.leader.setAttribute('y1',p.y);
+    refs.leader.setAttribute('x2',mx);refs.leader.setAttribute('y2',my);
+    refs.leader.setAttribute('opacity',tieneOffset?'1':'0');
+    refs.anchor.setAttribute('cx',p.x);refs.anchor.setAttribute('cy',p.y);
+    refs.anchor.setAttribute('opacity',tieneOffset?'1':'0');
+    refs.handle.setAttribute('transform',`translate(${mx},${my})`);
+  });
+}
+
+// Contador en el botón de Notas: visible sin tener que entrar en modo notas
+// ni buscar los pines en el modelo — misma info para quien lo cargó y para
+// cualquiera que abra el modelo después.
+function actualizarBadgeNotas(){
+  const badge=document.getElementById('notasBadge3D');
+  const n=notas3d.length;
+  badge.textContent = n>99 ? '99+' : String(n);
+  badge.classList.toggle('show', n>0);
 }
 
 async function cargarNotasDrive(){
@@ -6426,11 +7165,13 @@ async function cargarNotasDrive(){
     const found=meta.files && meta.files[0];
     if(!found) return;
     const origen=new URL(appBaseUrlActual).origin;
-    // cache-bust: el proxy cachea 5min (bien para GLBs pesados), pero las
-    // notas tienen que sentirse en vivo — sin esto, un usuario podía ver
-    // una versión vieja del archivo de notas hasta por 5 minutos.
-    const proxyUrl=`${origen}/api/drive-proxy?fileId=${found.id}&key=${encodeURIComponent(driveApiKeyActual)}&_=${Date.now()}`;
-    const res=await fetch(proxyUrl,{cache:'no-store'});
+    // Bucket de 20s en vez de no-store puro: sigue sintiéndose "en vivo" en
+    // uso normal, pero recargar el mismo modelo varias veces seguidas (como
+    // en testing) reusa el caché del navegador en vez de pegarle a la API de
+    // Drive cada vez — ayuda a no gatillar el bloqueo anti-bot de Google.
+    const bucket=Math.floor(Date.now()/20000);
+    const proxyUrl=`${origen}/api/drive-proxy?fileId=${found.id}&key=${encodeURIComponent(driveApiKeyActual)}&_=${bucket}`;
+    const res=await fetch(proxyUrl);
     if(!res.ok) return;
     const data=await res.json();
     if(Array.isArray(data)) notas3d=data;
@@ -6587,12 +7328,90 @@ function cerrarPanelNota3D(){
 }
 
 document.getElementById('btnNotas3D').addEventListener('click',()=>{
-  const activar = mode!=='notas';
-  setMode(activar ? 'notas' : 'orbit');
-  if(!activar) cerrarPanelNota3D();
+  if(mode==='notas'){
+    setMode('orbit');
+    cerrarPanelNota3D();
+    return;
+  }
+  // Si ya hay notas, el botón principal abre la lista (es lo que la
+  // mayoría va a querer al verle un badge con número) — para agregar una
+  // nueva nota cuando ya existen otras, está el "+" dentro de la lista.
+  if(notas3d.length>0) abrirListaNotas();
+  else setMode('notas');
 });
 
 document.getElementById('notaCerrar3D').addEventListener('click', cerrarPanelNota3D);
+
+// Mueve la cámara hasta la pieza de una nota y la abre — así "ubicarla
+// visualmente" no depende de encontrar el pin a ojo en el modelo.
+function volarANota(notaId){
+  const n=notas3d.find(x=>x.id===notaId);
+  if(!n) return;
+  const p=new THREE.Vector3(n.point.x,n.point.y,n.point.z);
+  const dirActual=camera.position.clone().sub(target);
+  const dist=Math.max(dirActual.length()*0.35, targetRadius*0.25, 2);
+  const dir=dirActual.lengthSq()>0 ? dirActual.normalize() : new THREE.Vector3(1,0.6,1).normalize();
+  target.copy(p);
+  camera.position.copy(p).addScaledVector(dir,dist);
+  camera.lookAt(target);
+  actualizarNearFar();
+  abrirNota3D(notaId);
+}
+
+function abrirListaNotas(){
+  const cont=document.getElementById('listaNotasItems');
+  cont.innerHTML='';
+  if(notas3d.length===0){
+    const vacio=document.createElement('div');
+    vacio.className='lista-notas-vacio';
+    vacio.textContent='Todavía no hay notas en este modelo';
+    cont.appendChild(vacio);
+  }else{
+    notas3d.forEach((n,idx)=>{
+      const item=document.createElement('button');
+      item.type='button';
+      item.className='lista-notas-item';
+
+      const top=document.createElement('div');
+      top.className='lni-top';
+      const num=document.createElement('span');
+      num.className='lni-num';
+      num.textContent=String(idx+1);
+      top.appendChild(num);
+      const pieza=document.createElement('span');
+      pieza.className='lni-pieza';
+      pieza.textContent=n.objName||'Pieza';
+      top.appendChild(pieza);
+      if(n.adjunto){
+        const clip=document.createElementNS('http://www.w3.org/2000/svg','svg');
+        clip.setAttribute('class','lni-clip');
+        clip.setAttribute('viewBox','0 0 24 24');
+        clip.setAttribute('width','12');
+        clip.setAttribute('height','12');
+        clip.innerHTML='<path d="M21.44 11.05l-9.19 9.19a5 5 0 0 1-7.07-7.07l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>';
+        top.appendChild(clip);
+      }
+
+      const texto=document.createElement('span');
+      texto.className='lni-texto';
+      texto.textContent=n.texto||'';
+      item.appendChild(top);
+      item.appendChild(texto);
+      item.addEventListener('click',()=>{ cerrarListaNotas(); volarANota(n.id); });
+      cont.appendChild(item);
+    });
+  }
+  document.getElementById('panelListaNotas').classList.add('show');
+}
+function cerrarListaNotas(){
+  document.getElementById('panelListaNotas').classList.remove('show');
+}
+
+document.getElementById('listaNotasCerrar').addEventListener('click', cerrarListaNotas);
+document.getElementById('listaNotasAgregar').addEventListener('click', ()=>{
+  cerrarListaNotas();
+  setMode('notas');
+});
 
 document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
   const texto=document.getElementById('notaTexto3D').value.trim();
@@ -6657,15 +7476,11 @@ let measureHits=[];   // raw hit objects for face re-highlight on replace
 
 function handleClick(cx,cy){
   const el=document.elementFromPoint(cx,cy);
-  if(el&&el.closest('.fab-dock,.topbar,.sheet,.msr-panel,.compass,#panelNota,#btnNotas3D,#btnGuardarVista,#modalVista'))return;
+  if(el&&el.closest('.fab-dock,.topbar,.sheet,.msr-panel,.compass,#panelNota,#btnNotas3D,#btnGuardarVista,#modalVista,#panelListaNotas,#panelListaVistas'))return;
   const hits=getIntersects(cx,cy);
 
-  // Pins de notas: tocar uno los abre, en cualquier modo salvo medición
-  // (ahí el tap ya tiene un significado propio: elegir cara a medir).
-  if(mode!=='measure' && notasGroup && notasGroup.children.length){
-    const ndcPin=raycaster.intersectObjects(notasGroup.children,false);
-    if(ndcPin.length){ abrirNota3D(ndcPin[0].object.userData.notaId); return; }
-  }
+  // Los pines de notas ahora son elementos SVG con su propio handler de
+  // click/drag (ver wireMarcadorDrag) — no necesitan raycast acá.
 
   if(mode==='notas'){
     if(hits.length===0){ toast('Tocá sobre una pieza del modelo'); return; }
@@ -7250,6 +8065,7 @@ let vistaGuardadaPendienteIframe = null;
 let driveApiKeyActual = null;
 let archivoDriveIdActual = null;
 let carpetaDriveIdActual = null;
+let archivoNombreActual = null; // para nombrar la carpeta "<glb> - vistas guardadas"
 
 window.addEventListener('message', async (e) => {
   if (!e.data || e.data.tipo !== 'abrirGLB') return;
@@ -7260,6 +8076,7 @@ window.addEventListener('message', async (e) => {
   driveApiKeyActual = driveApiKey || null;
   archivoDriveIdActual = archivoDriveId || null;
   carpetaDriveIdActual = carpetaDriveId || null;
+  archivoNombreActual = nombre || null;
   let buffer = e.data.buffer;
   const lo = document.getElementById('loadOverlay');
   const lm = document.getElementById('loadMsg');
@@ -7500,7 +8317,7 @@ window.addEventListener('unhandledrejection', function(e){
   if(loEl){ loEl.classList.remove('hidden'); loEl.style.display='flex'; }
 });
 
-function animate(){requestAnimationFrame(animate);updateZoom();renderer.render(scene,camera);if(badgesVisible)renderBadges();if(mode==='measure'&&measurePts.length>0)drawMeasureSVG();}
+function animate(){requestAnimationFrame(animate);updateZoom();renderer.render(scene,camera);if(badgesVisible)renderBadges();if(mode==='measure'&&measurePts.length>0)drawMeasureSVG();actualizarPosicionesNotas();}
 animate();
 
 // Hide loading overlay
