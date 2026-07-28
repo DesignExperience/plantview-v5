@@ -4787,6 +4787,16 @@ canvas{display:block;width:100%;height:100%}
 .sheet-hdr h3{font-family:'Syne',sans-serif;font-size:16px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sheet-hdr p{font-size:11px;color:var(--muted);margin-top:2px}
 .sheet-close{width:32px;height:32px;border-radius:10px;background:var(--surf2);border:1px solid var(--border);color:var(--muted);font-size:18px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}
+
+/* Renombrar subensamblaje (alias que reemplaza el nombre del GLB solo en
+   pantalla, para todos los que abran el modelo — no toca el archivo 3D). */
+.sb-title-row{display:flex;align-items:center;gap:6px;min-width:0}
+.sb-title-row h3{flex-shrink:1}
+.sb-title-edit-btn{flex-shrink:0;width:22px;height:22px;border:none;background:none;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center}
+.sb-title-edit-btn svg{width:14px;height:14px}
+.sb-title-edit-btn:active{color:var(--acc)}
+.sb-title-input{flex:1;min-width:0;font-family:'Syne',sans-serif;font-size:15px;font-weight:700;background:var(--surf2);border:1px solid var(--acc);border-radius:6px;padding:3px 6px;color:var(--text)}
+.sb-title-ok-btn{flex-shrink:0;width:24px;height:24px;border:none;border-radius:6px;background:var(--surf2);color:var(--text);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center}
 .sheet-body{flex:1;overflow-y:auto;padding:12px 16px;-webkit-overflow-scrolling:touch}
 .zone-card{background:var(--surf2);border:1px solid var(--border);border-radius:14px;margin-bottom:10px;overflow:hidden;cursor:pointer}
 .zone-card-hdr{display:flex;align-items:center;gap:12px;padding:14px 16px}
@@ -5356,7 +5366,18 @@ window.onerror=function(msg,src,line){
 <div class="sheet" id="sidebar">
   <div class="sheet-handle"></div>
   <div class="sheet-hdr">
-    <div class="sheet-hdr-info"><h3 id="sb-title">—</h3><p id="sb-sub">Zona / Equipo</p></div>
+    <div class="sheet-hdr-info">
+      <div class="sb-title-row">
+        <h3 id="sb-title">—</h3>
+        <button class="sb-title-edit-btn" id="sbTitleEditBtn" type="button" title="Renombrar" aria-label="Renombrar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg>
+        </button>
+        <input type="text" id="sbTitleInput" class="sb-title-input" style="display:none">
+        <button class="sb-title-ok-btn" id="sbTitleOkBtn" type="button" title="Guardar" style="display:none">✓</button>
+        <button class="sb-title-ok-btn" id="sbTitleCancelBtn" type="button" title="Cancelar" style="display:none">✕</button>
+      </div>
+      <p id="sb-sub">Zona / Equipo</p>
+    </div>
     <button class="sheet-close" id="sbClose">×</button>
   </div>
   <div class="sheet-body" id="sb-body"></div>
@@ -5883,6 +5904,7 @@ async function buildSceneFromGLB(glbData, selectedIndices){
     }
 
     cargarNotasDrive();
+    cargarAliasesDrive();
     cargarVistasGuardadas();
 
     if(loadBar) loadBar.style.width='100%';
@@ -6086,7 +6108,10 @@ function placeSTLInScene(stlGroup,zoneId){
     stlGroup.position.y+=box.min.y-sBox2.min.y;
     tgt.traverse(c=>{if(c.isMesh)c.visible=false;});
   }
-  stlGroup.traverse(c=>{c.userData.zoneId=zoneId;c.userData.objName=zone.name;if(c.isMesh)allMeshes.push(c);});
+  // objName sin setear (no null fijo): así los labels/badges caen al
+  // fallback nombreZona(zone), que respeta el alias si la pieza fue
+  // renombrada — en vez de quedar con el nombre real "horneado" acá.
+  stlGroup.traverse(c=>{c.userData.zoneId=zoneId;if(c.isMesh)allMeshes.push(c);});
   scene.add(stlGroup);
   zoneGroups[zoneId+'_stl']=stlGroup;
   const stlCenter=new THREE.Box3().setFromObject(stlGroup).getCenter(new THREE.Vector3());
@@ -6859,7 +6884,7 @@ function hoverHL(cx,cy){
     if(m!==hoveredMesh){restoreHover();hoveredMesh=m;hoveredOrigColor=m.material.color.clone();m.material.color.lerp(new THREE.Color(0xffffff),.18);}
     const zone=ZONES.find(z=>z.id===m.userData.zoneId);
     const lbl=document.getElementById('hoverLabel');
-    lbl.textContent=m.userData.objName||(zone?zone.name:'Objeto');lbl.classList.add('show');
+    lbl.textContent=m.userData.objName||(zone?nombreZona(zone):'Objeto');lbl.classList.add('show');
   }else{restoreHover();document.getElementById('hoverLabel').classList.remove('show');}
 }
 function restoreHover(){if(hoveredMesh&&hoveredOrigColor){hoveredMesh.material.color.copy(hoveredOrigColor);hoveredMesh=null;hoveredOrigColor=null;}}
@@ -7349,6 +7374,46 @@ async function cargarNotasDrive(){
   }
 }
 
+// ── ALIAS DE SUBENSAMBLAJES (renombrado que reemplaza el nombre del GLB
+// solo en pantalla, para todos los que abran el modelo) ───────────────
+// Nunca toca el nombre real del nodo en el GLB ni el zoneId — es un mapa
+// zoneId → alias guardado aparte en Drive, mismo patrón que las notas.
+let aliasesZonas={};            // zoneId -> alias
+function nombreArchivoAlias(){
+  return archivoDriveIdActual ? `plantview-alias-${archivoDriveIdActual}.json` : null;
+}
+function nombreZona(zone){
+  if(!zone) return '';
+  return aliasesZonas[zone.id] || zone.name;
+}
+async function cargarAliasesDrive(){
+  aliasesZonas={};
+  const archivo=nombreArchivoAlias();
+  if(!archivo || !driveApiKeyActual || !carpetaDriveIdActual || !appBaseUrlActual) return;
+  try{
+    const q=encodeURIComponent(`name='${archivo}' and '${carpetaDriveIdActual}' in parents and trashed=false`);
+    const metaUrl=`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&key=${driveApiKeyActual}`;
+    const meta=await (await fetch(metaUrl)).json();
+    const found=meta.files && meta.files[0];
+    if(!found) return;
+    const origen=new URL(appBaseUrlActual).origin;
+    const bucket=Math.floor(Date.now()/20000);
+    const proxyUrl=`${origen}/api/drive-proxy?fileId=${found.id}&key=${encodeURIComponent(driveApiKeyActual)}&_=${bucket}`;
+    const res=await fetch(proxyUrl);
+    if(!res.ok) return;
+    const data=await res.json();
+    if(data && typeof data==='object' && !Array.isArray(data)) aliasesZonas=data;
+  }catch(err){
+    console.warn('No se pudieron cargar los alias de subensamblajes:',err);
+  }
+}
+function guardarAliasesDrive(){
+  const archivo=nombreArchivoAlias();
+  if(!archivo) return Promise.reject(new Error('No hay carpeta de Drive asociada a este modelo'));
+  const blob=new Blob([JSON.stringify(aliasesZonas)],{type:'application/json'});
+  return subirArchivoADriveDesdeVisor(archivo, blob, carpetaDriveIdActual);
+}
+
 // Sube un archivo (Blob/File) a la carpeta de Drive del modelo, delegando
 // en la app externa (tiene el token OAuth que este iframe no tiene).
 function subirArchivoADriveDesdeVisor(nombre, archivo, carpetaId){
@@ -7454,7 +7519,8 @@ function abrirNota3D(notaId){
   notaAdjuntoQuitar=false;
   document.getElementById('notaAdjuntoInput3D').value='';
   document.getElementById('notaTitulo3D').textContent='Nota';
-  document.getElementById('notaPieza3D').textContent=n.objName||'—';
+  const notaZona=n.zoneId ? ZONES.find(z=>z.id===n.zoneId) : null;
+  document.getElementById('notaPieza3D').textContent=n.objName||(notaZona?nombreZona(notaZona):'—');
   document.getElementById('notaTexto3D').value=n.texto||'';
   document.getElementById('notaMeta3D').textContent=n.autor?`${n.autor} · ${n.fecha||''}`:'';
   document.getElementById('notaBorrar3D').style.display='block';
@@ -7474,7 +7540,7 @@ function abrirFormNota3D(hit){
   document.getElementById('notaAdjuntoInput3D').value='';
   const zone=ZONES.find(z=>z.id===hit.object.userData.zoneId);
   document.getElementById('notaTitulo3D').textContent='Nueva nota';
-  document.getElementById('notaPieza3D').textContent=hit.object.userData.objName||(zone?zone.name:'Pieza');
+  document.getElementById('notaPieza3D').textContent=hit.object.userData.objName||(zone?nombreZona(zone):'Pieza');
   document.getElementById('notaTexto3D').value='';
   document.getElementById('notaMeta3D').textContent='';
   document.getElementById('notaBorrar3D').style.display='none';
@@ -7882,7 +7948,7 @@ function buildZonesPanel(){
     div.innerHTML=`
       <div class="zone-card-hdr">
         <span class="zone-dot" style="background:${z.color}"></span>
-        <span class="zone-card-name">${z.name}</span>
+        <span class="zone-card-name">${escNota(nombreZona(z))}</span>
         <button class="zone-toggle ${z.visible?'on':'off'}" data-zone="${z.id}"></button>
       </div>
       <div class="zone-objects">${z.objects.slice(0,8).map(o=>`<span class="zone-tag">${o}</span>`).join('')}${z.objects.length>8?`<span class="zone-tag">+${z.objects.length-8}</span>`:''}</div>`;
@@ -7895,7 +7961,7 @@ function buildZonesPanel(){
       zone.visible=!zone.visible;
       btn.className='zone-toggle '+(zone.visible?'on':'off');
       if(zoneGroups[zone.id])zoneGroups[zone.id].visible=zone.visible;
-      toast(zone.name+' '+(zone.visible?'activada':'desactivada'));
+      toast(nombreZona(zone)+' '+(zone.visible?'activada':'desactivada'));
     };
   });
   list.querySelectorAll('.zone-card').forEach(item=>{
@@ -7930,12 +7996,61 @@ let currentZone=null,currentObjName=null,currentEquipoKey=null,currentDocViewer=
 
 function openSidebar(zone,objName){
   closeZones();closeImport();
+  currentZone=zone;currentObjName=objName;
   currentEquipoKey=equipoKey(zone,objName);
-  document.getElementById('sb-title').textContent=objName||zone.name;
-  document.getElementById('sb-sub').textContent=objName?zone.name:'Subensamblaje';
+  document.getElementById('sb-title').textContent=objName||nombreZona(zone);
+  document.getElementById('sb-sub').textContent=objName?nombreZona(zone):'Subensamblaje';
+  cancelarEdicionNombreZona();
   renderSidebarBody(zone,objName);
   openSheet('sidebar');
 }
+
+// Renombrar subensamblaje: alias cosmético que reemplaza el nombre del
+// nodo GLB en toda la interfaz para todo el que abra el modelo. El
+// zoneId real y el archivo 3D nunca se tocan — solo se guarda un mapa
+// zoneId→alias aparte (ver aliasesZonas / guardarAliasesDrive).
+function iniciarEdicionNombreZona(){
+  if(!currentZone || currentObjName) return; // el alias es a nivel subensamblaje, no de pieza individual
+  document.getElementById('sb-title').style.display='none';
+  document.getElementById('sbTitleEditBtn').style.display='none';
+  const input=document.getElementById('sbTitleInput');
+  input.value=nombreZona(currentZone);
+  input.style.display='';
+  document.getElementById('sbTitleOkBtn').style.display='flex';
+  document.getElementById('sbTitleCancelBtn').style.display='flex';
+  input.focus();
+  input.select();
+}
+function cancelarEdicionNombreZona(){
+  document.getElementById('sb-title').style.display='';
+  document.getElementById('sbTitleEditBtn').style.display = currentObjName ? 'none' : 'flex';
+  document.getElementById('sbTitleInput').style.display='none';
+  document.getElementById('sbTitleOkBtn').style.display='none';
+  document.getElementById('sbTitleCancelBtn').style.display='none';
+}
+async function guardarEdicionNombreZona(){
+  if(!currentZone) return;
+  const nuevo=document.getElementById('sbTitleInput').value.trim();
+  if(!nuevo){ toast('Escribí un nombre'); return; }
+  if(nuevo===currentZone.name) delete aliasesZonas[currentZone.id];
+  else aliasesZonas[currentZone.id]=nuevo;
+  document.getElementById('sb-title').textContent=nombreZona(currentZone);
+  cancelarEdicionNombreZona();
+  buildZonesPanel();
+  try{
+    await guardarAliasesDrive();
+    toast('Nombre actualizado ✓');
+  }catch(err){
+    toast('No se pudo guardar: '+err.message);
+  }
+}
+document.getElementById('sbTitleEditBtn').addEventListener('click', iniciarEdicionNombreZona);
+document.getElementById('sbTitleOkBtn').addEventListener('click', guardarEdicionNombreZona);
+document.getElementById('sbTitleCancelBtn').addEventListener('click', cancelarEdicionNombreZona);
+document.getElementById('sbTitleInput').addEventListener('keydown',e=>{
+  if(e.key==='Enter') guardarEdicionNombreZona();
+  else if(e.key==='Escape') cancelarEdicionNombreZona();
+});
 
 // Este visor corre en su propio iframe (documento aparte del shell externo),
 // así que no comparte el `esc()` del shell — necesita el suyo propio.
@@ -8191,13 +8306,13 @@ function showImportStep2_STL(file){
   if(ZONES.length===0){picker.innerHTML='<div style="padding:12px;color:var(--muted);font-size:11px">Importá primero un GLB para tener zonas.</div>';return;}
   ZONES.forEach(zone=>{
     const item=document.createElement('div');item.className='zone-pick-item';
-    item.innerHTML=`<span class="zone-pick-dot" style="background:${zone.color}"></span><div class="zone-pick-info"><div class="zone-pick-name">${zone.name}</div></div><div class="zpcheck"></div>`;
+    item.innerHTML=`<span class="zone-pick-dot" style="background:${zone.color}"></span><div class="zone-pick-info"><div class="zone-pick-name">${escNota(nombreZona(zone))}</div></div><div class="zpcheck"></div>`;
     item.addEventListener('click',()=>{
       stlSelectedZone=zone.id;
       picker.querySelectorAll('.zone-pick-item').forEach(el=>el.classList.remove('selected'));
       item.classList.add('selected');
       document.getElementById('importStlBtn').removeAttribute('disabled');
-      document.getElementById('importStlLabel').textContent='Integrar STL en '+zone.name;
+      document.getElementById('importStlLabel').textContent='Integrar STL en '+nombreZona(zone);
     });
     picker.appendChild(item);
   });
