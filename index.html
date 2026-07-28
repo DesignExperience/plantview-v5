@@ -8725,12 +8725,16 @@ window.addEventListener('message', async (e) => {
     // onImportFileChosen lee el archivo vía FileReader (async) y recién entonces
     // muestra el paso 2 (picker de zonas). Esperamos esa señal real en vez de un
     // delay fijo — crítico para archivos grandes donde el parseo puede tardar.
+    // 90s en vez de 20s: en mobile (CPU más lenta, a veces con throttling) el
+    // parseo de un GLB de 15-20MB puede tardar bastante más que en desktop —
+    // con 20s el timeout saltaba antes de terminar, dejando el visor "cargado"
+    // pero vacío (el toast de error se veía apenas 2.5s y pasaba desapercibido).
     const t0 = Date.now();
-    while (step2.style.display !== 'block' && Date.now() - t0 < 20000) {
+    while (step2.style.display !== 'block' && Date.now() - t0 < 90000) {
       await new Promise(r => setTimeout(r, 50));
     }
     if (step2.style.display !== 'block') {
-      throw new Error('Tiempo de espera agotado al procesar el archivo');
+      throw new Error('Tiempo de espera agotado al procesar el archivo (puede ser muy grande para este dispositivo)');
     }
 
     if (ext === 'glb') {
@@ -8758,8 +8762,10 @@ window.addEventListener('message', async (e) => {
     }
   } catch (err) {
     console.error('Error cargando modelo desde PlantView:', err);
+    // Antes se ocultaba en 2.5s — muy poco para leerlo, quedaba una pantalla
+    // vacía sin pista de qué pasó. Se deja más tiempo en pantalla.
     if (lm) lm.innerHTML = '❌ Error: ' + (err.message || err);
-    setTimeout(ocultarOverlay, 2500);
+    setTimeout(ocultarOverlay, 6000);
   }
 });
 
