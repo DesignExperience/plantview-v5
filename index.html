@@ -4899,7 +4899,9 @@ canvas{display:block;width:100%;height:100%}
 
 #panelNota{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);display:none;flex-direction:column;gap:10px;width:min(320px,calc(100vw - 32px));background:rgba(240,242,246,.98);border:1px solid var(--border);border-radius:14px;padding:14px;z-index:410;box-shadow:0 12px 40px rgba(0,0,0,.3)}
 #panelNota.show{display:flex}
-.nota-head{display:flex;align-items:center;justify-content:space-between}
+.nota-head{display:flex;align-items:center;justify-content:space-between;cursor:grab;touch-action:none;user-select:none}
+.nota-head.dragging{cursor:grabbing}
+#panelNota.dragged{top:0;left:0;transform:none}
 #notaTitulo3D{font-weight:700;font-size:13px}
 #notaCerrar3D{width:28px;height:28px;border:none;background:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1}
 #notaPieza3D{font-family:monospace;font-size:10px;color:#3A6BE8;background:rgba(58,107,232,.08);border:1px solid rgba(58,107,232,.25);border-radius:6px;padding:4px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -7616,6 +7618,7 @@ function abrirNota3D(notaId){
   crearSelectorEstadoEn(document.getElementById('notaEstados3D'), n.estado);
   renderAdjuntoPreview();
   actualizarPanelNotaSegunLogin();
+  recentrarPanelNota();
   document.getElementById('panelNota').classList.add('show');
 }
 
@@ -7639,6 +7642,7 @@ function abrirFormNota3D(hit){
   crearSelectorEstadoEn(document.getElementById('notaEstados3D'), 'no_iniciado');
   renderAdjuntoPreview();
   actualizarPanelNotaSegunLogin();
+  recentrarPanelNota();
   document.getElementById('panelNota').classList.add('show');
 }
 
@@ -7671,6 +7675,54 @@ document.getElementById('btnNotas3D').addEventListener('click',()=>{
 });
 
 document.getElementById('notaCerrar3D').addEventListener('click', cerrarPanelNota3D);
+
+// Panel de nota arrastrable dentro del visor (útil en desktop, donde el
+// panel puede tapar la pieza que se está anotando): se agarra del header
+// ("Nota" / "Nueva nota") y se puede soltar en cualquier punto de la
+// pantalla, con clamp para que no se vaya afuera del viewport.
+(function initPanelNotaArrastrable(){
+  const panel=document.getElementById('panelNota');
+  const head=panel.querySelector('.nota-head');
+  let arrastrando=false, startX=0, startY=0, baseLeft=0, baseTop=0;
+
+  head.addEventListener('pointerdown',(e)=>{
+    if(e.target.closest('#notaCerrar3D')) return;
+    arrastrando=true;
+    head.classList.add('dragging');
+    const rect=panel.getBoundingClientRect();
+    if(!panel.classList.contains('dragged')){
+      panel.classList.add('dragged');
+      panel.style.left=rect.left+'px';
+      panel.style.top=rect.top+'px';
+    }
+    baseLeft=rect.left; baseTop=rect.top;
+    startX=e.clientX; startY=e.clientY;
+    try{head.setPointerCapture(e.pointerId);}catch(err){}
+  });
+  head.addEventListener('pointermove',(e)=>{
+    if(!arrastrando) return;
+    const rect=panel.getBoundingClientRect();
+    let left=baseLeft+(e.clientX-startX);
+    let top=baseTop+(e.clientY-startY);
+    left=Math.min(Math.max(left,4),window.innerWidth-rect.width-4);
+    top=Math.min(Math.max(top,4),window.innerHeight-rect.height-4);
+    panel.style.left=left+'px';
+    panel.style.top=top+'px';
+  });
+  const soltar=()=>{ arrastrando=false; head.classList.remove('dragging'); };
+  head.addEventListener('pointerup',soltar);
+  head.addEventListener('pointercancel',soltar);
+})();
+
+// Recentra el panel la próxima vez que se abre (nota nueva o distinta) —
+// si no, quedaría pegado donde el usuario lo arrastró la última vez,
+// tapando la pieza equivocada.
+function recentrarPanelNota(){
+  const panel=document.getElementById('panelNota');
+  panel.classList.remove('dragged');
+  panel.style.left='';
+  panel.style.top='';
+}
 
 // Mueve la cámara hasta la pieza de una nota y la abre — así "ubicarla
 // visualmente" no depende de encontrar el pin a ojo en el modelo.
