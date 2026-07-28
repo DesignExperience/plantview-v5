@@ -4943,6 +4943,16 @@ canvas{display:block;width:100%;height:100%}
 .nota-color-sw{width:20px;height:20px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0}
 .nota-color-sw.sel{border-color:var(--acc)}
 
+/* Toggle "Es una tarea / OT" + selector de estado (no iniciado / en
+   proceso / finalizado), cada uno con su color — mismo patrón que el
+   selector de color de texto pero como pills segmentadas. */
+.nota-estado-row{padding-top:2px}
+.nota-estados{display:flex;gap:6px}
+.nota-estado-pill{flex:1;height:30px;border-radius:8px;border:1.5px solid var(--border);background:var(--surf);color:var(--muted);font-size:10.5px;font-weight:700;cursor:pointer;font-family:inherit;text-transform:uppercase;letter-spacing:.02em}
+.nota-estado-pill.sel{color:#fff;border-color:transparent}
+
+.nota-sb-estado-badge{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:5px;border:1px solid;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.02em}
+
 /* Form de edición inline de una nota, dentro del sidebar de la pieza */
 .nota-sb-edit{display:flex;flex-direction:column;gap:10px;padding:12px 0}
 .nota-sb-texto{width:100%;resize:vertical;border:1px solid var(--border);border-radius:8px;background:var(--surf);color:var(--text);font-size:12.5px;padding:8px;line-height:1.5;font-family:inherit}
@@ -5309,6 +5319,17 @@ window.onerror=function(msg,src,line){
   <div class="nota-color-row">
     <span>Color</span>
     <div class="nota-colores" id="notaColores3D"></div>
+  </div>
+
+  <label id="notaEsTareaRow3D" class="nota-toggle-row">
+    <span>Es una tarea / OT</span>
+    <span class="nota-switch">
+      <input type="checkbox" id="notaEsTarea3D">
+      <span class="nota-switch-track"></span>
+    </span>
+  </label>
+  <div class="nota-estado-row" id="notaEstadoRow3D" style="display:none">
+    <div class="nota-estados" id="notaEstados3D"></div>
   </div>
 
   <div id="notaMeta3D"></div>
@@ -7143,9 +7164,19 @@ function crearMarcadorNota(n){
   g.appendChild(handle);
 
   notasSvg.appendChild(g);
-  const refs={g,leader,anchor,handle,num};
+  const refs={g,leader,anchor,handle,num,dot,halo};
   notaMarkerEls[n.id]=refs;
   wireMarcadorDrag(handle,n.id);
+}
+
+// Tiñe el pin (dot + halo) con el color del estado de la tarea/OT si la
+// nota está marcada como tal — así se distingue de un vistazo en el
+// modelo sin abrirla. Notas normales (no tarea) mantienen el azul de
+// siempre, independiente del color de texto elegido por el usuario.
+function pintarPinSegunEstado(n,refs){
+  const color=n.esTarea ? colorEstadoTarea(n.estado) : '#3a6be8';
+  refs.dot.setAttribute('fill',color);
+  refs.halo.setAttribute('fill',color+'29');
 }
 
 // Arrastre del marcador: mueve solo el "label" en pantalla (no el punto real
@@ -7200,7 +7231,10 @@ function renderPinesNotas(){
   notas3d.forEach(n=>{ if(!notaMarkerEls[n.id]) crearMarcadorNota(n); });
   // Numerar los marcadores según el orden de la lista — así "nota 3" en el
   // pin y "nota 3" en el panel de lista son la misma.
-  notas3d.forEach((n,idx)=>{ notaMarkerEls[n.id].num.textContent=String(idx+1); });
+  notas3d.forEach((n,idx)=>{
+    notaMarkerEls[n.id].num.textContent=String(idx+1);
+    pintarPinSegunEstado(n,notaMarkerEls[n.id]);
+  });
   sincronizarBurbujasNotas();
   actualizarBadgeNotas();
   actualizarPosicionesNotas();
@@ -7266,6 +7300,46 @@ function colorSeleccionadoNota(){
   const sel=document.querySelector('#notaColores3D .nota-color-sw.sel');
   return sel ? sel.dataset.color : 'negro';
 }
+
+// ── TAREA / OT ──────────────────────────────────────────────────────
+// Una nota puede marcarse como tarea/orden de trabajo, con un estado
+// (no iniciado / en proceso / finalizado) que tiñe el pin en el modelo
+// para verlo de un vistazo — independiente del color de texto, que
+// sigue siendo elección libre del usuario.
+const ESTADOS_TAREA=[
+  {key:'no_iniciado', label:'No iniciado', color:'#8a9099'},
+  {key:'en_proceso',  label:'En proceso',  color:'#d97a00'},
+  {key:'finalizado',  label:'Finalizado',  color:'#188a5c'},
+];
+function colorEstadoTarea(estado){
+  const e=ESTADOS_TAREA.find(x=>x.key===estado);
+  return e ? e.color : ESTADOS_TAREA[0].color;
+}
+// Arma las 3 pills de estado dentro de un contenedor dado — reutilizable
+// para el panel flotante y el form inline del sidebar.
+function crearSelectorEstadoEn(cont,seleccionado){
+  cont.innerHTML='';
+  ESTADOS_TAREA.forEach(e=>{
+    const b=document.createElement('button');
+    b.type='button';
+    b.className='nota-estado-pill'+(e.key===(seleccionado||'no_iniciado')?' sel':'');
+    b.dataset.estado=e.key;
+    b.textContent=e.label;
+    if(e.key===(seleccionado||'no_iniciado')) b.style.background=e.color;
+    b.addEventListener('click',()=>{
+      cont.querySelectorAll('.nota-estado-pill').forEach(x=>{x.classList.remove('sel');x.style.background='';});
+      b.classList.add('sel');
+      b.style.background=e.color;
+    });
+    cont.appendChild(b);
+  });
+}
+(function initSelectorEstadoNota(){
+  crearSelectorEstadoEn(document.getElementById('notaEstados3D'),'no_iniciado');
+})();
+document.getElementById('notaEsTarea3D').addEventListener('change',(e)=>{
+  document.getElementById('notaEstadoRow3D').style.display=e.target.checked?'':'none';
+});
 
 const notaMeshCache={};         // id -> THREE.Mesh
 function resolveMeshNota(n){
@@ -7532,6 +7606,9 @@ function abrirNota3D(notaId){
   document.getElementById('notaMostrarPin3D').checked=!!n.mostrarPin;
   document.getElementById('notaNegrita3D').checked=!!n.negrita;
   seleccionarColorNota(n.color);
+  document.getElementById('notaEsTarea3D').checked=!!n.esTarea;
+  document.getElementById('notaEstadoRow3D').style.display=n.esTarea?'':'none';
+  crearSelectorEstadoEn(document.getElementById('notaEstados3D'), n.estado);
   renderAdjuntoPreview();
   actualizarPanelNotaSegunLogin();
   document.getElementById('panelNota').classList.add('show');
@@ -7552,6 +7629,9 @@ function abrirFormNota3D(hit){
   document.getElementById('notaMostrarPin3D').checked=false;
   document.getElementById('notaNegrita3D').checked=false;
   seleccionarColorNota('negro');
+  document.getElementById('notaEsTarea3D').checked=false;
+  document.getElementById('notaEstadoRow3D').style.display='none';
+  crearSelectorEstadoEn(document.getElementById('notaEstados3D'), 'no_iniciado');
   renderAdjuntoPreview();
   actualizarPanelNotaSegunLogin();
   document.getElementById('panelNota').classList.add('show');
@@ -7667,10 +7747,13 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
     const mostrarPin=document.getElementById('notaMostrarPin3D').checked;
     const negrita=document.getElementById('notaNegrita3D').checked;
     const color=colorSeleccionadoNota();
+    const esTarea=document.getElementById('notaEsTarea3D').checked;
+    const estadoSel=document.querySelector('#notaEstados3D .nota-estado-pill.sel');
+    const estado=estadoSel?estadoSel.dataset.estado:'no_iniciado';
     let n=null;
     if(notaAbiertaId){
       n=notas3d.find(x=>x.id===notaAbiertaId);
-      if(n){ n.texto=texto; n.mostrarPin=mostrarPin; n.negrita=negrita; n.color=color; }
+      if(n){ n.texto=texto; n.mostrarPin=mostrarPin; n.negrita=negrita; n.color=color; n.esTarea=esTarea; n.estado=estado; }
     }else if(notaHitPendiente){
       const hit=notaHitPendiente;
       const zone=ZONES.find(z=>z.id===hit.object.userData.zoneId);
@@ -7685,6 +7768,8 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
         mostrarPin,
         negrita,
         color,
+        esTarea,
+        estado,
         fecha:new Date().toISOString().slice(0,10),
       };
       notaMeshCache[n.id]=hit.object;
@@ -8071,9 +8156,11 @@ let notaEditandoIdSb=null; // id de la nota en edición inline dentro del sideba
 function renderNotaSbRow(n,idx){
   if(n.id===notaEditandoIdSb) return renderNotaSbEditForm(n,idx);
   const color=NOTA_COLORES[n.color]||NOTA_COLORES.negro;
+  const estado=ESTADOS_TAREA.find(e=>e.key===n.estado)||ESTADOS_TAREA[0];
+  const badgeEstado=n.esTarea?`<span class="nota-sb-estado-badge" style="background:${estado.color}22;color:${estado.color};border-color:${estado.color}55">${estado.label}</span>`:'';
   return `<div class="doc-row nota-sb-row" data-nota-id="${n.id}">
-    <div class="doc-icon" style="background:${color}22;border:1px solid ${color}66;color:${color};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700">${idx+1}</div>
-    <div style="flex:1;min-width:0"><div class="doc-name" style="${n.negrita?'font-weight:700;':''}color:${color}">${escNota(n.texto||'')}</div><div class="doc-meta">${n.fecha||''}</div></div>
+    <div class="doc-icon" style="background:${(n.esTarea?estado.color:color)}22;border:1px solid ${(n.esTarea?estado.color:color)}66;color:${n.esTarea?estado.color:color};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700">${idx+1}</div>
+    <div style="flex:1;min-width:0"><div class="doc-name" style="${n.negrita?'font-weight:700;':''}color:${color}">${escNota(n.texto||'')}</div><div class="doc-meta">${n.fecha||''} ${badgeEstado}</div></div>
   </div>`;
 }
 
@@ -8091,6 +8178,13 @@ function renderNotaSbEditForm(n,idx){
       <span class="nota-switch"><input type="checkbox" class="nota-sb-negrita" ${n.negrita?'checked':''}><span class="nota-switch-track"></span></span>
     </label>
     <div class="nota-color-row"><span>Color</span><div class="nota-colores nota-sb-colores"></div></div>
+    <label class="nota-toggle-row">
+      <span>Es una tarea / OT</span>
+      <span class="nota-switch"><input type="checkbox" class="nota-sb-estarea" ${n.esTarea?'checked':''}><span class="nota-switch-track"></span></span>
+    </label>
+    <div class="nota-estado-row nota-sb-estado-row" style="display:${n.esTarea?'':'none'}">
+      <div class="nota-estados nota-sb-estados"></div>
+    </div>
     <div class="nota-actions3D">
       <button type="button" class="nota-sb-guardar">Guardar</button>
       <button type="button" class="nota-sb-cancelar" style="background:var(--surf);border:1px solid var(--border) !important;color:var(--text)">Cancelar</button>
@@ -8126,6 +8220,10 @@ function wireNotaSbEditForm(zone){
   const n=notas3d.find(x=>x.id===notaId);
   if(!n) return;
   crearSelectorColoresEn(form.querySelector('.nota-sb-colores'), n.color);
+  crearSelectorEstadoEn(form.querySelector('.nota-sb-estados'), n.estado);
+  form.querySelector('.nota-sb-estarea').addEventListener('change',e=>{
+    form.querySelector('.nota-sb-estado-row').style.display=e.target.checked?'':'none';
+  });
   form.querySelector('.nota-sb-texto').addEventListener('click',e=>e.stopPropagation());
   form.addEventListener('click',e=>e.stopPropagation());
   form.querySelector('.nota-sb-cancelar').addEventListener('click',()=>{
@@ -8140,6 +8238,9 @@ function wireNotaSbEditForm(zone){
     n.negrita=form.querySelector('.nota-sb-negrita').checked;
     const sel=form.querySelector('.nota-sb-colores .nota-color-sw.sel');
     n.color=sel?sel.dataset.color:'negro';
+    n.esTarea=form.querySelector('.nota-sb-estarea').checked;
+    const selEstado=form.querySelector('.nota-sb-estados .nota-estado-pill.sel');
+    n.estado=selEstado?selEstado.dataset.estado:'no_iniciado';
     notaEditandoIdSb=null;
     renderPinesNotas();
     renderSidebarBody(zone,currentObjName);
