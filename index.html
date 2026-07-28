@@ -4922,7 +4922,16 @@ canvas{display:block;width:100%;height:100%}
 /* Burbuja de texto de la nota, pegada al pin en el modelo cuando el toggle
    "Mostrar nota en el pin" está activo — mismo patrón de leader line que el
    marcador, así se lee la nota sin abrir el panel. */
-.nota-burbuja{position:fixed;max-width:200px;background:var(--surf);border:1px solid rgba(58,107,232,.35);border-radius:10px;padding:7px 9px;font-size:11.5px;line-height:1.4;color:var(--text);box-shadow:0 6px 20px rgba(0,0,0,.22);pointer-events:none;z-index:87}
+.nota-burbuja{position:fixed;max-width:200px;background:var(--surf);border:1px solid rgba(58,107,232,.35);border-radius:10px;padding:7px 9px;font-size:11.5px;line-height:1.4;color:var(--text);pointer-events:none;z-index:87}
+.nota-burbuja.negrita{font-weight:700}
+
+/* Selector de color del texto de la nota — mismos colores disponibles
+   para el toggle "negrita" y la burbuja en el modelo. */
+.nota-color-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.nota-color-row>span{font-size:12.5px;color:var(--text)}
+.nota-colores{display:flex;gap:6px}
+.nota-color-sw{width:20px;height:20px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0}
+.nota-color-sw.sel{border-color:var(--acc)}
 
 /* Modal "Vista guardada" — un solo modal compacto para los dos momentos:
    guardar una vista nueva y compartir una ya guardada. Miniatura chica
@@ -5275,6 +5284,17 @@ window.onerror=function(msg,src,line){
       <span class="nota-switch-track"></span>
     </span>
   </label>
+  <label id="notaNegritaRow3D" class="nota-toggle-row">
+    <span>Negrita</span>
+    <span class="nota-switch">
+      <input type="checkbox" id="notaNegrita3D">
+      <span class="nota-switch-track"></span>
+    </span>
+  </label>
+  <div class="nota-color-row">
+    <span>Color</span>
+    <div class="nota-colores" id="notaColores3D"></div>
+  </div>
 
   <div id="notaMeta3D"></div>
   <div id="notaSinLogin3D">Necesitás conectar edición (Drive) para guardar notas — son compartidas con todo el equipo.</div>
@@ -7172,7 +7192,12 @@ function sincronizarBurbujasNotas(){
       notaBurbujaEls[n.id].remove();
       delete notaBurbujaEls[n.id];
     }
-    if(notaBurbujaEls[n.id]) notaBurbujaEls[n.id].textContent=n.texto||'';
+    if(notaBurbujaEls[n.id]){
+      const div=notaBurbujaEls[n.id];
+      div.textContent=n.texto||'';
+      div.classList.toggle('negrita',!!n.negrita);
+      div.style.color=NOTA_COLORES[n.color]||NOTA_COLORES.negro;
+    }
   });
 }
 
@@ -7184,6 +7209,34 @@ function sincronizarBurbujasNotas(){
 // y notas3d se guarda tal cual con JSON.stringify). Si la pieza fue
 // removida de la escena (modelo recargado), se busca de nuevo por
 // zoneId+objName.
+const NOTA_COLORES={
+  negro:'#1a1d26', rojo:'#e03050', verde:'#188a5c', azul:'#3a6be8', naranja:'#d97a00'
+};
+(function initSelectorColoresNota(){
+  const cont=document.getElementById('notaColores3D');
+  Object.keys(NOTA_COLORES).forEach(key=>{
+    const b=document.createElement('button');
+    b.type='button';
+    b.className='nota-color-sw';
+    b.dataset.color=key;
+    b.style.background=NOTA_COLORES[key];
+    b.title=key;
+    b.addEventListener('click',()=>{
+      cont.querySelectorAll('.nota-color-sw').forEach(x=>x.classList.remove('sel'));
+      b.classList.add('sel');
+    });
+    cont.appendChild(b);
+  });
+})();
+function seleccionarColorNota(key){
+  const cont=document.getElementById('notaColores3D');
+  cont.querySelectorAll('.nota-color-sw').forEach(x=>x.classList.toggle('sel', x.dataset.color===(key||'negro')));
+}
+function colorSeleccionadoNota(){
+  const sel=document.querySelector('#notaColores3D .nota-color-sw.sel');
+  return sel ? sel.dataset.color : 'negro';
+}
+
 const notaMeshCache={};         // id -> THREE.Mesh
 function resolveMeshNota(n){
   const cached=notaMeshCache[n.id];
@@ -7406,6 +7459,8 @@ function abrirNota3D(notaId){
   document.getElementById('notaMeta3D').textContent=n.autor?`${n.autor} · ${n.fecha||''}`:'';
   document.getElementById('notaBorrar3D').style.display='block';
   document.getElementById('notaMostrarPin3D').checked=!!n.mostrarPin;
+  document.getElementById('notaNegrita3D').checked=!!n.negrita;
+  seleccionarColorNota(n.color);
   renderAdjuntoPreview();
   actualizarPanelNotaSegunLogin();
   document.getElementById('panelNota').classList.add('show');
@@ -7424,6 +7479,8 @@ function abrirFormNota3D(hit){
   document.getElementById('notaMeta3D').textContent='';
   document.getElementById('notaBorrar3D').style.display='none';
   document.getElementById('notaMostrarPin3D').checked=false;
+  document.getElementById('notaNegrita3D').checked=false;
+  seleccionarColorNota('negro');
   renderAdjuntoPreview();
   actualizarPanelNotaSegunLogin();
   document.getElementById('panelNota').classList.add('show');
@@ -7537,10 +7594,12 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
   btn.disabled=true;
   try{
     const mostrarPin=document.getElementById('notaMostrarPin3D').checked;
+    const negrita=document.getElementById('notaNegrita3D').checked;
+    const color=colorSeleccionadoNota();
     let n=null;
     if(notaAbiertaId){
       n=notas3d.find(x=>x.id===notaAbiertaId);
-      if(n){ n.texto=texto; n.mostrarPin=mostrarPin; }
+      if(n){ n.texto=texto; n.mostrarPin=mostrarPin; n.negrita=negrita; n.color=color; }
     }else if(notaHitPendiente){
       const hit=notaHitPendiente;
       const zone=ZONES.find(z=>z.id===hit.object.userData.zoneId);
@@ -7553,6 +7612,8 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
         local:{x:local.x,y:local.y,z:local.z}, // en espacio local de la pieza — sigue el explode
         texto,
         mostrarPin,
+        negrita,
+        color,
         fecha:new Date().toISOString().slice(0,10),
       };
       notaMeshCache[n.id]=hit.object;
