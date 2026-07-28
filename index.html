@@ -5710,7 +5710,13 @@ function parseGLBFull(buffer){
   function buildNode(ni,userData){
     const n=nodes[ni];
     const g=new THREE.Group();
-    g.userData={...userData};
+    // Nombre propio del nodo GLTF (la pieza individual, ej. "PATA 40X80 -
+    // 1990") si lo tiene — si no, hereda el objName pasado desde el padre
+    // (en la raíz, el nombre del subensamblaje). Así cada pieza conserva su
+    // identidad real en vez de que todas queden con el nombre del
+    // subensamblaje entero.
+    const objNamePropio=n.name||userData.objName;
+    g.userData={...userData, objName:objNamePropio};
     if(n.matrix){g.matrix.fromArray(n.matrix);g.matrix.decompose(g.position,g.quaternion,g.scale);}
     else{
       if(n.translation)g.position.fromArray(n.translation);
@@ -5720,7 +5726,7 @@ function parseGLBFull(buffer){
     if(n.mesh!==undefined){
       gltf.meshes[n.mesh].primitives.forEach(prim=>{
         const m=buildMesh(prim);
-        m.userData={...userData};
+        m.userData={...userData, objName:objNamePropio};
         g.add(m);
       });
     }
@@ -5883,9 +5889,11 @@ async function buildSceneFromGLB(glbData, selectedIndices){
         continue;
       }
 
+      // zoneId sí se pisa acá (identifica el subensamblaje al que
+      // pertenece), pero objName NO — buildNode ya le puso a cada nodo su
+      // nombre propio (o el del subensamblaje como fallback si no tenía).
       subGrp.traverse(child=>{
         child.userData.zoneId=zoneId;
-        child.userData.objName=sub.name;
         if(child.isMesh) allMeshes.push(child);
       });
 
