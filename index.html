@@ -4386,7 +4386,24 @@ function cargarPV() {
   pvIframe.style.display = "none";
   const tpl = document.getElementById("pv-tpl");
   if (tpl) {
-    const blob = new Blob([tpl.innerHTML], { type: "text/html" });
+    // El iframe se carga desde un blob: (no una navegación normal), así que
+    // su location.search siempre está vacío — agregar ?debug a la URL de
+    // esta app nunca llega al visor. Para que el panel de debug del visor
+    // sea alcanzable, propagamos el flag acá adentro del propio HTML antes
+    // de armar el blob (el visor chequea window.__pvDebugForzado).
+    const debugForzado = new URLSearchParams(location.search).has("debug");
+    let htmlVisor = tpl.innerHTML;
+    if (debugForzado) {
+      const marcaDebug = "<script>window.__pvDebugForzado=true;<\/script>";
+      // template.innerHTML puede o no conservar el <head> literal según el
+      // navegador — se intenta ahí primero, y si no está, se antepone al
+      // <!DOCTYPE html> (o al inicio del documento como último recurso). El
+      // script se ejecuta igual apenas parsea, sin importar dónde caiga.
+      if (htmlVisor.includes("<head>")) htmlVisor = htmlVisor.replace("<head>", "<head>" + marcaDebug);
+      else if (htmlVisor.includes("<!DOCTYPE html>")) htmlVisor = htmlVisor.replace("<!DOCTYPE html>", "<!DOCTYPE html>" + marcaDebug);
+      else htmlVisor = marcaDebug + htmlVisor;
+    }
+    const blob = new Blob([htmlVisor], { type: "text/html" });
     const url  = URL.createObjectURL(blob);
     pvIframe.onload = () => {
       pvLoad.style.display = "none"; pvIframe.style.display = "block"; URL.revokeObjectURL(url);
@@ -5524,7 +5541,11 @@ function parseSTLBuffer(buffer){
 // Pre-initialize Draco module async at startup, cache for sync use
 let _dracoModule = null;
 // ── DEBUG PANEL — abrí URL?debug para ver logs en pantalla (mobile) ──
-const _debugMode=location.search.includes('debug');
+// El visor se carga desde un blob: (ver cargarPV() en la app externa), así
+// que su propio location.search siempre está vacío — location.search.includes
+// nunca detecta nada acá adentro. window.__pvDebugForzado es la señal real,
+// inyectada por la app externa cuando la URL de ARRIBA tiene ?debug.
+const _debugMode=location.search.includes('debug')||window.__pvDebugForzado===true;
 const _debugEl=document.getElementById('debugPanel');
 if(_debugMode&&_debugEl) _debugEl.style.display='block';
 function dbg(...args){
