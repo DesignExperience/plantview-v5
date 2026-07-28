@@ -5942,6 +5942,7 @@ async function buildSceneFromGLB(glbData, selectedIndices){
     await new Promise(r=>setTimeout(r,50));
     computeExplodeData(rootGrp);
     applyScaleAndCamera(rootGrp);
+    updateBadgeAnchors(); // posiciones ya finales — se recalcula de nuevo solo si cambia el explode
 
     // Vista guardada en el link (?cx=...) — pisa la cámara "encuadre automático"
     // que acaba de setear applyScaleAndCamera, con la posición exacta que
@@ -6056,6 +6057,11 @@ function setExplode(amount){
       child.position.copy(basePos2).addScaledVector(explodeDir2, amount*localSpread*0.7);
     });
   });
+  // Las piezas se movieron — los anchors de los badges (calculados una vez
+  // al cargar, ya no en cada frame) tienen que seguirlas. setExplode() se
+  // llama por el input del slider, mucho menos seguido que 60fps, así que
+  // este Box3 por zona acá es un costo aceptable.
+  if(typeof updateBadgeAnchors==='function') updateBadgeAnchors();
 }
 
 // Modelo nuevo/eliminado: volver a armado y ocultar la barra —
@@ -6206,7 +6212,15 @@ function hasNewDocs(key){return docStore[key]&&docStore[key].some(d=>d.isNew);}
 function renderBadges(){
   badgesSvg.innerHTML='';
   if(!badgesVisible)return;
-  updateBadgeAnchors();
+  // updateBadgeAnchors() YA NO se llama acá — este render corre en CADA
+  // frame (60/s) desde animate(), y updateBadgeAnchors() hace un
+  // THREE.Box3().setFromObject() por zona, que recorre TODOS los meshes
+  // de esa zona para calcular su caja. En un modelo con miles de meshes
+  // (ej. 22.500+), eso es recorrer todo el modelo 60 veces por segundo
+  // para siempre — suficiente para colgar/crashear el dispositivo apenas
+  // termina de cargar. Ahora se recalcula solo cuando la posición de las
+  // piezas puede haber cambiado: al terminar de construir la escena y al
+  // mover el slider de explosión (ver llamadas a updateBadgeAnchors()).
   for(const anchor of BADGE_ANCHORS){
     const total=getTotalDocCount(anchor.key);
     if(total===0)continue;
