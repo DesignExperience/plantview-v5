@@ -1522,8 +1522,8 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
    CONFIG
    ============================================================ */
 const CONFIG = {
-  DRIVE_API_KEY: "",
-  DRIVE_ROOT_FOLDER_ID: "",
+  DRIVE_API_KEY: "AIzaSyCYeZWKcnCzI4Zsn1FUPUE5aS9rvjbQ5Is",
+  DRIVE_ROOT_FOLDER_ID: "1hkRzmRWfe8BmZNjWVkyoMN9qS61Q89K_",
   // Client ID de OAuth (Google Cloud → Credenciales → ID de cliente de OAuth,
   // tipo "Aplicación web"). Habilita ESCRITURA en Drive (subir/actualizar
   // archivos) — la API Key de arriba solo sirve para lectura. Vacío = la app
@@ -6426,8 +6426,11 @@ async function cargarNotasDrive(){
     const found=meta.files && meta.files[0];
     if(!found) return;
     const origen=new URL(appBaseUrlActual).origin;
-    const proxyUrl=`${origen}/api/drive-proxy?fileId=${found.id}&key=${encodeURIComponent(driveApiKeyActual)}`;
-    const res=await fetch(proxyUrl);
+    // cache-bust: el proxy cachea 5min (bien para GLBs pesados), pero las
+    // notas tienen que sentirse en vivo — sin esto, un usuario podía ver
+    // una versión vieja del archivo de notas hasta por 5 minutos.
+    const proxyUrl=`${origen}/api/drive-proxy?fileId=${found.id}&key=${encodeURIComponent(driveApiKeyActual)}&_=${Date.now()}`;
+    const res=await fetch(proxyUrl,{cache:'no-store'});
     if(!res.ok) return;
     const data=await res.json();
     if(Array.isArray(data)) notas3d=data;
