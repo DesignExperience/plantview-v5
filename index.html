@@ -5860,6 +5860,9 @@ async function buildSceneFromGLB(glbData, selectedIndices){
   scene.add(gridHelper);scene.add(floor);
   zoneGroups={};allMeshes=[];ZONES=[];
   Object.keys(notaMeshCache).forEach(id=>delete notaMeshCache[id]); // modelo nuevo: las piezas cacheadas del anterior ya no existen
+  BADGE_ANCHORS.length=0;
+  badgesSvg.innerHTML='';
+  Object.keys(badgeMarkerEls).forEach(k=>delete badgeMarkerEls[k]); // ídem con los globos de documentos del modelo anterior
   resetExplodeUI();
 
   const {subassemblies,buildNode}=glbData;
@@ -6358,18 +6361,46 @@ function updateBadgeAnchors(){
 function getTotalDocCount(key){return docStore[key]?docStore[key].length:0;}
 function hasNewDocs(key){return docStore[key]&&docStore[key].some(d=>d.isNew);}
 
+// Elementos DOM de cada badge, cacheados por key — se crean UNA VEZ y en
+// cada frame solo se les actualiza la posición/texto (ver renderBadges()
+// más abajo). Antes se hacía badgesSvg.innerHTML='' + reconstruir todo el
+// árbol SVG en cada frame (60/s): con muchas zonas eso es cientos de
+// nodos DOM creados y tirados por segundo, para siempre — suficiente
+// presión de memoria como para terminar colgando el dispositivo después
+// de un rato de uso, aunque no fuera tan catastrófico como el cálculo de
+// Box3 que ya se sacó de acá. Mismo patrón que los pines de notas
+// (notaMarkerEls / crearMarcadorNota).
+const badgeMarkerEls={}; // key -> {g,line,glow,circle,text}
+
+function crearMarcadorBadge(key){
+  const svgns='http://www.w3.org/2000/svg';
+  const g=document.createElementNS(svgns,'g');
+  g.style.pointerEvents='none';
+  const line=document.createElementNS(svgns,'line');
+  line.setAttribute('x1','0');line.setAttribute('y1','0');line.setAttribute('x2','0');line.setAttribute('y2','-18');
+  line.setAttribute('stroke-width','1.5');line.setAttribute('stroke-dasharray','3,2');line.setAttribute('opacity','0.6');
+  g.appendChild(line);
+  const glow=document.createElementNS(svgns,'circle');
+  glow.setAttribute('cx','0');glow.setAttribute('cy','-28');glow.setAttribute('r','14');
+  g.appendChild(glow);
+  const circle=document.createElementNS(svgns,'circle');
+  circle.setAttribute('cx','0');circle.setAttribute('cy','-28');circle.setAttribute('r','10');
+  g.appendChild(circle);
+  const text=document.createElementNS(svgns,'text');
+  text.setAttribute('x','0');text.setAttribute('y','-24');text.setAttribute('text-anchor','middle');
+  text.setAttribute('font-weight','700');text.setAttribute('fill','#ffffff');text.setAttribute('font-family','DM Mono,monospace');
+  g.appendChild(text);
+  badgesSvg.appendChild(g);
+  const refs={g,line,glow,circle,text};
+  badgeMarkerEls[key]=refs;
+  return refs;
+}
+
 function renderBadges(){
-  badgesSvg.innerHTML='';
-  if(!badgesVisible)return;
-  // updateBadgeAnchors() YA NO se llama acá — este render corre en CADA
-  // frame (60/s) desde animate(), y updateBadgeAnchors() hace un
-  // THREE.Box3().setFromObject() por zona, que recorre TODOS los meshes
-  // de esa zona para calcular su caja. En un modelo con miles de meshes
-  // (ej. 22.500+), eso es recorrer todo el modelo 60 veces por segundo
-  // para siempre — suficiente para colgar/crashear el dispositivo apenas
-  // termina de cargar. Ahora se recalcula solo cuando la posición de las
-  // piezas puede haber cambiado: al terminar de construir la escena y al
-  // mover el slider de explosión (ver llamadas a updateBadgeAnchors()).
+  // No hace falta chequear !badgesVisible acá — animate() ya solo llama a
+  // renderBadges() cuando badgesVisible es true (ver el toggle de abajo
+  // para el caso contrario, que limpia el SVG + este caché directamente).
+  const keysVisibles=new Set();
   for(const anchor of BADGE_ANCHORS){
     const total=getTotalDocCount(anchor.key);
     if(total===0)continue;
@@ -6377,25 +6408,24 @@ function renderBadges(){
     if(zone&&!zone.visible)continue;
     const s=worldToScreenUnclamped(anchor.pos);
     if(!s)continue;
+    keysVisibles.add(anchor.key);
+    const refs=badgeMarkerEls[anchor.key]||crearMarcadorBadge(anchor.key);
+    refs.g.style.display='';
+    refs.g.setAttribute('transform',`translate(${s.x},${s.y})`);
     const isNew=hasNewDocs(anchor.key);
     const bg=isNew?'#FF4F6A':'#5B8BFF';
     const gw=isNew?'rgba(255,79,106,.35)':'rgba(91,139,255,.35)';
-    const g=document.createElementNS('http://www.w3.org/2000/svg','g');
-    g.setAttribute('transform',`translate(${s.x},${s.y})`);g.style.pointerEvents='none';
-    const line=document.createElementNS('http://www.w3.org/2000/svg','line');
-    line.setAttribute('x1','0');line.setAttribute('y1','0');line.setAttribute('x2','0');line.setAttribute('y2','-18');
-    line.setAttribute('stroke',bg);line.setAttribute('stroke-width','1.5');line.setAttribute('stroke-dasharray','3,2');line.setAttribute('opacity','0.6');
-    g.appendChild(line);
-    const glow=document.createElementNS('http://www.w3.org/2000/svg','circle');
-    glow.setAttribute('cx','0');glow.setAttribute('cy','-28');glow.setAttribute('r','14');glow.setAttribute('fill',gw);g.appendChild(glow);
-    const circle=document.createElementNS('http://www.w3.org/2000/svg','circle');
-    circle.setAttribute('cx','0');circle.setAttribute('cy','-28');circle.setAttribute('r','10');circle.setAttribute('fill',bg);g.appendChild(circle);
-    const text=document.createElementNS('http://www.w3.org/2000/svg','text');
-    text.setAttribute('x','0');text.setAttribute('y','-24');text.setAttribute('text-anchor','middle');
-    text.setAttribute('font-size',total>9?'8':'9');text.setAttribute('font-weight','700');text.setAttribute('fill','#ffffff');text.setAttribute('font-family','DM Mono,monospace');
-    text.textContent=total>99?'99+':String(total);g.appendChild(text);
-    badgesSvg.appendChild(g);
+    refs.line.setAttribute('stroke',bg);
+    refs.glow.setAttribute('fill',gw);
+    refs.circle.setAttribute('fill',bg);
+    refs.text.setAttribute('font-size',total>9?'8':'9');
+    refs.text.textContent=total>99?'99+':String(total);
   }
+  // Ocultar (sin destruir) los badges que ya no corresponden — si vuelven
+  // a aparecer (ej. se sube un doc de nuevo) se reusa el mismo elemento.
+  Object.keys(badgeMarkerEls).forEach(k=>{
+    if(!keysVisibles.has(k)) badgeMarkerEls[k].g.style.display='none';
+  });
 }
 
 // ── CÁMARA PROFESIONAL — estilo SolidWorks/Blender/Autodesk ──────────
@@ -8880,7 +8910,10 @@ function renderImportLibrary(){
 document.getElementById('bBadges').onclick=()=>{
   badgesVisible=!badgesVisible;
   document.getElementById('bBadges').classList.toggle('on',badgesVisible);
-  if(!badgesVisible)badgesSvg.innerHTML='';
+  if(!badgesVisible){
+    badgesSvg.innerHTML='';
+    Object.keys(badgeMarkerEls).forEach(k=>delete badgeMarkerEls[k]); // si no, al reactivar quedarían apuntando a nodos ya sacados del DOM
+  }
   toast(badgesVisible?'Globos activados':'Globos desactivados');
 };
 
