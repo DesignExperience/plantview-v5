@@ -7511,6 +7511,13 @@ function sincronizarBurbujasNotas(){
     if(debeExistir && !existe){
       const div=document.createElement('div');
       div.className='nota-burbuja';
+      // La burbuja tiene que poder tocarse para editar la nota — antes
+      // solo el puntito numerado (el pin) respondía al tap, y la burbuja
+      // (el texto, mucho más grande y el blanco más natural para tocar)
+      // dejaba pasar el toque al modelo de atrás sin hacer nada.
+      div.style.pointerEvents='auto';
+      div.style.cursor='pointer';
+      div.addEventListener('click',(e)=>{ e.stopPropagation(); abrirNota3D(n.id); });
       notasBurbujasEl.appendChild(div);
       notaBurbujaEls[n.id]=div;
     }else if(!debeExistir && existe){
