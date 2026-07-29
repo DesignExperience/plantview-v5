@@ -5817,7 +5817,22 @@ const camera=new THREE.PerspectiveCamera(50,1,0.01,2000); // near/far ampliados 
 camera.position.set(35,28,45);camera.lookAt(0,0,0);
 
 const wrap=document.getElementById('canvas-wrap');
-function resize(){const w=wrap.clientWidth,h=wrap.clientHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();document.getElementById('msr-svg').setAttribute('viewBox',`0 0 ${w} ${h}`);}
+// El teclado on-screen en mobile dispara un 'resize' al abrirse (el
+// viewport se achica) — sin este guard, eso recalculaba el tamaño del
+// canvas y el aspect-ratio de la cámara en base al viewport ya achicado
+// por el teclado, y la escena se veía "zoomeada"/recortada mientras se
+// escribía en un input o textarea (ej. el texto de una nota). Mientras
+// haya un campo de texto enfocado, se ignora ese resize — la escena
+// mantiene el tamaño/aspecto de antes de que apareciera el teclado, y se
+// recalcula normal apenas se deja de escribir (blur dispara otro resize).
+function escribiendoEnCampoDeTexto(){
+  const el=document.activeElement;
+  return !!el && (el.tagName==='INPUT' || el.tagName==='TEXTAREA' || el.isContentEditable);
+}
+function resize(){
+  if(escribiendoEnCampoDeTexto()) return;
+  const w=wrap.clientWidth,h=wrap.clientHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();document.getElementById('msr-svg').setAttribute('viewBox',`0 0 ${w} ${h}`);
+}
 resize();window.addEventListener('resize',resize);
 
 // Iluminación industrial — soft, neutral, sin highlights exagerados
