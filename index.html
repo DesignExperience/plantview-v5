@@ -6699,8 +6699,11 @@ cvwrap.addEventListener('touchend',e=>{
   isDragging=false; pinchDist=null;
 },{passive:false});
 
-document.getElementById('bZoomIn').addEventListener('click',()=>{ zoomTarget+=0.1; });
-document.getElementById('bZoomOut').addEventListener('click',()=>{ zoomTarget-=0.1; });
+// applyZoom() usa newDist = dist * 0.95^(-zoomTarget*8): zoomTarget
+// NEGATIVO achica la distancia (zoom in), POSITIVO la agranda (zoom out)
+// — estaban al revés en los botones.
+document.getElementById('bZoomIn').addEventListener('click',()=>{ zoomTarget-=0.1; });
+document.getElementById('bZoomOut').addEventListener('click',()=>{ zoomTarget+=0.1; });
 
 // Orbit joystick — hold to repeat
 const ORBIT_STEP = Math.PI/96;
