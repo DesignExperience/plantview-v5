@@ -6293,14 +6293,13 @@ function applyScaleAndCamera(rootGrp){
   // límites ahora son más una red de seguridad que el límite real.
   //
   // RMIN escala con el tamaño de TODO el ensamblaje (maxS) — en una planta
-  // grande (ej. maxS=200m) eso da un piso de zoom todavía bastante lejos
-  // (antes 0.0003 → 6cm), suficiente para frenar el acercamiento antes de
-  // poder leer el detalle de una pieza puntual (ej. la etiqueta de un
-  // motor). Como near/far ya se recalculan dinámicamente cada frame según
-  // la distancia ACTUAL (no según el tamaño del modelo), no hace falta que
-  // RMIN sea tan generoso — se achica 15x (a 4mm en ese mismo ejemplo) para
-  // poder acercarse mucho más en ensamblajes grandes.
-  RMIN=maxS*0.00002;
+  // grande (ej. maxS=200m) un factor todavía "generoso" da un piso de zoom
+  // lejos de la pieza. Como near/far ya se recalculan dinámicamente cada
+  // frame según la distancia ACTUAL (no según el tamaño del modelo), RMIN
+  // puede ser muchísimo más chico sin riesgo de z-fighting — se deja en
+  // 0.000002 (100x más chico que el original 0.0003) para poder acercarse
+  // prácticamente hasta pegado a una pieza puntual en ensamblajes grandes.
+  RMIN=maxS*0.000002;
   RMAX=maxS*1000;
 
   target.set(c.x, c.y, c.z);
@@ -6485,7 +6484,17 @@ function orbitCamera(dTheta, dPhi){
 // Pan mueve TANTO la cámara como el target — cámara libre, no sujeta
 function panCamera(dx, dy){
   const distance=camera.position.distanceTo(target);
-  const spd=distance*0.0022;
+  // spd proporcional a la distancia es lo correcto para una cámara en
+  // perspectiva (mismos píxeles de pantalla = mismo desplazamiento visual
+  // sin importar el zoom) — PERO con RMIN ahora mucho más chico (se puede
+  // llegar muy cerca de una pieza), esa misma proporcionalidad hace que
+  // "distance" se vuelva chiquito y el pan se sienta casi congelado justo
+  // donde más hace falta poder desplazarse con precisión. Piso mínimo
+  // atado al tamaño del modelo (no a un valor fijo, para no romper la
+  // escala en modelos chicos): nunca se calcula como si estuviera MÁS
+  // cerca que esta distancia de referencia, aunque la cámara sí esté ahí.
+  const distanciaMinParaPan=RMIN*80;
+  const spd=Math.max(distance,distanciaMinParaPan)*0.0022;
   const right=new THREE.Vector3().crossVectors(
     camera.getWorldDirection(new THREE.Vector3()), camera.up
   ).normalize();
