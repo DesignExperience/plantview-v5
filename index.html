@@ -5937,6 +5937,24 @@ async function buildSceneFromGLB(glbData, selectedIndices){
     }
 
     dbg(` Build completo: ${allMeshes.length} meshes, ${ZONES.length} zonas`);
+
+    // Modelos MUY pesados (miles de meshes — ej. GLB Draco con muchísima
+    // tornillería/chapas): cada mesh es su propio draw call, y eso satura
+    // la GPU en mobile aunque el resto ya esté optimizado. Solo para estos
+    // casos (no para modelos livianos, donde no hace falta el riesgo/costo
+    // de tocar la geometría) se fusionan en menos meshes por rama — ver
+    // fusionarMallasPesadas() para el detalle de qué es seguro fusionar.
+    if(allMeshes.length>FUSION_UMBRAL_MESHES){
+      dbg(` Modelo pesado (${allMeshes.length} meshes > ${FUSION_UMBRAL_MESHES}) — fusionando geometría por rama…`);
+      try{
+        fusionarMallasPesadas(rootGrp);
+        dbg(` Fusión completa: ${allMeshes.length} meshes tras fusionar`);
+      }catch(fusionErr){
+        console.warn('[PV] Error fusionando geometría, sigo sin fusionar:', fusionErr.message||fusionErr);
+        dbg(` Fusión falló (${fusionErr.message||fusionErr}) — sigo con meshes individuales`);
+      }
+    }
+
     await new Promise(r=>setTimeout(r,100));
     renderer.render(scene,camera);
     await new Promise(r=>setTimeout(r,50));
@@ -6004,6 +6022,137 @@ async function buildSceneFromGLB(glbData, selectedIndices){
 // dirección de separación relativa al centro de ESE subensamblaje, con una
 // magnitud menor (proporcional al tamaño del subensamblaje, no del modelo
 // entero) — mismo patrón en cascada que usa eDrawings con un solo slider.
+// ── FUSIÓN DE GEOMETRÍA (solo modelos con miles de meshes) ────────────
+// La explosión mueve piezas en DOS niveles: el subensamblaje entero
+// (grupo de zona) y sus HIJOS DIRECTOS (ver computeExplodeData más abajo).
+// Nada se mueve independientemente por DEBAJO de esos hijos directos —
+// ahí es donde es seguro fusionar: todos los meshes que cuelgan de un
+// mismo hijo directo se combinan en pocos meshes (agrupados por
+// material) en vez de potencialmente cientos, SIN afectar ninguno de los
+// dos niveles de explosión (el hijo directo se sigue moviendo como
+// siempre, ahora con un mesh fusionado adentro en vez de muchos sueltos).
+//
+// Para no perder la posibilidad de tocar/notar/resaltar una pieza
+// puntual (antes cada pieza era su propio mesh), cada mesh fusionado
+// guarda en userData.piezas el rango de triángulos (faceIndex) que le
+// corresponde a cada pieza original — resolverPiezaDeHit() usa el
+// faceIndex que ya devuelve el raycaster de three.js para traducir un
+// click al userData de la pieza real, no del mesh fusionado.
+const FUSION_UMBRAL_MESHES=3000;
+
+// Dado un hit de raycast, devuelve el userData de la pieza ORIGINAL —
+// funciona igual para meshes fusionados (busca en userData.piezas por
+// faceIndex) y para meshes normales (ya es su propio userData).
+function resolverPiezaDeHit(hit){
+  const ud=hit.object.userData;
+  if(!ud || !ud.piezas) return ud;
+  for(const p of ud.piezas){
+    if(hit.faceIndex>=p.faceStart && hit.faceIndex<p.faceStart+p.faceCount) return p.userData;
+  }
+  return ud; // no debería pasar, pero mejor un fallback razonable que null
+}
+
+// Concatena N BufferGeometry (ya en el mismo espacio y con el mismo
+// material) en una sola — versión mínima manual ya que este bundle no
+// incluye BufferGeometryUtils. Devuelve también, por geometría de
+// entrada, el rango de triángulos que le tocó dentro de la fusionada.
+function mergearGeometriasSimple(geometrias){
+  const normalizadas=geometrias.map(g=>{
+    const pos=g.attributes.position, nor=g.attributes.normal;
+    let idx=g.index;
+    if(!idx){
+      // Algunas primitivas glTF vienen sin índice — se genera uno secuencial.
+      const arr=new Uint32Array(pos.count);
+      for(let i=0;i<pos.count;i++)arr[i]=i;
+      idx={array:arr,count:arr.length};
+    }
+    return {pos,nor,idx};
+  });
+  let totalVerts=0,totalIdx=0;
+  normalizadas.forEach(({pos,idx})=>{totalVerts+=pos.count;totalIdx+=idx.count;});
+
+  const mergedPos=new Float32Array(totalVerts*3);
+  const mergedNor=new Float32Array(totalVerts*3);
+  const mergedIdx=totalVerts>65535 ? new Uint32Array(totalIdx) : new Uint16Array(totalIdx);
+
+  let vOff=0,iOff=0;
+  const rangos=[];
+  normalizadas.forEach(({pos,nor,idx})=>{
+    mergedPos.set(pos.array,vOff*3);
+    if(nor) mergedNor.set(nor.array,vOff*3);
+    for(let k=0;k<idx.count;k++) mergedIdx[iOff+k]=idx.array[k]+vOff;
+    rangos.push({faceStart:iOff/3,faceCount:idx.count/3});
+    vOff+=pos.count; iOff+=idx.count;
+  });
+
+  const geoMerge=new THREE.BufferGeometry();
+  geoMerge.setAttribute('position',new THREE.BufferAttribute(mergedPos,3));
+  geoMerge.setAttribute('normal',new THREE.BufferAttribute(mergedNor,3));
+  geoMerge.setIndex(new THREE.BufferAttribute(mergedIdx,1));
+  return {geoMerge,rangos};
+}
+
+// Fusiona TODOS los meshes descendientes de 'child' (un hijo directo de
+// un grupo de zona) en pocos meshes, agrupados por material — 'child'
+// mismo sigue siendo el que se mueve en el nivel 2 de la explosión,
+// ahora con hijos fusionados en vez de un árbol de cientos de meshes.
+function fusionarRamaEstatica(child, meshesARemover, meshesNuevos){
+  if(child.isMesh) return; // ya es un solo mesh — nada que fusionar acá
+  const descendientes=[];
+  child.traverse(o=>{ if(o.isMesh) descendientes.push(o); });
+  if(descendientes.length<2) return; // 0 o 1 mesh: no vale la pena tocar nada
+
+  const invChild=new THREE.Matrix4().copy(child.matrixWorld).invert();
+  const porMaterial=new Map(); // material (compartido vía _matCache) -> [{mesh,geoBaked}]
+  descendientes.forEach(mesh=>{
+    const relativa=new THREE.Matrix4().multiplyMatrices(invChild,mesh.matrixWorld);
+    const geoBaked=mesh.geometry.clone();
+    geoBaked.applyMatrix4(relativa); // three.js transforma position Y normal acá
+    const lista=porMaterial.get(mesh.material)||[];
+    lista.push({mesh,geoBaked});
+    porMaterial.set(mesh.material,lista);
+  });
+
+  porMaterial.forEach((lista,material)=>{
+    let nuevo;
+    if(lista.length===1){
+      // Única pieza con este material en la rama — igual hay que
+      // reubicarla con su transform ya "horneado", porque vamos a vaciar
+      // el resto del subárbol de 'child'.
+      nuevo=new THREE.Mesh(lista[0].geoBaked, material);
+      nuevo.userData={...lista[0].mesh.userData};
+    } else {
+      const {geoMerge,rangos}=mergearGeometriasSimple(lista.map(x=>x.geoBaked));
+      const piezas=rangos.map((r,i)=>({faceStart:r.faceStart,faceCount:r.faceCount,userData:lista[i].mesh.userData}));
+      nuevo=new THREE.Mesh(geoMerge, material);
+      nuevo.userData={...piezas[0].userData, piezas, _fusionado:true};
+    }
+    nuevo.castShadow=false; nuevo.receiveShadow=false;
+    child.add(nuevo);
+    meshesNuevos.push(nuevo);
+  });
+
+  descendientes.forEach(mesh=>meshesARemover.add(mesh));
+  // Vaciar el árbol viejo de 'child' — los meshes fusionados ya se
+  // agregaron arriba, así que solo queda sacar los Group/Mesh originales
+  // (los nuevos no están en 'descendientes' y no son Group, así que
+  // este filtro los deja intactos).
+  [...child.children].forEach(c=>{ if(descendientes.includes(c)||!c.isMesh) child.remove(c); });
+}
+
+function fusionarMallasPesadas(rootGrp){
+  rootGrp.updateMatrixWorld(true);
+  const meshesARemover=new Set();
+  const meshesNuevos=[];
+  Object.values(zoneGroups).forEach(grp=>{
+    if(grp.parent!==rootGrp) return; // excluye entradas '<zoneId>_stl' (otro árbol)
+    [...grp.children].forEach(child=>fusionarRamaEstatica(child, meshesARemover, meshesNuevos));
+  });
+  if(meshesARemover.size===0) return;
+  allMeshes=allMeshes.filter(m=>!meshesARemover.has(m));
+  allMeshes.push(...meshesNuevos);
+}
+
 let explodeMaxDist=0;
 function computeExplodeData(rootGrp){
   rootGrp.updateMatrixWorld(true);
@@ -6960,9 +7109,13 @@ function hoverHL(cx,cy){
   if(hits.length>0){
     const m=hits[0].object;
     if(m!==hoveredMesh){restoreHover();hoveredMesh=m;hoveredOrigColor=m.material.color.clone();m.material.color.lerp(new THREE.Color(0xffffff),.18);}
-    const zone=ZONES.find(z=>z.id===m.userData.zoneId);
+    // resolverPiezaDeHit: si 'm' es un mesh fusionado (modelo pesado), esto
+    // devuelve el userData de la pieza puntual bajo el cursor, no el del
+    // mesh fusionado entero — el label sigue mostrando la pieza correcta.
+    const piezaUd=resolverPiezaDeHit(hits[0]);
+    const zone=ZONES.find(z=>z.id===piezaUd.zoneId);
     const lbl=document.getElementById('hoverLabel');
-    lbl.textContent=m.userData.objName||(zone?nombreZona(zone):'Objeto');lbl.classList.add('show');
+    lbl.textContent=piezaUd.objName||(zone?nombreZona(zone):'Objeto');lbl.classList.add('show');
   }else{restoreHover();document.getElementById('hoverLabel').classList.remove('show');}
 }
 function restoreHover(){if(hoveredMesh&&hoveredOrigColor){hoveredMesh.material.color.copy(hoveredOrigColor);hoveredMesh=null;hoveredOrigColor=null;}}
@@ -7697,9 +7850,12 @@ function abrirFormNota3D(hit){
   notaAdjuntoNuevo=null;
   notaAdjuntoQuitar=false;
   document.getElementById('notaAdjuntoInput3D').value='';
-  const zone=ZONES.find(z=>z.id===hit.object.userData.zoneId);
+  // resolverPiezaDeHit: si se tocó un mesh fusionado (modelo pesado), esto
+  // da el userData de la pieza puntual tocada, no el del mesh fusionado.
+  const piezaUd=resolverPiezaDeHit(hit);
+  const zone=ZONES.find(z=>z.id===piezaUd.zoneId);
   document.getElementById('notaTitulo3D').textContent='Nueva nota';
-  document.getElementById('notaPieza3D').textContent=hit.object.userData.objName||(zone?nombreZona(zone):'Pieza');
+  document.getElementById('notaPieza3D').textContent=piezaUd.objName||(zone?nombreZona(zone):'Pieza');
   document.getElementById('notaTexto3D').value='';
   document.getElementById('notaMeta3D').textContent='';
   document.getElementById('notaBorrar3D').style.display='none';
@@ -7882,12 +8038,18 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
       if(n){ n.texto=texto; n.mostrarPin=mostrarPin; n.negrita=negrita; n.color=color; n.esTarea=esTarea; n.estado=estado; }
     }else if(notaHitPendiente){
       const hit=notaHitPendiente;
-      const zone=ZONES.find(z=>z.id===hit.object.userData.zoneId);
+      // resolverPiezaDeHit: en un mesh fusionado (modelo pesado) da el
+      // zoneId/objName de la pieza puntual tocada — el anclaje real
+      // (notaMeshCache/local, más abajo) sigue usando hit.object tal cual,
+      // porque el mesh fusionado ES el objeto que existe en la escena y se
+      // mueve con la explosión.
+      const piezaUd=resolverPiezaDeHit(hit);
+      const zone=ZONES.find(z=>z.id===piezaUd.zoneId);
       const local=hit.object.worldToLocal(hit.point.clone());
       n={
         id:'n'+Date.now()+Math.random().toString(36).slice(2,7),
-        zoneId:hit.object.userData.zoneId||null,
-        objName:hit.object.userData.objName||(zone?zone.name:null),
+        zoneId:piezaUd.zoneId||null,
+        objName:piezaUd.objName||(zone?zone.name:null),
         point:{x:hit.point.x,y:hit.point.y,z:hit.point.z}, // fallback si no se puede re-anclar a la pieza
         local:{x:local.x,y:local.y,z:local.z}, // en espacio local de la pieza — sigue el explode
         texto,
@@ -7957,8 +8119,8 @@ function handleClick(cx,cy){
 
   if(mode==='select'){
     if(hits.length>0){
-      const m=hits[0].object;
-      const zone=ZONES.find(z=>z.id===m.userData.zoneId);
+      const piezaUd=resolverPiezaDeHit(hits[0]);
+      const zone=ZONES.find(z=>z.id===piezaUd.zoneId);
       if(zone){currentZone=zone;currentObjName=null;openSidebar(zone,null);}
     }else closeSidebar();
   }
