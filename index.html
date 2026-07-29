@@ -6516,11 +6516,29 @@ function applyZoom(){
   if(Math.abs(zoomTarget) < 0.0001) return;
   const dist=camera.position.distanceTo(target);
   const newDist=Math.max(RMIN,Math.min(RMAX, dist * Math.pow(0.95, -zoomTarget*8)));
-  const dir=camera.position.clone().sub(target).normalize();
+  const dir=direccionCamaraSegura();
   camera.position.copy(target).addScaledVector(dir, newDist);
   camera.lookAt(target);
   zoomTarget*=0.8;
   if(Math.abs(zoomTarget)<0.0001) zoomTarget=0;
+}
+
+// Con RMIN ahora muy chico (se puede zoomear casi hasta pegado a la
+// pieza), es posible llegar a un frame donde camera.position y target
+// terminen prácticamente en el mismo punto — normalize() de un vector
+// ~cero da NaN, y una vez que camera.position se corrompe con NaN, TODA
+// la navegación (orbit/pan/zoom) queda rota hasta recargar la página
+// (el bug real detrás de "hace zoom y no puedo navegar más"). Esta
+// función nunca devuelve un vector degenerado: si la distancia es
+// demasiado chica para normalizar con seguridad, usa hacia dónde está
+// mirando la cámara como dirección de referencia en su lugar.
+function direccionCamaraSegura(){
+  const dir=camera.position.clone().sub(target);
+  if(dir.lengthSq()<1e-10){
+    camera.getWorldDirection(dir);
+    dir.negate(); // getWorldDirection apunta HACIA el target; acá hace falta la dirección opuesta (cámara alejándose del target)
+  }
+  return dir.normalize();
 }
 
 // Near/far DINÁMICOS según la distancia actual a la cámara — el estándar
@@ -6537,7 +6555,21 @@ function actualizarNearFar(){
   camera.updateProjectionMatrix();
 }
 
-function updateZoom(){ applyZoom(); actualizarNearFar(); }
+// Red de seguridad general: si la cámara terminara con NaN/Infinity por
+// cualquier motivo no previsto (no solo el caso ya blindado en
+// direccionCamaraSegura()), la navegación quedaría rota hasta recargar la
+// página — mejor recuperarla sola, alejándola del target a una distancia
+// segura, que dejar al usuario sin poder hacer nada.
+function recuperarCamaraSiCorrupta(){
+  const p=camera.position;
+  if(Number.isFinite(p.x)&&Number.isFinite(p.y)&&Number.isFinite(p.z)) return;
+  console.warn('[PV] Cámara corrupta (NaN) — recuperando');
+  const dist=Math.max(RMIN*80, (RMAX||2000)*0.05);
+  camera.position.copy(target).add(new THREE.Vector3(dist*0.7,dist*0.6,dist*0.7));
+  camera.lookAt(target);
+}
+
+function updateZoom(){ recuperarCamaraSiCorrupta(); applyZoom(); actualizarNearFar(); }
 
 const cvwrap=document.getElementById('canvas-wrap');
 
@@ -6574,7 +6606,7 @@ cvwrap.addEventListener('wheel', e=>{
   const normalizedDelta = delta / 100;
   const dist = camera.position.distanceTo(target);
   const newDist = Math.max(RMIN, Math.min(RMAX, dist * Math.pow(0.95, normalizedDelta)));
-  const dir = camera.position.clone().sub(target).normalize();
+  const dir = direccionCamaraSegura();
   camera.position.copy(target).addScaledVector(dir, newDist);
   camera.lookAt(target);
 },{passive:false});
