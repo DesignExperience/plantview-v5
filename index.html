@@ -4487,7 +4487,16 @@ async function descargarBufferDrive(driveId) {
     try { const j = await resp.json(); if (j.error) raw = j.error; } catch(e) {}
     throw new Error(mensajeErrorDrive(resp.status, raw));
   }
-  return resp.arrayBuffer();
+  const buffer = await resp.arrayBuffer();
+  // Si el servidor cortó la respuesta a mitad de camino (ej. timeout de la
+  // función serverless en un archivo grande), Content-Length no va a
+  // coincidir con lo efectivamente recibido — mejor avisar claro acá que
+  // dejar que el parser correspondiente falle con un error críptico.
+  const esperado = parseInt(resp.headers.get("content-length") || "0", 10);
+  if (esperado && buffer.byteLength < esperado) {
+    throw new Error("La descarga se cortó a mitad de camino (archivo grande o conexión lenta) — probá de nuevo.");
+  }
+  return buffer;
 }
 
 // Conecta una carpeta de Drive: agrega sus subcarpetas (y archivos sueltos, si hay)

@@ -4,6 +4,10 @@
       "includeFiles": "api/bin/dwg2dxf",
       "maxDuration": 60,
       "memory": 3009
+    },
+    "api/drive-proxy.js": {
+      "maxDuration": 60,
+      "memory": 1024
     }
   }
 }
