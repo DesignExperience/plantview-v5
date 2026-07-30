@@ -3899,6 +3899,18 @@ inputUpload.addEventListener("change", () => {
   inputUpload.value = "";
 });
 
+// Pegar (Ctrl+V) un archivo copiado — ej. una captura de pantalla copiada
+// directo al portapapeles, o un archivo copiado desde el explorador del
+// sistema. Si el portapapeles no trae archivos (el caso normal: pegar
+// texto en un input/textarea), clipboardData.files queda vacío y no pasa
+// nada — no interfiere con pegar texto en ningún lado de la app.
+document.addEventListener("paste", e => {
+  const archivo = e.clipboardData?.files?.[0];
+  if (!archivo) return;
+  e.preventDefault();
+  manejarArchivoDropeado(archivo);
+});
+
 function manejarArchivoDropeado(file) {
   const ext = file.name.split(".").pop()?.toLowerCase();
   if (!esArchivoValido(file.name)) {
