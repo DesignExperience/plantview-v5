@@ -1932,11 +1932,22 @@ if (modoEquipoDrive) {
   // anterior otra carpeta (ej. se cambió CONFIG.DRIVE_ROOT_FOLDER_ID desde
   // la última vez que este usuario abrió la app), reconectarCarpetasDriveGuardadas()
   // la traía de vuelta y quedaban las dos carpetas mezcladas en la lista.
-  // Se descarta cualquier carpeta guardada que no sea la actual antes de conectar.
-  if (driveConfig.folders.some(f => f.id !== CONFIG.DRIVE_ROOT_FOLDER_ID)) {
-    driveConfig.folders = [];
-    guardarConfigDrive();
-  }
+  // Se descarta cualquier carpeta guardada que no sea la actual antes de
+  // conectar — se opera directo sobre localStorage (no sobre la variable
+  // driveConfig, que se declara con `let` más abajo en el script: leerla
+  // ACÁ, antes de esa línea, tira "Cannot access before initialization"
+  // y corta la ejecución de todo el script — el bug real detrás de
+  // "ahora no carga ninguna carpeta").
+  try {
+    const cfgRaw = localStorage.getItem("dd_drive_cfg");
+    if (cfgRaw) {
+      const cfg = JSON.parse(cfgRaw);
+      if (cfg && Array.isArray(cfg.folders) && cfg.folders.some(f => f.id !== CONFIG.DRIVE_ROOT_FOLDER_ID)) {
+        cfg.folders = [];
+        localStorage.setItem("dd_drive_cfg", JSON.stringify(cfg));
+      }
+    }
+  } catch (e) { console.warn("No se pudo limpiar config de Drive guardada:", e); }
 
   conectarCarpetaDrive(CONFIG.DRIVE_API_KEY, CONFIG.DRIVE_ROOT_FOLDER_ID)
     .then(() => showToast("Conectado a Drive ✓"))
