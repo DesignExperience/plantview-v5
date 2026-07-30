@@ -2912,8 +2912,19 @@ function abrirVisor(archivo) {
     state.edrawingArchivo = { nombre: archivo.nombre, carpetaNombre: state.carpetaActual.nombre };
     edrawingTabTipo = "dxf";
     if (esMobileUI()) aplicarModo("edrawing");
-    mostrarCarga("Convirtiendo DWG a DXF…");
-    pedirArchivo(".dwg", buf => convertirYCargarDWG(buf));
+    if (archivo.driveId) {
+      // El servidor descarga el DWG directo de Drive — evita el límite de
+      // ~4.5MB que Vercel impone al body de un POST, así que sirve para
+      // archivos grandes (probado con uno de ~218MB). Solo necesita el
+      // fileId y la API Key, nunca pasa el archivo entero por acá.
+      convertirDWGDesdeDrive(archivo);
+    } else {
+      // Archivo local (elegido del filesystem, sin pasar por Drive) — acá
+      // sí queda atado al límite de ~3MB de Vercel, no hay forma de
+      // evitarlo sin pasar por algún storage intermedio.
+      mostrarCarga("Convirtiendo DWG a DXF…");
+      pedirArchivo(".dwg", buf => convertirYCargarDWG(buf));
+    }
   } else if (archivo.tipo === "edrawing") {
     state.edrawingArchivo = { nombre: archivo.nombre, carpetaNombre: state.carpetaActual.nombre };
     edrawingTabTipo = "html";
@@ -3217,6 +3228,45 @@ async function convertirYCargarDWG(buffer) {
   } catch (e) {
     console.error("Error convirtiendo DWG:", e);
     const msg = e.name === "AbortError" ? "La conversión tardó demasiado — probá con un archivo más simple o exportalo como .dxf" : e.message;
+    mostrarError("No se pudo convertir el DWG: " + msg);
+  } finally {
+    clearTimeout(avisoLento);
+    clearTimeout(corteTimeout);
+  }
+}
+
+// DWG grande guardado en Drive: el servidor lo descarga directo desde ahí
+// (fileId + API Key nomás, nunca pasa el archivo por acá) — evita por
+// completo el límite de ~4.5MB del body de un POST, así que sirve para
+// archivos de cientos de MB. La conversión en sí puede tardar bastante
+// más que un archivo chico, así que el timeout acá es más generoso.
+async function convertirDWGDesdeDrive(archivo) {
+  const apiKey = driveConfig.apiKey || CONFIG.DRIVE_API_KEY;
+  if (!apiKey) {
+    mostrarError("Falta la API Key de Drive para convertir este archivo.");
+    return;
+  }
+  mostrarCarga("Convirtiendo DWG a DXF…");
+  const controlador = new AbortController();
+  const avisoLento = setTimeout(() => mostrarCarga("Convirtiendo DWG a DXF… (puede tardar un rato en archivos grandes)"), 4000);
+  const corteTimeout = setTimeout(() => controlador.abort(), 58000);
+  try {
+    const resp = await fetch("/api/dwg-convert", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ driveFileId: archivo.driveId, driveApiKey: apiKey }),
+      signal: controlador.signal,
+    });
+    if (!resp.ok) {
+      let msg = "No se pudo convertir el archivo";
+      try { const j = await resp.json(); if (j.error) msg = j.error; } catch (e) {}
+      throw new Error(msg);
+    }
+    const dxfBuffer = await resp.arrayBuffer();
+    await cargarDXF(dxfBuffer);
+  } catch (e) {
+    console.error("Error convirtiendo DWG desde Drive:", e);
+    const msg = e.name === "AbortError" ? "La conversión tardó demasiado (archivo muy grande o complejo) — probá exportarlo como .dxf" : e.message;
     mostrarError("No se pudo convertir el DWG: " + msg);
   } finally {
     clearTimeout(avisoLento);

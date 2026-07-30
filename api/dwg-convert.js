@@ -5,6 +5,16 @@
 // sin especificación pública — no existe forma de leerlo client-side, así
 // que la conversión pasa por acá y el navegador recibe el DXF resultante
 // (que el visor ya sabe mostrar).
+//
+// Dos formas de entregar el archivo:
+//  - driveFileId + driveApiKey: el servidor lo DESCARGA directo de Drive.
+//    Evita por completo el límite de ~4.5MB que Vercel impone al body de
+//    un POST — esa restricción es solo para lo que el cliente SUBE, no
+//    para lo que el servidor descarga de otra API. Es el camino para
+//    archivos grandes (probado con uno de ~218MB).
+//  - archivoBase64: el archivo ya en memoria del cliente (ej. elegido desde
+//    el filesystem local, sin pasar por Drive) — sigue atado al límite de
+//    ~3MB de Vercel, no hay forma de evitarlo en ese caso.
 
 import { spawn } from "child_process";
 import { mkdtemp, readFile, writeFile, rm, stat } from "fs/promises";
@@ -12,16 +22,9 @@ import { tmpdir } from "os";
 import path from "path";
 
 const DWG2DXF_BIN = path.join(process.cwd(), "api", "bin", "dwg2dxf");
-// Vercel tiene un límite DURO de ~4.5MB para el body de una Serverless
-// Function — no es configurable. Mandando el archivo como base64 dentro
-// de un JSON (en vez de bytes crudos con bodyParser:false, que es un
-// patrón de Next.js y no se comportaba bien acá — se quedaba colgado
-// "convirtiendo" para siempre porque el body nunca terminaba de leerse)
-// se usa el parseo de JSON que trae Vercel por default, sin ambigüedad.
-// Pero eso significa que el .dwg ORIGINAL tiene que entrar en ese límite
-// una vez codificado en base64 (~33% más grande) — de ahí el tope acá.
-const MAX_BYTES = 3 * 1024 * 1024; // ~3MB de DWG original ≈ 4MB en base64
-const TIMEOUT_MS = 25000; // las funciones de Vercel tienen su propio límite de tiempo; cortamos antes
+const MAX_BYTES_BASE64 = 3 * 1024 * 1024; // límite duro de Vercel para el body de un POST (~4.5MB), con margen para el ~33% que infla base64
+const MAX_BYTES_DRIVE = 300 * 1024 * 1024; // generoso, pero acotado — evita que un archivo absurdo tire abajo la función por memoria
+const TIMEOUT_MS = 55000; // las funciones de Vercel tienen su propio límite de tiempo (ver vercel.json maxDuration); cortamos un poco antes
 
 function ejecutarConTimeout(bin, args, timeoutMs) {
   return new Promise((resolve, reject) => {
@@ -30,7 +33,7 @@ function ejecutarConTimeout(bin, args, timeoutMs) {
     proc.stderr.on("data", (d) => { stderr += d; });
     const timer = setTimeout(() => {
       proc.kill("SIGKILL");
-      reject(new Error("La conversión tardó demasiado (archivo muy complejo o corrupto)"));
+      reject(new Error("La conversión tardó demasiado (archivo muy grande, muy complejo, o corrupto)"));
     }, timeoutMs);
     proc.on("error", (err) => { clearTimeout(timer); reject(err); });
     proc.on("close", (code) => {
@@ -41,6 +44,30 @@ function ejecutarConTimeout(bin, args, timeoutMs) {
   });
 }
 
+// Descarga el DWG directo de Drive, server-side — nunca pasa por el body
+// del POST del cliente, así que no está sujeto al límite de ~4.5MB.
+async function descargarDwgDeDrive(fileId, apiKey) {
+  const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media&key=${encodeURIComponent(apiKey)}`;
+  const resp = await fetch(url);
+  if (!resp.ok) {
+    let msg = `Drive respondió HTTP ${resp.status}`;
+    try {
+      const j = await resp.json();
+      if (j?.error?.message) msg = j.error.message;
+    } catch (e) {}
+    throw new Error("No se pudo descargar el DWG desde Drive: " + msg);
+  }
+  const len = parseInt(resp.headers.get("content-length") || "0", 10);
+  if (len && len > MAX_BYTES_DRIVE) {
+    throw new Error(`Archivo muy grande (${Math.round(len / 1024 / 1024)}MB, máx ${Math.round(MAX_BYTES_DRIVE / 1024 / 1024)}MB)`);
+  }
+  const buffer = Buffer.from(await resp.arrayBuffer());
+  if (buffer.length > MAX_BYTES_DRIVE) {
+    throw new Error(`Archivo muy grande (${Math.round(buffer.length / 1024 / 1024)}MB, máx ${Math.round(MAX_BYTES_DRIVE / 1024 / 1024)}MB)`);
+  }
+  return buffer;
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Método no permitido" });
@@ -49,18 +76,24 @@ export default async function handler(req, res) {
 
   let tmpDir;
   try {
-    const archivoBase64 = req.body?.archivoBase64;
-    if (!archivoBase64 || typeof archivoBase64 !== "string") {
+    const { archivoBase64, driveFileId, driveApiKey } = req.body || {};
+
+    let buffer;
+    if (driveFileId && driveApiKey) {
+      buffer = await descargarDwgDeDrive(driveFileId, driveApiKey);
+    } else if (archivoBase64 && typeof archivoBase64 === "string") {
+      buffer = Buffer.from(archivoBase64, "base64");
+      if (buffer.length > MAX_BYTES_BASE64) {
+        res.status(413).json({ error: `Archivo muy grande (máx ${Math.round(MAX_BYTES_BASE64 / 1024 / 1024)}MB por este camino — límite de Vercel para el tamaño del pedido)` });
+        return;
+      }
+    } else {
       res.status(400).json({ error: "No se recibió ningún archivo" });
       return;
     }
-    const buffer = Buffer.from(archivoBase64, "base64");
+
     if (!buffer.length) {
       res.status(400).json({ error: "El archivo llegó vacío" });
-      return;
-    }
-    if (buffer.length > MAX_BYTES) {
-      res.status(413).json({ error: `Archivo muy grande (máx ${Math.round(MAX_BYTES / 1024 / 1024)}MB — límite de Vercel para el tamaño del pedido)` });
       return;
     }
 

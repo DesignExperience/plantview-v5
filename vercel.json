@@ -2,7 +2,8 @@
   "functions": {
     "api/dwg-convert.js": {
       "includeFiles": "api/bin/dwg2dxf",
-      "maxDuration": 30
+      "maxDuration": 60,
+      "memory": 3009
     }
   }
 }
