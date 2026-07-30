@@ -3169,13 +3169,44 @@ function aplicarTransformDxf() {
   visorDxf.style.transform = `translate(${dxfPan.x}px, ${dxfPan.y}px) scale(${dxfPan.zoom})`;
 }
 
+// ArrayBuffer -> base64, de a bloques — String.fromCharCode(...array) con
+// un array grande de una sola vez puede reventar el límite de argumentos
+// del motor JS (RangeError: Maximum call stack), así que se arma la
+// cadena binaria en trozos chicos antes de btoa().
+function arrayBufferABase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const CHUNK = 0x8000;
+  let binario = "";
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binario += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binario);
+}
+
 // DWG → DXF server-side (ver api/dwg-convert.js, LibreDWG) — el navegador
 // nunca ve el binario DWG en sí, solo el DXF de salida, que se muestra con
-// el mismo cargarDXF() de siempre.
+// el mismo cargarDXF() de siempre. El archivo va como base64 dentro de un
+// JSON (Vercel lo parsea solo, sin ambigüedad de configuración) — eso
+// significa que el .dwg tiene que entrar en el límite de ~3MB del
+// endpoint (ver MAX_BYTES en api/dwg-convert.js, atado al límite duro de
+// Vercel de ~4.5MB por pedido).
+const DWG_MAX_BYTES = 3 * 1024 * 1024;
 async function convertirYCargarDWG(buffer) {
+  if (buffer.byteLength > DWG_MAX_BYTES) {
+    mostrarError(`El archivo pesa ${formatBytes(buffer.byteLength)} — el máximo para convertir DWG acá es ${formatBytes(DWG_MAX_BYTES)}. Exportalo como .dxf desde tu programa de CAD para archivos más grandes.`);
+    return;
+  }
   mostrarCarga("Convirtiendo DWG a DXF…");
+  const controlador = new AbortController();
+  const avisoLento = setTimeout(() => mostrarCarga("Convirtiendo DWG a DXF… (puede tardar unos segundos)"), 4000);
+  const corteTimeout = setTimeout(() => controlador.abort(), 40000);
   try {
-    const resp = await fetch("/api/dwg-convert", { method: "POST", body: buffer });
+    const resp = await fetch("/api/dwg-convert", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ archivoBase64: arrayBufferABase64(buffer) }),
+      signal: controlador.signal,
+    });
     if (!resp.ok) {
       let msg = "No se pudo convertir el archivo";
       try { const j = await resp.json(); if (j.error) msg = j.error; } catch (e) {}
@@ -3185,7 +3216,11 @@ async function convertirYCargarDWG(buffer) {
     await cargarDXF(dxfBuffer);
   } catch (e) {
     console.error("Error convirtiendo DWG:", e);
-    mostrarError("No se pudo convertir el DWG: " + e.message);
+    const msg = e.name === "AbortError" ? "La conversión tardó demasiado — probá con un archivo más simple o exportalo como .dxf" : e.message;
+    mostrarError("No se pudo convertir el DWG: " + msg);
+  } finally {
+    clearTimeout(avisoLento);
+    clearTimeout(corteTimeout);
   }
 }
 
