@@ -11,31 +11,17 @@ import { mkdtemp, readFile, writeFile, rm, stat } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
 
-export const config = {
-  api: { bodyParser: false },
-};
-
 const DWG2DXF_BIN = path.join(process.cwd(), "api", "bin", "dwg2dxf");
-const MAX_BYTES = 60 * 1024 * 1024; // 60MB — generoso para un plano, sin abrir la puerta a abusos
+// Vercel tiene un límite DURO de ~4.5MB para el body de una Serverless
+// Function — no es configurable. Mandando el archivo como base64 dentro
+// de un JSON (en vez de bytes crudos con bodyParser:false, que es un
+// patrón de Next.js y no se comportaba bien acá — se quedaba colgado
+// "convirtiendo" para siempre porque el body nunca terminaba de leerse)
+// se usa el parseo de JSON que trae Vercel por default, sin ambigüedad.
+// Pero eso significa que el .dwg ORIGINAL tiene que entrar en ese límite
+// una vez codificado en base64 (~33% más grande) — de ahí el tope acá.
+const MAX_BYTES = 3 * 1024 * 1024; // ~3MB de DWG original ≈ 4MB en base64
 const TIMEOUT_MS = 25000; // las funciones de Vercel tienen su propio límite de tiempo; cortamos antes
-
-async function leerCuerpo(req) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    let total = 0;
-    req.on("data", (chunk) => {
-      total += chunk.length;
-      if (total > MAX_BYTES) {
-        reject(new Error("Archivo muy grande (máx 60MB)"));
-        req.destroy();
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on("end", () => resolve(Buffer.concat(chunks)));
-    req.on("error", reject);
-  });
-}
 
 function ejecutarConTimeout(bin, args, timeoutMs) {
   return new Promise((resolve, reject) => {
@@ -63,9 +49,18 @@ export default async function handler(req, res) {
 
   let tmpDir;
   try {
-    const buffer = await leerCuerpo(req);
-    if (!buffer.length) {
+    const archivoBase64 = req.body?.archivoBase64;
+    if (!archivoBase64 || typeof archivoBase64 !== "string") {
       res.status(400).json({ error: "No se recibió ningún archivo" });
+      return;
+    }
+    const buffer = Buffer.from(archivoBase64, "base64");
+    if (!buffer.length) {
+      res.status(400).json({ error: "El archivo llegó vacío" });
+      return;
+    }
+    if (buffer.length > MAX_BYTES) {
+      res.status(413).json({ error: `Archivo muy grande (máx ${Math.round(MAX_BYTES / 1024 / 1024)}MB — límite de Vercel para el tamaño del pedido)` });
       return;
     }
 
