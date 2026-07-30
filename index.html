@@ -1253,6 +1253,18 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
             </div>
           </div>
           <div class="exp-scroll">
+            <div class="upload-bar">
+              <button class="btn-upload-sm" id="btn-upload-home-archivos" type="button">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0-12 4 4m-4-4-4 4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+                Subir archivos
+              </button>
+              <button class="btn-upload-sm" id="btn-upload-home-carpeta" type="button">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+                Subir carpeta
+              </button>
+              <input type="file" id="input-upload-home-archivos" multiple style="display:none">
+              <input type="file" id="input-upload-home-carpeta" webkitdirectory multiple style="display:none">
+            </div>
             <p class="sec-label">Proyectos</p>
             <div class="folder-grid" id="folder-grid"></div>
             <!-- Resultados de búsqueda global de archivos (todas las carpetas) -->
@@ -4004,6 +4016,11 @@ document.addEventListener("drop", e => {
   e.preventDefault();
   dragCounter = 0;
   dropOverlay.style.display = "none";
+  const enObras = document.getElementById("p-home")?.classList.contains("activa");
+  if (enObras && e.dataTransfer.items?.length) {
+    manejarDropEnObras(e.dataTransfer.items);
+    return;
+  }
   manejarArchivoDropeado(e.dataTransfer.files[0]);
 });
 inputUpload.addEventListener("change", () => {
@@ -4221,6 +4238,162 @@ async function subirArchivoADrive(nombre, blob, carpetaIdPadre) {
     throw new Error(err.error?.message || `HTTP ${resp.status} al subir a Drive`);
   }
   return (await resp.json()).id;
+}
+
+// Busca una subcarpeta por nombre dentro de carpetaPadreId, o la crea si no existe.
+async function obtenerOCrearCarpetaDrive(nombre, carpetaPadreId) {
+  const nombreEscapado = nombre.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  const q = encodeURIComponent(`name='${nombreEscapado}' and '${carpetaPadreId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+  const listResp = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)`, {
+    headers: { Authorization: `Bearer ${driveAccessToken}` },
+  });
+  if (!listResp.ok) throw new Error(`No se pudo buscar la carpeta (HTTP ${listResp.status})`);
+  const listData = await listResp.json();
+  let folderId = listData.files?.[0]?.id;
+  if (!folderId) {
+    const createResp = await fetch("https://www.googleapis.com/drive/v3/files", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${driveAccessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ name: nombre, mimeType: "application/vnd.google-apps.folder", parents: [carpetaPadreId] }),
+    });
+    if (!createResp.ok) throw new Error(`No se pudo crear la carpeta (HTTP ${createResp.status})`);
+    folderId = (await createResp.json()).id;
+  }
+  return folderId;
+}
+
+/* ============================================================
+   SUBIR CARPETAS/ARCHIVOS DESDE LA PANTALLA "OBRAS" — a diferencia de
+   subir dentro de una obra ya abierta (arriba), acá no hay una carpeta
+   de Drive "actual": el destino es la carpeta raíz conectada, y lo que
+   se suba se agrega como una obra (proyecto) nueva.
+   ============================================================ */
+
+// ID de la carpeta de Drive raíz a la que cuelgan las "obras" — la misma
+// que ya se usa para listar los proyectos existentes.
+function raizDriveIdActual() {
+  if (CONFIG.DRIVE_ROOT_FOLDER_ID) return CONFIG.DRIVE_ROOT_FOLDER_ID;
+  const conRaiz = carpetasOrden.find(c => c.raizDriveId);
+  if (conRaiz) return conRaiz.raizDriveId;
+  if (driveConfig.folders?.[0]?.id) return driveConfig.folders[0].id;
+  return null;
+}
+
+// Sube un lote de archivos (con su ruta relativa, para preservar
+// subcarpetas) como una obra nueva dentro de la carpeta raíz de Drive.
+async function subirArchivosAObraNueva(nombreCarpeta, archivosConRuta) {
+  const raizId = raizDriveIdActual();
+  if (!raizId) { showToast("❌ Conectá primero una carpeta de Google Drive"); return; }
+  if (!driveEscrituraDisponible()) { showToast("Falta configurar el Client ID de OAuth en CONFIG.DRIVE_OAUTH_CLIENT_ID"); return; }
+
+  const ejecutar = async () => {
+    try {
+      showToast(`Subiendo "${nombreCarpeta}"…`);
+      const cacheCarpetas = new Map();
+      const carpetaId = await obtenerOCrearCarpetaDrive(nombreCarpeta, raizId);
+      cacheCarpetas.set("", carpetaId);
+      let subidos = 0;
+      for (const { relativePath, file } of archivosConRuta) {
+        const partes = relativePath.split("/").filter(Boolean);
+        const nombreArchivo = partes.pop();
+        if (!esArchivoValido(nombreArchivo)) continue;
+        let ruta = "";
+        let padreId = carpetaId;
+        for (const parte of partes) {
+          ruta += (ruta ? "/" : "") + parte;
+          if (!cacheCarpetas.has(ruta)) cacheCarpetas.set(ruta, await obtenerOCrearCarpetaDrive(parte, padreId));
+          padreId = cacheCarpetas.get(ruta);
+        }
+        await subirArchivoADrive(nombreArchivo, file, padreId);
+        subidos++;
+      }
+      showToast(`✓ "${nombreCarpeta}" subida a Drive (${subidos} archivo${subidos!==1?"s":""})`);
+      const carpeta = { id: "drive:" + carpetaId, nombre: nombreCarpeta, archivos: subidos, nuevos: 0, driveId: carpetaId, origenDrive: true, raizDriveId: raizId };
+      const idx = carpetasOrden.findIndex(c => c.id === carpeta.id);
+      if (idx >= 0) carpetasOrden[idx] = carpeta; else carpetasOrden.push(carpeta);
+      guardarOrden();
+      renderCarpetas();
+    } catch (err) {
+      showToast("❌ Error al subir: " + err.message);
+    }
+  };
+
+  if (driveEscrituraConectada()) {
+    await ejecutar();
+  } else {
+    callbackTrasLoginDrive = ejecutar;
+    conectarEscrituraDrive();
+  }
+}
+
+document.getElementById("btn-upload-home-archivos").addEventListener("click", () => document.getElementById("input-upload-home-archivos").click());
+document.getElementById("btn-upload-home-carpeta").addEventListener("click", () => document.getElementById("input-upload-home-carpeta").click());
+
+document.getElementById("input-upload-home-archivos").addEventListener("change", async (e) => {
+  const files = Array.from(e.target.files || []);
+  e.target.value = "";
+  if (!files.length) return;
+  await subirArchivosAObraNueva("Archivos sueltos", files.map(f => ({ relativePath: f.name, file: f })));
+});
+
+document.getElementById("input-upload-home-carpeta").addEventListener("change", async (e) => {
+  const files = Array.from(e.target.files || []);
+  e.target.value = "";
+  if (!files.length) return;
+  const nombreCarpeta = (files[0].webkitRelativePath || files[0].name).split("/")[0];
+  const archivosConRuta = files.map(f => ({ relativePath: (f.webkitRelativePath || f.name).split("/").slice(1).join("/") || f.name, file: f }));
+  await subirArchivosAObraNueva(nombreCarpeta, archivosConRuta);
+});
+
+// Arrastrar y soltar archivos/carpetas directo sobre la pantalla de Obras —
+// usa la API de entries (webkitGetAsEntry) para poder distinguir carpetas
+// de archivos sueltos y leer el contenido de las carpetas recursivamente
+// (el objeto File plano no trae esa info, solo DataTransferItem sí).
+function leerArchivoDeEntry(entry) {
+  return new Promise((resolve, reject) => entry.file(resolve, reject));
+}
+function leerHijosDeDirEntry(dirEntry) {
+  return new Promise((resolve, reject) => {
+    const reader = dirEntry.createReader();
+    const todos = [];
+    const leerLote = () => reader.readEntries(lote => {
+      if (!lote.length) { resolve(todos); return; }
+      todos.push(...lote);
+      leerLote();
+    }, reject);
+    leerLote();
+  });
+}
+async function aplanarEntry(entry, prefijo, out) {
+  if (entry.isFile) {
+    const file = await leerArchivoDeEntry(entry);
+    out.push({ relativePath: prefijo + entry.name, file });
+  } else if (entry.isDirectory) {
+    const hijos = await leerHijosDeDirEntry(entry);
+    for (const hijo of hijos) await aplanarEntry(hijo, prefijo + entry.name + "/", out);
+  }
+}
+
+async function manejarDropEnObras(dataTransferItems) {
+  const entries = Array.from(dataTransferItems).map(it => it.webkitGetAsEntry && it.webkitGetAsEntry()).filter(Boolean);
+  if (!entries.length) return;
+
+  for (const dirEntry of entries.filter(e => e.isDirectory)) {
+    const archivos = [];
+    await aplanarEntry(dirEntry, "", archivos);
+    const archivosConRuta = archivos.map(a => ({ relativePath: a.relativePath.slice(dirEntry.name.length + 1), file: a.file }));
+    await subirArchivosAObraNueva(dirEntry.name, archivosConRuta);
+  }
+
+  const sueltos = entries.filter(e => e.isFile);
+  if (sueltos.length) {
+    const archivosConRuta = [];
+    for (const fe of sueltos) {
+      const file = await leerArchivoDeEntry(fe);
+      archivosConRuta.push({ relativePath: file.name, file });
+    }
+    await subirArchivosAObraNueva("Archivos sueltos", archivosConRuta);
+  }
 }
 
 /* ============================================================
@@ -4660,23 +4833,7 @@ async function ejecutarResolverCarpetaVistas(payload) {
   const { nombreGlb, carpetaPadreId, reqId } = payload;
   try {
     const nombreCarpeta = `${nombreGlb} - vistas guardadas`;
-    const nombreEscapado = nombreCarpeta.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-    const q = encodeURIComponent(`name='${nombreEscapado}' and '${carpetaPadreId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`);
-    const listResp = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)`, {
-      headers: { Authorization: `Bearer ${driveAccessToken}` },
-    });
-    if (!listResp.ok) throw new Error(`No se pudo buscar la carpeta (HTTP ${listResp.status})`);
-    const listData = await listResp.json();
-    let folderId = listData.files?.[0]?.id;
-    if (!folderId) {
-      const createResp = await fetch("https://www.googleapis.com/drive/v3/files", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${driveAccessToken}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ name: nombreCarpeta, mimeType: "application/vnd.google-apps.folder", parents: [carpetaPadreId] }),
-      });
-      if (!createResp.ok) throw new Error(`No se pudo crear la carpeta (HTTP ${createResp.status})`);
-      folderId = (await createResp.json()).id;
-    }
+    const folderId = await obtenerOCrearCarpetaDrive(nombreCarpeta, carpetaPadreId);
     enviarAlVisor3D({ tipo: "resolverCarpetaVistasOK", reqId, carpetaId: folderId });
   } catch (err) {
     enviarAlVisor3D({ tipo: "resolverCarpetaVistasError", reqId, error: err.message || String(err) });
