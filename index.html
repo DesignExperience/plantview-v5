@@ -1927,6 +1927,17 @@ if (modoEquipoDrive) {
   const btnDrive = document.getElementById("btn-drive-conectar");
   if (btnDrive) btnDrive.style.display = "none";
 
+  // En modo equipo la carpeta es la que dice CONFIG, punto — no una lista
+  // personal acumulada. Si el navegador tiene guardada de una sesión
+  // anterior otra carpeta (ej. se cambió CONFIG.DRIVE_ROOT_FOLDER_ID desde
+  // la última vez que este usuario abrió la app), reconectarCarpetasDriveGuardadas()
+  // la traía de vuelta y quedaban las dos carpetas mezcladas en la lista.
+  // Se descarta cualquier carpeta guardada que no sea la actual antes de conectar.
+  if (driveConfig.folders.some(f => f.id !== CONFIG.DRIVE_ROOT_FOLDER_ID)) {
+    driveConfig.folders = [];
+    guardarConfigDrive();
+  }
+
   conectarCarpetaDrive(CONFIG.DRIVE_API_KEY, CONFIG.DRIVE_ROOT_FOLDER_ID)
     .then(() => showToast("Conectado a Drive ✓"))
     .catch(e => {
@@ -2346,7 +2357,10 @@ function renderBusquedaGlobal(q) {
 // Reconectar carpetas de Drive guardadas de sesiones anteriores.
 // Se define reconectarCarpetasDriveGuardadas() más abajo; se difiere al próximo tick
 // para que carpetasOrden/renderCarpetas ya estén inicializados.
-setTimeout(() => { if (typeof reconectarCarpetasDriveGuardadas === "function") reconectarCarpetasDriveGuardadas(); }, 0);
+// En modo equipo la carpeta ya la conecta el bloque de arriba (fija por
+// CONFIG) — no hace falta (y no conviene) reconectar además cualquier
+// carpeta personal guardada de una sesión anterior.
+setTimeout(() => { if (!modoEquipoDrive && typeof reconectarCarpetasDriveGuardadas === "function") reconectarCarpetasDriveGuardadas(); }, 0);
 
 /* ============================================================
    PANTALLA ARCHIVOS
