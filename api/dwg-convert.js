@@ -102,7 +102,13 @@ export default async function handler(req, res) {
     const dxfPath = path.join(tmpDir, "salida.dxf");
     await writeFile(dwgPath, buffer);
 
-    await ejecutarConTimeout(DWG2DXF_BIN, ["-y", "-o", dxfPath, dwgPath], TIMEOUT_MS);
+    // -m/--minimal: exporta solo $ACADVER, HANDSEED y ENTITIES, sin tablas de
+    // capas/estilos/bloques — el visor solo lee entidades, así que esto es
+    // puro peso muerto para nosotros. En archivos grandes reduce bastante el
+    // tamaño del DXF resultante (menos para transferir y parsear) y acorta
+    // el tiempo de conversión, ayudando a entrar en el límite de tiempo de
+    // la función serverless.
+    await ejecutarConTimeout(DWG2DXF_BIN, ["-y", "-m", "-o", dxfPath, dwgPath], TIMEOUT_MS);
 
     const info = await stat(dxfPath).catch(() => null);
     if (!info || info.size === 0) {
