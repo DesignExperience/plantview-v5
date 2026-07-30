@@ -1507,8 +1507,8 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
       <button class="btn-sheet btn-sheet-primary" id="btn-drop-solo-ver" style="width:100%">
         Solo ver (no se guarda)
       </button>
-      <button class="btn-sheet btn-sheet-secondary" id="btn-drop-subir-drive" style="width:100%" disabled>
-        Subir a Drive (próximamente)
+      <button class="btn-sheet btn-sheet-secondary" id="btn-drop-subir-drive" style="width:100%">
+        Subir a Drive
       </button>
       <button class="btn-sheet btn-sheet-secondary" id="btn-drop-cancelar" style="width:100%">
         Cancelar
@@ -1544,6 +1544,7 @@ let driveTokenClient = null;
 let driveAccessToken = null;
 let driveTokenExpira = 0;
 let subidasDrivePendientes = []; // cola de subidas (notas 3D, adjuntos) en espera de login OAuth
+let callbackTrasLoginDrive = null; // acción de la app externa en espera de login OAuth (ej. "Subir a Drive")
 
 /* ============================================================
    DEMO DATA
@@ -3938,6 +3939,48 @@ document.getElementById("btn-drop-solo-ver").addEventListener("click", () => {
   abrirVisor(archivo);
 });
 
+document.getElementById("btn-drop-subir-drive").addEventListener("click", () => {
+  if (!archivoDropeadoPendiente) return;
+  const file = archivoDropeadoPendiente;
+  const carpetaDestino = state.carpetaActual;
+
+  if (!carpetaDestino || !carpetaDestino.origenDrive || !carpetaDestino.driveId) {
+    showToast("❌ Abrí primero una carpeta de Drive (dentro de una obra) para subir el archivo ahí");
+    return;
+  }
+  if (!driveEscrituraDisponible()) {
+    showToast("Falta configurar el Client ID de OAuth en CONFIG.DRIVE_OAUTH_CLIENT_ID");
+    return;
+  }
+
+  modalDropArch.classList.remove("visible");
+  archivoDropeadoPendiente = null;
+
+  const subirYAbrir = async () => {
+    try {
+      showToast("Subiendo " + file.name + "…");
+      await subirArchivoADrive(file.name, file, carpetaDestino.driveId);
+      showToast("✓ " + file.name + " subido a Drive");
+      // cargarArchivosDrive() no devuelve la lista — la deja en
+      // state.archivosFS[carpeta.id] y ya se encarga de renderArchivos().
+      await cargarArchivosDrive(carpetaDestino);
+      const subido = (state.archivosFS[carpetaDestino.id] || []).find(a => a.nombre === file.name);
+      if (subido) abrirVisor(subido);
+    } catch (err) {
+      showToast("❌ Error al subir: " + err.message);
+    }
+  };
+
+  if (driveEscrituraConectada()) {
+    subirYAbrir();
+  } else {
+    // Login OAuth (popup) — subirYAbrir() se dispara solo apenas conecte,
+    // vía callbackTrasLoginDrive (ver initDriveOAuth más abajo).
+    callbackTrasLoginDrive = subirYAbrir;
+    conectarEscrituraDrive();
+  }
+});
+
 /* ============================================================
    GOOGLE DRIVE — OAuth (escritura)
    La API Key de arriba es de SOLO LECTURA — Drive no permite escribir con
@@ -3974,6 +4017,14 @@ function initDriveOAuth() {
         const cola = subidasDrivePendientes.slice();
         subidasDrivePendientes = [];
         cola.forEach(item => EJECUTORES_DRIVE[item.tipo] && EJECUTORES_DRIVE[item.tipo](item));
+      }
+      // Callback genérico para acciones de la app externa (no del visor)
+      // que necesitaban login recién ahora — ej. "Subir a Drive" de un
+      // archivo arrastrado. Se dispara una sola vez y se limpia.
+      if (callbackTrasLoginDrive) {
+        const cb = callbackTrasLoginDrive;
+        callbackTrasLoginDrive = null;
+        cb();
       }
     },
   });
