@@ -22,8 +22,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <!-- DXF (CAD 2D, formato abierto) — parser client-side, sin subir archivos a
-     terceros. DWG (binario propietario de Autodesk) no tiene equivalente
-     gratuito: queda fuera de alcance, ver mostrarError en la rama "dwg". -->
+     terceros. DWG (binario propietario de Autodesk, sin especificación
+     pública) no se puede leer en el navegador: se convierte a DXF
+     server-side con LibreDWG (ver api/dwg-convert.js) y se muestra acá
+     mismo con el mismo parser. -->
 <script src="https://cdn.jsdelivr.net/npm/dxf-parser/dist/dxf-parser.js"></script>
 <!-- Google Identity Services — sign-in OAuth para ESCRITURA en Drive.
      Flujo 100% client-side (token client), sin backend ni Client Secret. -->
@@ -2902,11 +2904,16 @@ function abrirVisor(archivo) {
     if (esMobileUI()) aplicarModo("edrawing");
     pedirArchivo(".dxf", buf => cargarDXF(buf));
   } else if (archivo.tipo === "dwg") {
-    // DWG es un binario propietario de Autodesk — no hay lector gratuito
-    // client-side (a diferencia de DXF, que es un formato abierto). Mensaje
-    // claro en vez de intentar cargarlo como HTML y fallar en silencio.
-    ocultarCarga();
-    mostrarError("Los archivos .dwg todavía no se pueden visualizar acá. Exportalo como .dxf desde tu programa de CAD.");
+    // DWG es un binario propietario de Autodesk sin especificación pública
+    // — no se puede leer client-side (a diferencia de DXF, que es un
+    // formato abierto). Se manda al proxy /api/dwg-convert, que lo
+    // convierte a DXF server-side con LibreDWG, y se muestra en el mismo
+    // visor 2D que ya usa DXF.
+    state.edrawingArchivo = { nombre: archivo.nombre, carpetaNombre: state.carpetaActual.nombre };
+    edrawingTabTipo = "dxf";
+    if (esMobileUI()) aplicarModo("edrawing");
+    mostrarCarga("Convirtiendo DWG a DXF…");
+    pedirArchivo(".dwg", buf => convertirYCargarDWG(buf));
   } else if (archivo.tipo === "edrawing") {
     state.edrawingArchivo = { nombre: archivo.nombre, carpetaNombre: state.carpetaActual.nombre };
     edrawingTabTipo = "html";
@@ -3160,6 +3167,26 @@ function entidadASVG(e, alturaTotal) {
 
 function aplicarTransformDxf() {
   visorDxf.style.transform = `translate(${dxfPan.x}px, ${dxfPan.y}px) scale(${dxfPan.zoom})`;
+}
+
+// DWG → DXF server-side (ver api/dwg-convert.js, LibreDWG) — el navegador
+// nunca ve el binario DWG en sí, solo el DXF de salida, que se muestra con
+// el mismo cargarDXF() de siempre.
+async function convertirYCargarDWG(buffer) {
+  mostrarCarga("Convirtiendo DWG a DXF…");
+  try {
+    const resp = await fetch("/api/dwg-convert", { method: "POST", body: buffer });
+    if (!resp.ok) {
+      let msg = "No se pudo convertir el archivo";
+      try { const j = await resp.json(); if (j.error) msg = j.error; } catch (e) {}
+      throw new Error(msg);
+    }
+    const dxfBuffer = await resp.arrayBuffer();
+    await cargarDXF(dxfBuffer);
+  } catch (e) {
+    console.error("Error convirtiendo DWG:", e);
+    mostrarError("No se pudo convertir el DWG: " + e.message);
+  }
 }
 
 async function cargarDXF(buffer) {
