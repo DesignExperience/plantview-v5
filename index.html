@@ -3193,25 +3193,105 @@ function aplicarTransformDxf() {
 // memoria/CPU del dispositivo del usuario. El wasm (~10MB) se descarga
 // una sola vez por sesión y se cachea (libredwgPromise).
 let libredwgPromise = null;
+let LibreDwgDwgFileType = null; // { DWG: 0, DXF: 1 } — se completa junto con el módulo
 function obtenerLibreDwg() {
   if (!libredwgPromise) {
     libredwgPromise = import("https://cdn.jsdelivr.net/npm/@mlightcad/libredwg-web@0.7.9/dist/libredwg-web.js")
-      .then(mod => mod.LibreDwg.create());
+      .then(mod => {
+        LibreDwgDwgFileType = mod.Dwg_File_Type;
+        return mod.LibreDwg.create();
+      });
   }
   return libredwgPromise;
 }
 
+// Traduce una entidad tal cual la devuelve libredwg-web (DwgDatabase) al
+// shape que ya entienden entidadesABBox()/entidadASVG() (el mismo que usa
+// dxf-parser para DXF). Evita a propósito el viaje redondo DWG → texto DXF
+// → reparsear ese texto: para un archivo grande, generar y volver a leer
+// un DXF completo (con miles de líneas de texto por entidad) es buena
+// parte del tiempo de carga. Yendo directo del árbol de datos del DWG a
+// las entidades que el visor necesita, nos ahorramos esa vuelta entera.
+function mapearEntidadDwg(e) {
+  switch (e.type) {
+    case "LINE":
+      if (!e.startPoint || !e.endPoint) return null;
+      return { type: "LINE", vertices: [{ x: e.startPoint.x, y: e.startPoint.y }, { x: e.endPoint.x, y: e.endPoint.y }] };
+    case "LWPOLYLINE":
+      if (!e.vertices?.length) return null;
+      return { type: "LWPOLYLINE", vertices: e.vertices.map(v => ({ x: v.x, y: v.y })), shape: !!(e.flag & 1) };
+    case "POLYLINE2D":
+    case "POLYLINE3D":
+      if (!e.vertices?.length) return null;
+      return { type: "POLYLINE", vertices: e.vertices.map(v => ({ x: v.x, y: v.y })), shape: !!(e.flag & 1) };
+    case "CIRCLE":
+      if (!e.center) return null;
+      return { type: "CIRCLE", center: { x: e.center.x, y: e.center.y }, radius: e.radius };
+    case "ARC":
+      if (!e.center) return null;
+      return { type: "ARC", center: { x: e.center.x, y: e.center.y }, radius: e.radius, startAngle: e.startAngle, endAngle: e.endAngle };
+    case "TEXT":
+      if (!e.startPoint || !e.text) return null;
+      return { type: "TEXT", startPoint: { x: e.startPoint.x, y: e.startPoint.y }, text: e.text, textHeight: e.textHeight };
+    case "MTEXT":
+      if (!e.insertionPoint || !e.text) return null;
+      return { type: "MTEXT", startPoint: { x: e.insertionPoint.x, y: e.insertionPoint.y }, text: e.text, textHeight: e.textHeight };
+    case "POINT":
+      if (!e.position) return null;
+      return { type: "POINT", position: { x: e.position.x, y: e.position.y } };
+    default:
+      return null; // entidad no soportada por el visor (HATCH, SPLINE, DIMENSION, etc.) — se omite
+  }
+}
+
 async function convertirYCargarDWG(buffer) {
   mostrarCarga("Leyendo DWG…");
+  let dataPtr;
   try {
     const libredwg = await obtenerLibreDwg();
-    mostrarCarga("Convirtiendo DWG a DXF…");
-    const dxfBytes = libredwg.dwg_write_dxf(buffer);
-    if (!dxfBytes) throw new Error("No se pudo leer este DWG (versión no soportada o archivo corrupto)");
-    await cargarDXF(dxfBytes.buffer);
+    dataPtr = libredwg.dwg_read_data(buffer, LibreDwgDwgFileType.DWG);
+    if (dataPtr === undefined) throw new Error("No se pudo leer este DWG (versión no soportada o archivo corrupto)");
+    const db = libredwg.convert(dataPtr);
+    const entities = (db.entities || []).map(mapearEntidadDwg).filter(Boolean);
+    renderEntidadesEnVisorDxf(entities);
   } catch (e) {
     console.error("Error convirtiendo DWG:", e);
     mostrarError("No se pudo convertir el DWG: " + e.message);
+  } finally {
+    if (dataPtr !== undefined) {
+      try { (await obtenerLibreDwg()).dwg_free(dataPtr); } catch (e) {}
+    }
+  }
+}
+
+// Arma el SVG a partir de una lista de entidades ya en el shape que
+// entienden entidadesABBox()/entidadASVG() (el mismo shape que devuelve
+// dxf-parser) y lo deja montado en el visor. Común a los dos caminos de
+// entrada: DXF de texto (cargarDXF) y DWG leído directo a entidades
+// (cargarEntidadesDwg), sin repetir la parte de armar el SVG/bbox/zoom.
+function renderEntidadesEnVisorDxf(entities) {
+  const bbox = entidadesABBox(entities);
+  if (!bbox) throw new Error("El archivo no tiene entidades reconocidas para dibujar.");
+
+  const ancho = Math.max(bbox.maxX - bbox.minX, 1);
+  const alto  = Math.max(bbox.maxY - bbox.minY, 1);
+  const margen = Math.max(ancho, alto) * 0.03;
+  const alturaSVG = bbox.maxY + margen; // para invertir Y consistentemente
+  const trazos = entities.map(e => entidadASVG(e, alturaSVG)).join("");
+
+  visorDxf.innerHTML = `<svg viewBox="${bbox.minX - margen} ${(alturaSVG - bbox.maxY) - margen} ${ancho + margen*2} ${alto + margen*2}"
+    width="100%" height="100%" preserveAspectRatio="xMidYMid meet"
+    stroke="#1a1a1a" stroke-width="${Math.max(ancho, alto) * 0.0015}" fill="none"
+    font-family="monospace">${trazos}</svg>`;
+
+  dxfPan = { x: 0, y: 0, zoom: 1 };
+  aplicarTransformDxf();
+
+  ocultarCarga();
+  if (edrawingTabTipo === "dxf" && (!esMobileUI() || modoActual === "edrawing")) {
+    visorDxfWrap.classList.add("show");
+    document.getElementById("btn-visor-reload").style.display = "flex";
+    document.getElementById("visor-empty").style.display = "none";
   }
 }
 
@@ -3222,30 +3302,7 @@ async function cargarDXF(buffer) {
     }
     const texto = new TextDecoder("utf-8").decode(buffer);
     const dxf = new DxfParser().parseSync(texto);
-    const entities = dxf?.entities || [];
-    const bbox = entidadesABBox(entities);
-    if (!bbox) throw new Error("El DXF no tiene entidades reconocidas para dibujar.");
-
-    const ancho = Math.max(bbox.maxX - bbox.minX, 1);
-    const alto  = Math.max(bbox.maxY - bbox.minY, 1);
-    const margen = Math.max(ancho, alto) * 0.03;
-    const alturaSVG = bbox.maxY + margen; // para invertir Y consistentemente
-    const trazos = entities.map(e => entidadASVG(e, alturaSVG)).join("");
-
-    visorDxf.innerHTML = `<svg viewBox="${bbox.minX - margen} ${(alturaSVG - bbox.maxY) - margen} ${ancho + margen*2} ${alto + margen*2}"
-      width="100%" height="100%" preserveAspectRatio="xMidYMid meet"
-      stroke="#1a1a1a" stroke-width="${Math.max(ancho, alto) * 0.0015}" fill="none"
-      font-family="monospace">${trazos}</svg>`;
-
-    dxfPan = { x: 0, y: 0, zoom: 1 };
-    aplicarTransformDxf();
-
-    ocultarCarga();
-    if (edrawingTabTipo === "dxf" && (!esMobileUI() || modoActual === "edrawing")) {
-      visorDxfWrap.classList.add("show");
-      document.getElementById("btn-visor-reload").style.display = "flex";
-      document.getElementById("visor-empty").style.display = "none";
-    }
+    renderEntidadesEnVisorDxf(dxf?.entities || []);
   } catch(e) {
     console.error("Error al cargar DXF:", e);
     mostrarError(e.message);
