@@ -23,9 +23,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <!-- DXF (CAD 2D, formato abierto) — parser client-side, sin subir archivos a
      terceros. DWG (binario propietario de Autodesk, sin especificación
-     pública) no se puede leer en el navegador: se convierte a DXF
-     server-side con LibreDWG (ver api/dwg-convert.js) y se muestra acá
-     mismo con el mismo parser. -->
+     pública) se lee con LibreDWG compilado a WebAssembly (cargado on-demand
+     desde CDN al abrir el primer .dwg — ver convertirYCargarDWG), que lo
+     convierte a DXF ahí mismo en el navegador y se muestra con este mismo
+     parser. -->
 <script src="https://cdn.jsdelivr.net/npm/dxf-parser/dist/dxf-parser.js"></script>
 <!-- Google Identity Services — sign-in OAuth para ESCRITURA en Drive.
      Flujo 100% client-side (token client), sin backend ni Client Secret. -->
@@ -2916,25 +2917,17 @@ function abrirVisor(archivo) {
     if (esMobileUI()) aplicarModo("edrawing");
     pedirArchivo(".dxf", buf => cargarDXF(buf));
   } else if (archivo.tipo === "dwg") {
-    // DWG es un binario propietario de Autodesk sin especificación pública
-    // — no se puede leer client-side (a diferencia de DXF, que es un
-    // formato abierto). Se manda al proxy /api/dwg-convert, que lo
-    // convierte a DXF server-side con LibreDWG, y se muestra en el mismo
-    // visor 2D que ya usa DXF.
+    // DWG es un binario propietario de Autodesk sin especificación pública,
+    // pero LibreDWG (compilado a WebAssembly) lo lee igual, 100% en el
+    // navegador — ver convertirYCargarDWG(). Se muestra en el mismo visor
+    // 2D que ya usa DXF.
     state.edrawingArchivo = { nombre: archivo.nombre, carpetaNombre: state.carpetaActual.nombre };
     edrawingTabTipo = "dxf";
     if (esMobileUI()) aplicarModo("edrawing");
+    mostrarCarga("Descargando DWG…");
     if (archivo.driveId) {
-      // El servidor descarga el DWG directo de Drive — evita el límite de
-      // ~4.5MB que Vercel impone al body de un POST, así que sirve para
-      // archivos grandes (probado con uno de ~218MB). Solo necesita el
-      // fileId y la API Key, nunca pasa el archivo entero por acá.
-      convertirDWGDesdeDrive(archivo);
+      descargarBufferDrive(archivo.driveId).then(convertirYCargarDWG).catch(e => mostrarError(e.message));
     } else {
-      // Archivo local (elegido del filesystem, sin pasar por Drive) — acá
-      // sí queda atado al límite de ~3MB de Vercel, no hay forma de
-      // evitarlo sin pasar por algún storage intermedio.
-      mostrarCarga("Convirtiendo DWG a DXF…");
       pedirArchivo(".dwg", buf => convertirYCargarDWG(buf));
     }
   } else if (archivo.tipo === "edrawing") {
@@ -3192,97 +3185,33 @@ function aplicarTransformDxf() {
   visorDxf.style.transform = `translate(${dxfPan.x}px, ${dxfPan.y}px) scale(${dxfPan.zoom})`;
 }
 
-// ArrayBuffer -> base64, de a bloques — String.fromCharCode(...array) con
-// un array grande de una sola vez puede reventar el límite de argumentos
-// del motor JS (RangeError: Maximum call stack), así que se arma la
-// cadena binaria en trozos chicos antes de btoa().
-function arrayBufferABase64(buffer) {
-  const bytes = new Uint8Array(buffer);
-  const CHUNK = 0x8000;
-  let binario = "";
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    binario += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+// DWG → DXF 100% client-side con LibreDWG compilado a WebAssembly
+// (@mlightcad/libredwg-web, mismo motor que usa AutoCAD-compatible
+// LibreDWG). El binario DWG nunca sale del navegador — nada de subirlo a
+// un servidor ni de límites de tiempo de función serverless, así que no
+// importa si el archivo pesa 3MB o 300MB: el único techo real es la
+// memoria/CPU del dispositivo del usuario. El wasm (~10MB) se descarga
+// una sola vez por sesión y se cachea (libredwgPromise).
+let libredwgPromise = null;
+function obtenerLibreDwg() {
+  if (!libredwgPromise) {
+    libredwgPromise = import("https://cdn.jsdelivr.net/npm/@mlightcad/libredwg-web@0.7.9/dist/libredwg-web.js")
+      .then(mod => mod.LibreDwg.create());
   }
-  return btoa(binario);
+  return libredwgPromise;
 }
 
-// DWG → DXF server-side (ver api/dwg-convert.js, LibreDWG) — el navegador
-// nunca ve el binario DWG en sí, solo el DXF de salida, que se muestra con
-// el mismo cargarDXF() de siempre. El archivo va como base64 dentro de un
-// JSON (Vercel lo parsea solo, sin ambigüedad de configuración) — eso
-// significa que el .dwg tiene que entrar en el límite de ~3MB del
-// endpoint (ver MAX_BYTES en api/dwg-convert.js, atado al límite duro de
-// Vercel de ~4.5MB por pedido).
-const DWG_MAX_BYTES = 3 * 1024 * 1024;
 async function convertirYCargarDWG(buffer) {
-  if (buffer.byteLength > DWG_MAX_BYTES) {
-    mostrarError(`El archivo pesa ${formatBytes(buffer.byteLength)} — el máximo para convertir DWG acá es ${formatBytes(DWG_MAX_BYTES)}. Exportalo como .dxf desde tu programa de CAD para archivos más grandes.`);
-    return;
-  }
-  mostrarCarga("Convirtiendo DWG a DXF…");
-  const controlador = new AbortController();
-  const avisoLento = setTimeout(() => mostrarCarga("Convirtiendo DWG a DXF… (puede tardar unos segundos)"), 4000);
-  const corteTimeout = setTimeout(() => controlador.abort(), 40000);
+  mostrarCarga("Leyendo DWG…");
   try {
-    const resp = await fetch("/api/dwg-convert", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ archivoBase64: arrayBufferABase64(buffer) }),
-      signal: controlador.signal,
-    });
-    if (!resp.ok) {
-      let msg = "No se pudo convertir el archivo";
-      try { const j = await resp.json(); if (j.error) msg = j.error; } catch (e) {}
-      throw new Error(msg);
-    }
-    const dxfBuffer = await resp.arrayBuffer();
-    await cargarDXF(dxfBuffer);
+    const libredwg = await obtenerLibreDwg();
+    mostrarCarga("Convirtiendo DWG a DXF…");
+    const dxfBytes = libredwg.dwg_write_dxf(buffer);
+    if (!dxfBytes) throw new Error("No se pudo leer este DWG (versión no soportada o archivo corrupto)");
+    await cargarDXF(dxfBytes.buffer);
   } catch (e) {
     console.error("Error convirtiendo DWG:", e);
-    const msg = e.name === "AbortError" ? "La conversión tardó demasiado — probá con un archivo más simple o exportalo como .dxf" : e.message;
-    mostrarError("No se pudo convertir el DWG: " + msg);
-  } finally {
-    clearTimeout(avisoLento);
-    clearTimeout(corteTimeout);
-  }
-}
-
-// DWG grande guardado en Drive: el servidor lo descarga directo desde ahí
-// (fileId + API Key nomás, nunca pasa el archivo por acá) — evita por
-// completo el límite de ~4.5MB del body de un POST, así que sirve para
-// archivos de cientos de MB. La conversión en sí puede tardar bastante
-// más que un archivo chico, así que el timeout acá es más generoso.
-async function convertirDWGDesdeDrive(archivo) {
-  const apiKey = driveConfig.apiKey || CONFIG.DRIVE_API_KEY;
-  if (!apiKey) {
-    mostrarError("Falta la API Key de Drive para convertir este archivo.");
-    return;
-  }
-  mostrarCarga("Convirtiendo DWG a DXF…");
-  const controlador = new AbortController();
-  const avisoLento = setTimeout(() => mostrarCarga("Convirtiendo DWG a DXF… (puede tardar un rato en archivos grandes)"), 4000);
-  const corteTimeout = setTimeout(() => controlador.abort(), 58000);
-  try {
-    const resp = await fetch("/api/dwg-convert", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ driveFileId: archivo.driveId, driveApiKey: apiKey }),
-      signal: controlador.signal,
-    });
-    if (!resp.ok) {
-      let msg = "No se pudo convertir el archivo";
-      try { const j = await resp.json(); if (j.error) msg = j.error; } catch (e) {}
-      throw new Error(msg);
-    }
-    const dxfBuffer = await resp.arrayBuffer();
-    await cargarDXF(dxfBuffer);
-  } catch (e) {
-    console.error("Error convirtiendo DWG desde Drive:", e);
-    const msg = e.name === "AbortError" ? "La conversión tardó demasiado (archivo muy grande o complejo) — probá exportarlo como .dxf" : e.message;
-    mostrarError("No se pudo convertir el DWG: " + msg);
-  } finally {
-    clearTimeout(avisoLento);
-    clearTimeout(corteTimeout);
+    mostrarError("No se pudo convertir el DWG: " + e.message);
   }
 }
 
