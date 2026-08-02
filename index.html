@@ -5354,8 +5354,13 @@ canvas{display:block;width:100%;height:100%}
 .vista-guardar-btn.hide,#vistaTextoLabel.hide{display:none}
 #btnVistaCerrar{background:none;color:var(--muted);border:1px solid var(--border) !important;width:100%;height:32px;border-radius:9px;font-family:inherit;font-size:11.5px;cursor:pointer}
 
-#panelListaVistas{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);display:none;flex-direction:column;gap:10px;width:min(320px,calc(100vw - 32px));max-height:min(460px,calc(100vh - 100px));background:rgba(240,242,246,.98);border:1px solid var(--border);border-radius:14px;padding:14px;z-index:410;box-shadow:0 12px 40px rgba(0,0,0,.3)}
+#panelListaVistas{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);display:none;flex-direction:column;gap:12px;width:min(320px,calc(100vw - 32px));max-height:min(460px,calc(100vh - 100px));background:rgba(240,242,246,.98);border:1px solid var(--border);border-radius:14px;padding:14px;z-index:410;box-shadow:0 12px 40px rgba(0,0,0,.3)}
 #panelListaVistas.show{display:flex}
+.lista-vistas-actions{display:flex;gap:8px;flex-shrink:0}
+#listaVistasAgregar{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;height:38px;border-radius:10px;border:none;background:#3A6BE8;color:#fff;font-family:inherit;font-weight:700;font-size:12.5px;cursor:pointer}
+#listaVistasAgregar:active{background:#2f57bd}
+#listaVistasCerrar{flex-shrink:0;height:38px;padding:0 16px;border-radius:10px;border:1px solid var(--border) !important;background:none;color:var(--muted);font-family:inherit;font-weight:600;font-size:12.5px;cursor:pointer}
+#listaVistasCerrar:active{color:var(--text);border-color:var(--muted) !important}
 #listaVistasItems{display:flex;flex-direction:column;gap:8px;overflow-y:auto;min-height:0}
 .lista-vistas-vacio{font-size:12px;color:var(--muted);text-align:center;padding:16px 0}
 .lista-vistas-item{display:flex;align-items:center;gap:10px;text-align:left;width:100%;background:var(--surf2);border:1px solid var(--border);border-radius:9px;padding:8px;cursor:pointer;font-family:inherit}
@@ -5641,10 +5646,13 @@ window.onerror=function(msg,src,line){
 <div id="panelListaVistas">
   <div class="lista-notas-head">
     <span>Vistas guardadas</span>
-    <div class="lista-notas-head-btns">
-      <button id="listaVistasAgregar" type="button" aria-label="Nueva vista" title="Nueva vista">+</button>
-      <button id="listaVistasCerrar" type="button" aria-label="Cerrar">×</button>
-    </div>
+  </div>
+  <div class="lista-vistas-actions">
+    <button id="listaVistasAgregar" type="button">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Crear nueva vista
+    </button>
+    <button id="listaVistasCerrar" type="button">Cerrar</button>
   </div>
   <div id="listaVistasItems"></div>
 </div>
