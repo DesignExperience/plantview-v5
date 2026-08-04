@@ -4913,13 +4913,10 @@ const tareasSeccionesColapsadas = new Set();
 function renderTareas() {
   const cont = document.getElementById("tareas-contenido");
   const tareas = tareasCache || [];
-  if (!tareas.length) {
-    cont.innerHTML = `<div class="tareas-vacio">
-      <strong style="color:var(--text);font-family:'Chakra Petch',sans-serif;font-weight:700">Sin tareas todavía</strong>
-      <span>Creá una con el botón "Nueva" o marcá una nota como "Es una tarea/OT" en el visor 3D.</span>
-    </div>`;
-    return;
-  }
+  // Antes, con 0 tareas en TODA la app, se mostraba un único cartel
+  // genérico en vez de los grupos por estado — pero cada grupo ya sabe
+  // mostrarse vacío (con su "+ Añadir Tarea" propio), así que siempre
+  // conviene ver la estructura de estados, no un cartel que la tapa.
   if (tareasVistaActual === "tablero") {
     cont.innerHTML = `<div class="tareas-tablero">` + TAREAS_ESTADOS.map(e => {
       const delEstado = tareas.filter(t => t.estado === e.key);
