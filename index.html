@@ -1309,6 +1309,10 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0-12 4 4m-4-4-4 4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
                 Subir
               </button>
+              <button class="btn-upload-sm" id="btn-compartir-carpeta" type="button">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="10.6" x2="15.4" y2="6.4"/><line x1="8.6" y1="13.4" x2="15.4" y2="17.6"/></svg>
+                Compartir
+              </button>
               <div class="drop-zone-active" id="drop-active">Soltá acá</div>
             </div>
             <div class="file-list" id="file-list"></div>
@@ -3736,8 +3740,9 @@ document.getElementById("btn-qr-dl").addEventListener("click", () => {
 (function() {
   const params = new URLSearchParams(window.location.search);
   const fid = params.get("file");
-  if (!fid) return;
-  const cid = fid.split("||")[0];
+  const carpetaParam = params.get("carpeta"); // ?carpeta=<id> — link "Compartir" de una carpeta, sin archivo puntual
+  if (!fid && !carpetaParam) return;
+  const cid = fid ? fid.split("||")[0] : carpetaParam;
 
   // Vista de cámara 3D guardada en el link (?cx=&cy=&cz=&tx=&ty=&tz=) — si
   // los 6 números están presentes y son válidos, se aplican una sola vez
@@ -3764,11 +3769,14 @@ document.getElementById("btn-qr-dl").addEventListener("click", () => {
     state.carpetaActual = c;
     document.getElementById("folder-title").textContent = c.nombre;
     asegurarArchivosCargados(c).then(archivos => {
-      // El explorador debe mostrar la carpeta del archivo, no quedarse en Home
+      // El explorador debe mostrar la carpeta (del archivo, o directo si es
+      // un link "Compartir" de carpeta sin archivo puntual), no quedarse en Home
       renderArchivos();
       irAExp(P.archivos, P.home);
-      const f = archivos.find(x => x.id === fid);
-      if (f) setTimeout(() => abrirVisor(f), 400);
+      if (fid) {
+        const f = archivos.find(x => x.id === fid);
+        if (f) setTimeout(() => abrirVisor(f), 400);
+      }
     });
     return true;
   };
@@ -3982,6 +3990,21 @@ const modalDropArch  = document.getElementById("modal-drop-archivo");
 let archivoDropeadoPendiente = null;
 
 document.getElementById("btn-upload-sm").addEventListener("click", () => inputUpload.click());
+
+// Compartir carpeta: copia un link que, al abrirse, entra directo a esta
+// misma carpeta (?carpeta=<id> — ver el bloque DEEP LINK más abajo), sin
+// que el destinatario tenga que navegar manualmente hasta ahí.
+document.getElementById("btn-compartir-carpeta").addEventListener("click", async () => {
+  const c = state.carpetaActual;
+  if (!c) return;
+  const link = `${location.origin}${location.pathname}?carpeta=${encodeURIComponent(c.id)}`;
+  try {
+    await navigator.clipboard.writeText(link);
+    showToast("Link de la carpeta copiado ✓");
+  } catch (e) {
+    window.prompt("Copiá el link:", link);
+  }
+});
 
 let dragCounter = 0;
 document.addEventListener("dragenter", e => {
