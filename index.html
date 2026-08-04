@@ -853,7 +853,12 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
    de la vista de Tareas atrás. Solo el "header" (barra + título) es
    zona de arrastre — los campos del formulario siguen siendo
    clickeables normalmente. Ver habilitarModalFlotante(). */
-.modal-overlay-flotante { align-items: center; cursor: default; }
+/* Sin fondo oscuro ni blur: al ser un panel flotante (no bloqueante),
+   conviene seguir viendo la lista de Tareas atrás. pointer-events:none
+   en el overlay deja pasar los clicks al fondo; se reactiva solo sobre
+   la hoja del modal, así el formulario sigue funcionando normal. */
+.modal-overlay-flotante { align-items: center; cursor: default; background: transparent; backdrop-filter: none; pointer-events: none; }
+.modal-overlay-flotante .modal-sheet-flotante { pointer-events: auto; }
 .modal-sheet-flotante {
   border-radius: 14px; max-height: 88vh; overflow-y: auto;
   animation: apareceModalFlotante .18s cubic-bezier(.2,.8,.2,1);
