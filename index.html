@@ -28,6 +28,14 @@
      generarQRCaladoDXF más abajo. -->
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@2.0.4/dist/qrcode.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<!-- Micro QR (experimental) — versión más chica del QR estándar, un solo
+     patrón de esquina en vez de tres, pensada para el código corto solo
+     (sin el link completo). Ninguna librería JS genera Micro QR de forma
+     confiable (verificado) — se genera server-side con segno (Python,
+     ver api/microqr.py), y acá solo se carga el decoder para verificar
+     el resultado antes de ofrecer la descarga (mismo criterio que jsQR
+     para el QR normal). -->
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.23.0/umd/index.min.js"></script>
 <!-- DXF (CAD 2D, formato abierto) — parser client-side, sin subir archivos a
      terceros. DWG (binario propietario de Autodesk, sin especificación
      pública) se lee con LibreDWG compilado a WebAssembly (cargado on-demand
@@ -1472,6 +1480,9 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
       <button type="button" class="qr-calado-modo-btn activo" data-modo="metal">Simulación pieza calada</button>
       <button type="button" class="qr-calado-modo-btn" data-modo="digital">Contraste ideal</button>
     </div>
+    <button type="button" id="btn-qr-calado-micro" style="align-self:center;background:none;border:none;color:var(--accent);font-family:'IBM Plex Mono',monospace;font-size:9.5px;text-decoration:underline;cursor:pointer;padding:0">
+      Probar versión Micro QR (experimental, mucho más chica)
+    </button>
     <p id="qr-calado-modo-hint" style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted);text-align:center;line-height:1.6;margin:0">
       Así se ve la pieza ya calada, con luz normal y sin fondo especial detrás — el contraste real que vas a tener en la obra, salvo que uses luz de atrás.
     </p>
@@ -3791,6 +3802,7 @@ document.getElementById("btn-qr-dl").addEventListener("click", () => {
 // sin tener que cortar nada primero.
 let dxfCaladoActual = null;
 let previewsCaladoActuales = null; // { digital, metal }
+let codigoCortoActual = null; // el código de 6 caracteres, sin el link — lo necesita el botón de Micro QR
 const HINTS_MODO_CALADO = {
   metal: "Así se ve la pieza ya calada, con luz normal y sin fondo especial detrás — el contraste real que vas a tener en la obra, salvo que uses luz de atrás.",
   digital: "Contraste ideal — el mismo diseño ya verificado, sin simular iluminación. Sirve para comparar contra la simulación de al lado.",
@@ -3824,10 +3836,15 @@ async function ejecutarGenerarQRCalado() {
     const url = new URL(qrLinkActual);
     const rutaCorta = url.search; // ej. "?carpeta=drive:xyz" — sin el origin/pathname, eso es fijo
     const codigo = await generarOReusarShortlink(rutaCorta);
+    codigoCortoActual = codigo;
     const linkCorto = `${location.origin.toUpperCase()}/Q/${codigo}`;
     const { dxfTexto, previewDataUrl, previewMetalDataUrl } = generarQRCalado(linkCorto);
     dxfCaladoActual = dxfTexto;
     previewsCaladoActuales = { digital: previewDataUrl, metal: previewMetalDataUrl };
+    usandoMicroQR = false;
+    document.querySelector("#modal-qr-calado-preview .sheet-title").textContent = "Probá escanear esto";
+    document.getElementById("btn-qr-calado-micro").style.display = "";
+    document.getElementById("qr-calado-modo-tabs").style.display = "flex";
     mostrarQRCaladoModo("metal");
     document.getElementById("modal-qr-calado-preview").classList.add("visible");
   } catch (e) {
@@ -3864,10 +3881,41 @@ document.getElementById("btn-qr-calado-descargar").addEventListener("click", () 
   const blob = new Blob([dxfCaladoActual], { type: "application/dxf" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = "QR-" + document.getElementById("qr-filename").textContent.replace(/\s+/g, "_") + "-calado.dxf";
+  const sufijo = usandoMicroQR ? "-microqr-calado.dxf" : "-calado.dxf";
+  a.download = "QR-" + document.getElementById("qr-filename").textContent.replace(/\s+/g, "_") + sufijo;
   a.click();
   URL.revokeObjectURL(a.href);
-  showToast("QR calado (DXF) descargado ✓");
+  showToast((usandoMicroQR ? "Micro QR calado" : "QR calado") + " (DXF) descargado ✓");
+});
+
+// Micro QR (experimental) — reemplaza el DXF/vista previa del QR estándar
+// por la versión Micro QR del MISMO código corto (nunca del link
+// completo — no entra, ver generarMicroQRCalado). Bastante más chica
+// (17x17 contra 33x33), pero al escanearla se ve el código como texto
+// plano, no abre nada solo.
+let usandoMicroQR = false;
+document.getElementById("btn-qr-calado-micro").addEventListener("click", async () => {
+  if (!codigoCortoActual) return;
+  const btn = document.getElementById("btn-qr-calado-micro");
+  const textoOriginal = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Generando Micro QR…";
+  try {
+    const { dxfTexto, previewDataUrl, previewMetalDataUrl } = await generarMicroQRCalado(codigoCortoActual);
+    dxfCaladoActual = dxfTexto;
+    previewsCaladoActuales = { digital: previewDataUrl, metal: previewMetalDataUrl };
+    usandoMicroQR = true;
+    document.getElementById("qr-calado-modo-tabs").style.display = "flex";
+    mostrarQRCaladoModo("metal");
+    document.querySelector("#modal-qr-calado-preview .sheet-title").textContent = `Micro QR — solo el código "${codigoCortoActual}"`;
+    btn.style.display = "none";
+    showToast("Micro QR generado ✓ (17x17 — ojo: no abre un link, es solo el código)");
+  } catch (e) {
+    showToast("❌ " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = textoOriginal;
+  }
 });
 
 /* ============================================================
@@ -5500,6 +5548,84 @@ function generarQRCalado(texto, opciones) {
     }
   }
   throw new Error("No se pudo generar un QR calado confiable para este contenido — probá con un link más corto.");
+}
+
+/* ============================================================
+   MICRO QR (EXPERIMENTAL) — versión chica del QR estándar: un solo
+   patrón de esquina en vez de tres, sin patrón de alineación. Solo tiene
+   sentido para el código corto solo (6 caracteres, sin dominio — Micro
+   QR no tiene capacidad para un link completo, ni siquiera el más
+   chico posible: el máximo de la versión más grande, M4, es 21
+   caracteres alfanuméricos). Escanearlo NO abre un link — muestra el
+   código como texto plano, hay que llevarlo a mano a algún lado.
+   Generar Micro QR bien (Reed-Solomon, colocación de módulos, info de
+   formato) no tiene una librería JS confiable — se genera server-side
+   con segno (Python, ver api/microqr.py), la misma lógica que ya usamos
+   con LibreDWG para DWG: si existe una implementación madura de un
+   formato con muchos detalles finos, se usa esa en vez de reimplementar
+   a mano. calcularPuentesQR/qrAPoligonosDXF/etc. de arriba son genéricas
+   (no asumen nada de la estructura del QR más allá de ser una grilla
+   NxN), así que se reusan tal cual acá — lo único distinto es de dónde
+   sale la matriz y con qué se verifica el resultado (zxing en vez de
+   jsQR, porque jsQR tampoco lee Micro QR).
+   ============================================================ */
+
+async function construirMatrizMicroQR(codigo) {
+  const resp = await fetch("/api/microqr", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ texto: codigo }),
+  });
+  if (!resp.ok) {
+    let msg = "No se pudo generar el Micro QR";
+    try { const j = await resp.json(); if (j.error) msg = j.error; } catch (e) {}
+    throw new Error(msg);
+  }
+  const data = await resp.json();
+  return data.matriz;
+}
+
+// RGBA (lo que da un <canvas>) -> ARGB empaquetado en Int32Array, que es
+// lo que espera RGBLuminanceSource de zxing.
+function canvasALuminanceSource(canvas) {
+  const ctx = canvas.getContext("2d");
+  const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const argb = new Int32Array(canvas.width * canvas.height);
+  for (let i = 0; i < argb.length; i++) {
+    const o = i * 4;
+    argb[i] = (img.data[o + 3] << 24) | (img.data[o] << 16) | (img.data[o + 1] << 8) | img.data[o + 2];
+  }
+  return new ZXing.RGBLuminanceSource(argb, canvas.width, canvas.height);
+}
+
+function verificarMicroQRCalado(matriz, puentes, textoOriginal, grosorPuentePct) {
+  const canvas = renderizarQRCaladoCanvas(matriz, puentes, grosorPuentePct);
+  try {
+    const bitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(canvasALuminanceSource(canvas)));
+    const resultado = new ZXing.MicroQRCodeReader().decode(bitmap);
+    return resultado.getText() === textoOriginal;
+  } catch (e) {
+    return false; // zxing tira excepción cuando no encuentra/decodifica nada
+  }
+}
+
+async function generarMicroQRCalado(codigo, opciones) {
+  const tamModuloMm = (opciones && opciones.tamModuloMm) || 4;
+  const grosorPuentePct = (opciones && opciones.grosorPuentePct) || 0.17;
+  const matriz = await construirMatrizMicroQR(codigo);
+
+  const MAX_INTENTOS = 8;
+  for (let intento = 1; intento <= MAX_INTENTOS; intento++) {
+    const puentes = calcularPuentesQR(matriz, intento);
+    if (verificarMicroQRCalado(matriz, puentes, codigo, grosorPuentePct)) {
+      const poligonos = qrAPoligonosDXF(matriz, puentes, tamModuloMm, grosorPuentePct);
+      const dxfTexto = poligonosADXF(poligonos);
+      const previewDataUrl = renderizarQRCaladoCanvas(matriz, puentes, grosorPuentePct, 20, "digital").toDataURL("image/png");
+      const previewMetalDataUrl = renderizarQRCaladoCanvas(matriz, puentes, grosorPuentePct, 20, "metal").toDataURL("image/png");
+      return { dxfTexto, previewDataUrl, previewMetalDataUrl };
+    }
+  }
+  throw new Error("No se pudo generar un Micro QR calado confiable para este código.");
 }
 
 // El visor (iframe) no tiene cargadas las librerías de QR-matrix/decode
