@@ -846,6 +846,23 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 @keyframes slideUp { from { transform: translateY(100%); } }
 .sheet-handle { width: 36px; height: 4px; background: var(--line); border-radius: 2px; margin-bottom: 4px; }
 .sheet-title { font-family: "Chakra Petch", sans-serif; font-weight: 700; font-size: 14px; letter-spacing: .04em; text-transform: uppercase; align-self: flex-start; }
+
+/* Modal flotante — a diferencia de los demás modales (sheets fijos que
+   suben desde abajo), este se puede arrastrar libremente por la
+   pantalla, útil para dejarlo a un costado mientras se mira el resto
+   de la vista de Tareas atrás. Solo el "header" (barra + título) es
+   zona de arrastre — los campos del formulario siguen siendo
+   clickeables normalmente. Ver habilitarModalFlotante(). */
+.modal-overlay-flotante { align-items: center; cursor: default; }
+.modal-sheet-flotante {
+  border-radius: 14px; max-height: 88vh; overflow-y: auto;
+  animation: apareceModalFlotante .18s cubic-bezier(.2,.8,.2,1);
+  box-shadow: 0 12px 40px rgba(0,0,0,.35);
+}
+@keyframes apareceModalFlotante { from { opacity: 0; transform: scale(.96); } }
+.sheet-drag-handle { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; cursor: grab; touch-action: none; padding-bottom: 2px; }
+.sheet-drag-handle:active { cursor: grabbing; }
+.modal-sheet-flotante.arrastrando { animation: none; user-select: none; }
 .sheet-sub { font-family: "IBM Plex Mono", monospace; font-size: 10px; color: var(--muted); align-self: flex-start; word-break: break-all; line-height: 1.5; }
 #qr-canvas { background: #fff; padding: 12px; border-radius: 8px; }
 .sheet-actions { display: flex; gap: 10px; width: 100%; }
@@ -1628,11 +1645,13 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
      visor 3D), así que crear/editar desde acá requiere escritura en
      Drive conectada (mismo botón "Conectar edición" que ya usa el resto
      de la app). Ver guardarNotaTarea() / abrirModalTarea(). -->
-<div class="modal-overlay" id="modal-tarea">
-  <div class="modal-sheet">
+<div class="modal-overlay modal-overlay-flotante" id="modal-tarea">
+  <div class="modal-sheet modal-sheet-flotante">
     <button class="sheet-x" id="btn-tarea-x" aria-label="Cerrar">×</button>
-    <div class="sheet-handle"></div>
-    <p class="sheet-title" id="tarea-modal-titulo">Nueva tarea</p>
+    <div class="sheet-drag-handle" id="tarea-drag-handle">
+      <div class="sheet-handle"></div>
+      <p class="sheet-title" id="tarea-modal-titulo">Nueva tarea</p>
+    </div>
     <div id="tarea-campo-obra" style="width:100%;display:flex;flex-direction:column;gap:6px">
       <label style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Obra</label>
       <select id="tareaObraSel" style="width:100%;height:36px;border-radius:8px;border:1px solid var(--border);background:var(--surf);color:var(--text);font-family:inherit;padding:0 8px"></select>
@@ -5058,7 +5077,49 @@ async function poblarSelectModelosTarea(carpetaId) {
     + modelos.map(m => `<option value="${esc(m.driveId)}">${esc(m.nombre)}</option>`).join("");
 }
 
+// Hace arrastrable un modal flotante agarrando desde su "header" (barra +
+// título) — el resto del formulario sigue funcionando normal. Usa
+// setPointerCapture para que el arrastre siga funcionando aunque el
+// puntero se mueva más rápido que el cursor y salga del handle.
+function habilitarModalFlotante(overlayId, handleId) {
+  const overlay = document.getElementById(overlayId);
+  const sheet = overlay.querySelector(".modal-sheet");
+  const handle = document.getElementById(handleId);
+  let offsetX = 0, offsetY = 0;
+
+  handle.addEventListener("pointerdown", (e) => {
+    if (e.target.closest("button, input, select, textarea, a")) return;
+    const rect = sheet.getBoundingClientRect();
+    offsetX = e.clientX - rect.left;
+    offsetY = e.clientY - rect.top;
+    sheet.style.position = "fixed";
+    sheet.style.margin = "0";
+    sheet.style.width = rect.width + "px"; // fijar ancho: al pasar a "fixed" el 100% pasaría a medir contra el viewport, no el tamaño actual
+    sheet.style.left = rect.left + "px";
+    sheet.style.top = rect.top + "px";
+    sheet.classList.add("arrastrando");
+    handle.setPointerCapture(e.pointerId);
+  });
+  handle.addEventListener("pointermove", (e) => {
+    if (!handle.hasPointerCapture(e.pointerId)) return;
+    const maxX = window.innerWidth - sheet.offsetWidth;
+    const maxY = window.innerHeight - sheet.offsetHeight;
+    sheet.style.left = Math.max(0, Math.min(e.clientX - offsetX, maxX)) + "px";
+    sheet.style.top = Math.max(0, Math.min(e.clientY - offsetY, maxY)) + "px";
+  });
+  handle.addEventListener("pointerup", (e) => {
+    if (handle.hasPointerCapture(e.pointerId)) handle.releasePointerCapture(e.pointerId);
+    sheet.classList.remove("arrastrando");
+  });
+}
+habilitarModalFlotante("modal-tarea", "tarea-drag-handle");
+
 function abrirModalTareaNueva(estadoInicial) {
+  // Vuelve a centrarse cada vez que se abre — si quedó arrastrado a un
+  // costado en el uso anterior, no conviene reabrir ahí (puede quedar
+  // fuera de la pantalla si cambió el tamaño de ventana).
+  const hojaTarea = document.querySelector("#modal-tarea .modal-sheet");
+  hojaTarea.style.position = ""; hojaTarea.style.left = ""; hojaTarea.style.top = ""; hojaTarea.style.margin = ""; hojaTarea.style.width = "";
   tareaModalEditando = null;
   document.getElementById("tarea-modal-titulo").textContent = "Nueva tarea";
   document.getElementById("tarea-campo-obra").style.display = "flex";
@@ -5083,6 +5144,8 @@ function abrirModalTareaNueva(estadoInicial) {
 }
 
 async function abrirModalTareaEditar(t) {
+  const hojaTarea = document.querySelector("#modal-tarea .modal-sheet");
+  hojaTarea.style.position = ""; hojaTarea.style.left = ""; hojaTarea.style.top = ""; hojaTarea.style.margin = ""; hojaTarea.style.width = "";
   tareaModalEditando = { id: t.id, carpetaId: t.carpetaId, archivoDriveId: t.archivoDriveId };
   document.getElementById("tarea-modal-titulo").textContent = t.modeloNombre ? `${t.obraNombre} / ${t.modeloNombre}` : `${t.obraNombre} (tarea general)`;
   document.getElementById("tarea-campo-obra").style.display = "none";
