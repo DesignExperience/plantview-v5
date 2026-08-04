@@ -21,6 +21,13 @@
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Archivo:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Syne:wght@700;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<!-- QR "calado" (para cortar/perforar en chapa con láser) — qrcode-generator
+     expone la matriz cruda de módulos (qrcodejs de arriba no la expone, solo
+     renderiza), y jsQR decodifica de vuelta el resultado para verificar que
+     siga leyendo bien después de agregarle los puentes. Ver
+     generarQRCaladoDXF más abajo. -->
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@2.0.4/dist/qrcode.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <!-- DXF (CAD 2D, formato abierto) — parser client-side, sin subir archivos a
      terceros. DWG (binario propietario de Autodesk, sin especificación
      pública) se lee con LibreDWG compilado a WebAssembly (cargado on-demand
@@ -1436,6 +1443,9 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
       </button>
       <button class="btn-sheet btn-sheet-secondary" id="btn-qr-copiar">Copiar link</button>
     </div>
+    <button class="btn-sheet btn-sheet-secondary" id="btn-qr-dxf" style="width:100%">
+      Descargar QR calado (DXF)
+    </button>
   </div>
 </div>
 
@@ -2541,7 +2551,7 @@ function renderArchivos(filtro) {
     btn.addEventListener("click", e => {
       e.stopPropagation();
       const f = window._archivos_actuales[Number(btn.dataset.qrIdx)];
-      mostrarQR(f.id, f.nombre);
+      mostrarQR(`${CONFIG.APP_URL}/?file=${f.id}`, f.nombre);
     });
   });
   // Botón preview PDF en panel derecho
@@ -3698,9 +3708,12 @@ document.getElementById("btn-retry").addEventListener("click", () => {
    QR
    ============================================================ */
 let qrLinkActual = null;
-function mostrarQR(id, nombre) {
-  qrLinkActual = `${CONFIG.APP_URL}/?file=${id}`;
-  document.getElementById("qr-filename").textContent = nombre;
+// "link" ya viene armado por quien llama (un archivo usa ?file=<id>, una
+// carpeta ?carpeta=<id> — ver btn-compartir-carpeta) — esta función solo
+// se encarga de mostrarlo, no de construirlo, así sirve para los dos casos.
+function mostrarQR(link, etiqueta) {
+  qrLinkActual = link;
+  document.getElementById("qr-filename").textContent = etiqueta;
   document.getElementById("qr-canvas").innerHTML = "";
   new QRCode(document.getElementById("qr-canvas"), {
     text: qrLinkActual,
@@ -3732,6 +3745,31 @@ document.getElementById("btn-qr-dl").addEventListener("click", () => {
   a.download = "QR-" + document.getElementById("qr-filename").textContent.replace(/\s+/g,"_") + ".png";
   a.href = c.toDataURL("image/png"); a.click();
   showToast("QR descargado ✓");
+});
+// Mismo link/contenido que el QR de arriba — no es un código distinto,
+// solo una geometría especial (con puentes) para poder cortarlo en chapa
+// sin que se caigan pedazos sueltos. Ver generarQRCaladoDXF.
+document.getElementById("btn-qr-dxf").addEventListener("click", async () => {
+  if (!qrLinkActual) return;
+  const btn = document.getElementById("btn-qr-dxf");
+  btn.disabled = true;
+  const textoOriginal = btn.textContent;
+  btn.textContent = "Generando…";
+  try {
+    const dxfTexto = generarQRCaladoDXF(qrLinkActual);
+    const blob = new Blob([dxfTexto], { type: "application/dxf" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "QR-" + document.getElementById("qr-filename").textContent.replace(/\s+/g, "_") + "-calado.dxf";
+    a.click();
+    URL.revokeObjectURL(a.href);
+    showToast("QR calado (DXF) descargado ✓");
+  } catch (e) {
+    showToast("❌ " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = textoOriginal;
+  }
 });
 
 /* ============================================================
@@ -3991,19 +4029,16 @@ let archivoDropeadoPendiente = null;
 
 document.getElementById("btn-upload-sm").addEventListener("click", () => inputUpload.click());
 
-// Compartir carpeta: copia un link que, al abrirse, entra directo a esta
-// misma carpeta (?carpeta=<id> — ver el bloque DEEP LINK más abajo), sin
-// que el destinatario tenga que navegar manualmente hasta ahí.
-document.getElementById("btn-compartir-carpeta").addEventListener("click", async () => {
+// Compartir carpeta: mismo modal de QR que ya se usa para archivos (ver
+// mostrarQR más abajo) — el link (?carpeta=<id>, ver el bloque DEEP LINK)
+// entra directo a esta carpeta sin que el destinatario tenga que navegar
+// manualmente. Desde ahí mismo se puede copiar el link, bajar el QR
+// normal, o el QR calado (DXF) para pegarlo/calarlo en el equipo físico.
+document.getElementById("btn-compartir-carpeta").addEventListener("click", () => {
   const c = state.carpetaActual;
   if (!c) return;
   const link = `${location.origin}${location.pathname}?carpeta=${encodeURIComponent(c.id)}`;
-  try {
-    await navigator.clipboard.writeText(link);
-    showToast("Link de la carpeta copiado ✓");
-  } catch (e) {
-    window.prompt("Copiá el link:", link);
-  }
+  mostrarQR(link, c.nombre);
 });
 
 let dragCounter = 0;
@@ -4893,6 +4928,291 @@ window.addEventListener("message", (e) => {
 });
 
 /* ============================================================
+   QR "CALADO" — genera un QR pensado para cortar/perforar en chapa con
+   láser, no solo para mostrar en pantalla. El problema físico: un QR
+   normal tiene módulos negros que a veces quedan totalmente rodeados de
+   blanco ("islas") — si cortás el contorno completo, ese pedacito de
+   metal se cae. La solución (técnica conocida, ver QR_STENCILER de Golan
+   Levin — https://github.com/golanlevin/QR_STENCILER, aunque ese código
+   específico es CC BY-NC-SA y no se puede reusar en software comercial;
+   esta es una implementación propia del mismo concepto general) es
+   detectar esas islas y agregarles puentes finos que las mantengan
+   unidas al resto, sin arruinar la lectura del código:
+     1. armar la matriz de módulos del QR (nivel de corrección H —el más
+        alto— porque los puentes alteran levemente el patrón)
+     2. agrupar los módulos negros conectados por lado (no diagonal)
+     3. para cada grupo que no sea el más grande ("isla"), conectarlo
+        con al menos 3 puentes independientes y repartidos, no todos del
+        mismo lado (con 1 solo puente la pieza queda como una bisagra:
+        sigue pudiendo moverse y terminar rompiéndose igual)
+     4. armar la geometría final (módulos + puentes) como DXF
+     5. verificar de VERDAD que el resultado siga leyendo el mismo
+        contenido — se renderiza a un canvas y se decodifica con jsQR
+        antes de ofrecer la descarga, en vez de prometer un porcentaje
+        teórico de tolerancia a daño
+   ============================================================ */
+
+// Matriz de módulos (true = módulo oscuro) del QR para el texto dado.
+// Nivel H siempre — es el que más margen da para absorber los puentes.
+function construirMatrizQR(texto) {
+  const qr = qrcode(0, "H"); // typeNumber 0 = detecta automáticamente la versión más chica que entra
+  qr.addData(texto);
+  qr.make();
+  const n = qr.getModuleCount();
+  const matriz = [];
+  for (let r = 0; r < n; r++) {
+    const fila = [];
+    for (let c = 0; c < n; c++) fila.push(qr.isDark(r, c));
+    matriz.push(fila);
+  }
+  return matriz;
+}
+
+// Agrupa módulos oscuros conectados por lado (flood fill de 4 direcciones
+// — comparten un lado real, no solo la esquina). Cada grupo es una "isla"
+// potencial si no es el grupo más grande.
+function etiquetarComponentesQR(matriz) {
+  const n = matriz.length;
+  const visitado = Array.from({ length: n }, () => new Array(n).fill(false));
+  const componentes = [];
+  const vecinos = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) {
+      if (!matriz[r][c] || visitado[r][c]) continue;
+      const comp = [];
+      const pila = [[r, c]];
+      visitado[r][c] = true;
+      while (pila.length) {
+        const [pr, pc] = pila.pop();
+        comp.push([pr, pc]);
+        for (const [dr, dc] of vecinos) {
+          const nr = pr + dr, nc = pc + dc;
+          if (nr >= 0 && nr < n && nc >= 0 && nc < n && matriz[nr][nc] && !visitado[nr][nc]) {
+            visitado[nr][nc] = true;
+            pila.push([nr, nc]);
+          }
+        }
+      }
+      componentes.push(comp);
+    }
+  }
+  return componentes;
+}
+
+// Conecta cada isla al cuerpo principal con el puente MÁS CORTO posible
+// (estilo Prim: en cada paso, la isla pendiente más cercana al set ya
+// fusionado) — a igual distancia, prefiere un candidato alineado (misma
+// fila/columna) por sobre uno diagonal. Es clave para lo que sigue: un
+// puente alineado se dibuja "pegado al borde" de la fila/columna (nunca
+// pasa por el centro de ningún módulo ajeno), mientras que uno diagonal
+// de más de 1 paso, si hay que descomponerlo en saltos, sí puede terminar
+// con un punto intermedio justo en el centro de una celda real — y esa
+// celda puede ser, por ejemplo, el separador blanco de un patrón de
+// esquina (finder pattern), donde hasta esa alteración mínima basta para
+// que el lector no reconozca el QR en absoluto (no es un dato protegido
+// por corrección de errores, es la geometría que el lector usa para
+// encontrar el código). Preferir el candidato alineado evita ese caso en
+// la enorme mayoría de las situaciones reales.
+function calcularPuentesQR(matriz) {
+  const componentes = etiquetarComponentesQR(matriz);
+  if (componentes.length <= 1) return [];
+  componentes.sort((a, b) => b.length - a.length);
+  let fusionado = componentes[0].slice();
+  const pendientes = componentes.slice(1).map(c => ({ modulos: c, unido: false }));
+  const puentes = [];
+
+  while (pendientes.some(p => !p.unido)) {
+    let mejor = null;
+    for (const p of pendientes) {
+      if (p.unido) continue;
+      for (const [ir, ic] of p.modulos) {
+        for (const [fr, fc] of fusionado) {
+          const d = Math.max(Math.abs(ir - fr), Math.abs(ic - fc));
+          const alineado = (ir === fr || ic === fc) ? 0 : 1;
+          const score = d * 10 + alineado; // distancia primero, alineación como desempate
+          if (!mejor || score < mejor.score) mejor = { ir, ic, fr, fc, d, score, comp: p };
+        }
+      }
+    }
+    mejor.comp.unido = true;
+    puentes.push({ ir: mejor.ir, ic: mejor.ic, fr: mejor.fr, fc: mejor.fc });
+    mejor.comp.modulos.forEach(m => fusionado.push(m));
+  }
+  return puentes;
+}
+
+// Descompone un puente no alineado en saltos unitarios (de a lo sumo 1
+// módulo cada uno) — cada salto diagonal (1,1) toca solo la esquina
+// compartida entre sus dos celdas reales, nunca el centro de una tercera.
+function pasosUnitariosQR(ir, ic, fr, fc) {
+  const pasos = [];
+  let r = ir, c = ic;
+  while (r !== fr || c !== fc) {
+    const dr = Math.sign(fr - r), dc = Math.sign(fc - c);
+    const nr = r + dr, nc = c + dc;
+    pasos.push({ r0: r, c0: c, r1: nr, c1: nc });
+    r = nr; c = nc;
+  }
+  return pasos;
+}
+
+// Dibuja un puente ya sea como una única franja pegada al borde (si está
+// alineado — nunca cruza el centro de nada) o, si no, como una cadena de
+// saltos unitarios seguros (ver pasosUnitariosQR). "trazo" es la función
+// de bajo nivel para pintar un segmento — distinta según sea sobre un
+// <canvas> (verificación) o generando polígonos DXF (ver más abajo).
+function recorrerPuenteQR(ir, ic, fr, fc, onTramoAlineado, onTramoDiagonal) {
+  if (ir === fr) { onTramoAlineado("h", ir, Math.min(ic, fc), Math.max(ic, fc) + 1); return; }
+  if (ic === fc) { onTramoAlineado("v", ic, Math.min(ir, fr), Math.max(ir, fr) + 1); return; }
+  pasosUnitariosQR(ir, ic, fr, fc).forEach(({ r0, c0, r1, c1 }) => {
+    const dr = r1 - r0, dc = c1 - c0;
+    if (dr !== 0 && dc !== 0) onTramoDiagonal(r0, c0, r1, c1);
+    else if (dr === 0) onTramoAlineado("h", r0, Math.min(c0, c1), Math.max(c0, c1) + 1);
+    else onTramoAlineado("v", c0, Math.min(r0, r1), Math.max(r0, r1) + 1);
+  });
+}
+
+// Renderiza matriz+puentes a un canvas chico y lo decodifica con jsQR —
+// la única forma de saber con certeza (no en teoría) que el QR calado
+// sigue leyendo el contenido correcto.
+function verificarQRCalado(matriz, puentes, textoOriginal, grosorPuentePct) {
+  const n = matriz.length;
+  const escala = 10;
+  const margen = 4 * escala; // quiet zone, como espera cualquier lector de QR
+  const canvas = document.createElement("canvas");
+  canvas.width = n * escala + margen * 2;
+  canvas.height = n * escala + margen * 2;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#000";
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) {
+      if (matriz[r][c]) ctx.fillRect(margen + c * escala, margen + r * escala, escala, escala);
+    }
+  }
+  ctx.lineWidth = escala * grosorPuentePct;
+  ctx.strokeStyle = "#000";
+  ctx.lineCap = "butt";
+  const bordeOffset = escala * 0.1;
+  puentes.forEach(({ ir, ic, fr, fc }) => {
+    recorrerPuenteQR(ir, ic, fr, fc,
+      (eje, fila, desde, hasta) => {
+        ctx.beginPath();
+        if (eje === "h") { const y = margen + fila * escala + bordeOffset; ctx.moveTo(margen + desde * escala, y); ctx.lineTo(margen + hasta * escala, y); }
+        else { const x = margen + fila * escala + bordeOffset; ctx.moveTo(x, margen + desde * escala); ctx.lineTo(x, margen + hasta * escala); }
+        ctx.stroke();
+      },
+      (r0, c0, r1, c1) => {
+        ctx.beginPath();
+        ctx.moveTo(margen + (c0 + 0.5) * escala, margen + (r0 + 0.5) * escala);
+        ctx.lineTo(margen + (c1 + 0.5) * escala, margen + (r1 + 0.5) * escala);
+        ctx.stroke();
+      });
+  });
+  const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const resultado = jsQR(img.data, canvas.width, canvas.height);
+  return !!resultado && resultado.data === textoOriginal;
+}
+
+// Módulos oscuros (fusionando corridas horizontales contiguas en un solo
+// rectángulo, para no generar de más entidades) + puentes (mismo criterio
+// "pegado al borde"/saltos unitarios que la verificación, para que el DXF
+// sea exactamente lo mismo que se verificó que lee bien) → lista de
+// polígonos en mm.
+function qrAPoligonosDXF(matriz, puentes, tamModuloMm, grosorPuentePct) {
+  const n = matriz.length;
+  const poligonos = [];
+
+  for (let r = 0; r < n; r++) {
+    let c = 0;
+    while (c < n) {
+      if (!matriz[r][c]) { c++; continue; }
+      let c2 = c;
+      while (c2 < n && matriz[r][c2]) c2++;
+      const x0 = c * tamModuloMm, x1 = c2 * tamModuloMm;
+      const y0 = r * tamModuloMm, y1 = (r + 1) * tamModuloMm;
+      poligonos.push([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]);
+      c = c2;
+    }
+  }
+
+  const grosor = tamModuloMm * grosorPuentePct;
+  const bordeOffset = tamModuloMm * 0.1;
+  const franjaRect = (x0, y0, x1, y1) => poligonos.push([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]);
+  const franjaDiagonal = (r0, c0, r1, c1) => {
+    const cx1 = (c0 + 0.5) * tamModuloMm, cy1 = (r0 + 0.5) * tamModuloMm;
+    const cx2 = (c1 + 0.5) * tamModuloMm, cy2 = (r1 + 0.5) * tamModuloMm;
+    const dx = cx2 - cx1, dy = cy2 - cy1;
+    const largo = Math.hypot(dx, dy);
+    if (largo < 1e-6) return;
+    const ux = dx / largo, uy = dy / largo;
+    const px = -uy * grosor / 2, py = ux * grosor / 2;
+    poligonos.push([[cx1 + px, cy1 + py], [cx2 + px, cy2 + py], [cx2 - px, cy2 - py], [cx1 - px, cy1 - py]]);
+  };
+  puentes.forEach(({ ir, ic, fr, fc }) => {
+    recorrerPuenteQR(ir, ic, fr, fc,
+      (eje, fila, desde, hasta) => {
+        if (eje === "h") { const y = fila * tamModuloMm + bordeOffset; franjaRect(desde * tamModuloMm, y - grosor / 2, hasta * tamModuloMm, y + grosor / 2); }
+        else { const x = fila * tamModuloMm + bordeOffset; franjaRect(x - grosor / 2, desde * tamModuloMm, x + grosor / 2, hasta * tamModuloMm); }
+      },
+      franjaDiagonal);
+  });
+
+  return poligonos;
+}
+
+// DXF mínimo válido: una SECTION de ENTITIES con un LWPOLYLINE cerrado
+// por cada polígono — no depende de ninguna tabla (capas/estilos), el
+// mismo criterio "minimal" que ya usamos para la conversión de DWG.
+function poligonosADXF(poligonos) {
+  let out = "0\nSECTION\n2\nENTITIES\n";
+  poligonos.forEach(puntos => {
+    out += "0\nLWPOLYLINE\n8\n0\n90\n" + puntos.length + "\n70\n1\n";
+    puntos.forEach(([x, y]) => { out += "10\n" + x.toFixed(4) + "\n20\n" + y.toFixed(4) + "\n"; });
+  });
+  out += "0\nENDSEC\n0\nEOF\n";
+  return out;
+}
+
+// Orquesta todo el proceso. calcularPuentesQR ya garantiza que todas las
+// islas queden conectadas (no hay reintentos de conectividad acá) — lo
+// único que puede fallar, en teoría, es que el grosor por defecto sea
+// demasiado para un contenido muy denso; si la verificación no pasa,
+// reintenta una sola vez con un grosor más fino antes de rendirse.
+function generarQRCaladoDXF(texto, opciones) {
+  const tamModuloMm = (opciones && opciones.tamModuloMm) || 4;
+  let grosorPuentePct = (opciones && opciones.grosorPuentePct) || 0.17;
+  const matriz = construirMatrizQR(texto);
+  const puentes = calcularPuentesQR(matriz);
+
+  if (!verificarQRCalado(matriz, puentes, texto, grosorPuentePct)) {
+    grosorPuentePct *= 0.6;
+    if (!verificarQRCalado(matriz, puentes, texto, grosorPuentePct)) {
+      throw new Error("No se pudo generar un QR calado confiable para este contenido — probá con un link más corto.");
+    }
+  }
+
+  const poligonos = qrAPoligonosDXF(matriz, puentes, tamModuloMm, grosorPuentePct);
+  return poligonosADXF(poligonos);
+}
+
+// El visor (iframe) no tiene cargadas las librerías de QR-matrix/decode
+// — no vale la pena duplicarlas ahí adentro para un botón que se usa
+// poco, así que pide el DXF acá por postMessage, igual que el resto de
+// las operaciones que cruzan el iframe. No requiere Drive/OAuth (es
+// puro cálculo), por eso es un listener aparte del de EJECUTORES_DRIVE.
+window.addEventListener("message", (e) => {
+  if (!e.data || e.data.tipo !== "generarQRCaladoDXF") return;
+  try {
+    const dxfTexto = generarQRCaladoDXF(e.data.texto);
+    if (e.source) e.source.postMessage({ tipo: "generarQRCaladoDXFOK", reqId: e.data.reqId, dxfTexto }, "*");
+  } catch (err) {
+    if (e.source) e.source.postMessage({ tipo: "generarQRCaladoDXFError", reqId: e.data.reqId, error: err.message || String(err) }, "*");
+  }
+});
+
+/* ============================================================
    PESTAÑAS PDF / eDRAWINGS (mobile) — cada una muestra su propio
    contenido recordado, sin destruir el del otro tipo.
    ============================================================ */
@@ -5378,6 +5698,10 @@ canvas{display:block;width:100%;height:100%}
 .vista-guardar-btn{width:100%;height:38px;border-radius:10px;border:none;background:#3A6BE8;color:#fff;font-family:inherit;font-weight:700;font-size:12.5px;cursor:pointer}
 .vista-guardar-btn:disabled{opacity:.5;cursor:default}
 .vista-guardar-btn.hide,#vistaTextoLabel.hide{display:none}
+/* Descargar QR "calado" — para grabar/cortar en chapa con láser (ver
+   generarQRCaladoDXF en el script externo, que hace el trabajo pesado). */
+.vista-qr-dxf-btn{width:100%;height:34px;border-radius:9px;border:1px dashed var(--acc) !important;background:rgba(58,107,232,.06);color:var(--acc);font-family:inherit;font-weight:600;font-size:11.5px;cursor:pointer}
+.vista-qr-dxf-btn:disabled{opacity:.5;cursor:default}
 #btnVistaCerrar{background:none;color:var(--muted);border:1px solid var(--border) !important;width:100%;height:32px;border-radius:9px;font-family:inherit;font-size:11.5px;cursor:pointer}
 
 #panelListaVistas{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);display:none;flex-direction:column;gap:12px;width:min(320px,calc(100vw - 32px));max-height:min(460px,calc(100vh - 100px));background:rgba(240,242,246,.98);border:1px solid var(--border);border-radius:14px;padding:14px;z-index:410;box-shadow:0 12px 40px rgba(0,0,0,.3)}
@@ -5664,6 +5988,7 @@ window.onerror=function(msg,src,line){
         <button id="btnVistaDescargar" type="button">Descargar QR</button>
       </div>
     </div>
+    <button id="btnVistaDescargarQRDXF" type="button" class="vista-qr-dxf-btn">Descargar QR calado (DXF)</button>
     <button id="btnVistaGuardar" type="button" class="vista-guardar-btn">Guardar vista</button>
     <button id="btnVistaCerrar" type="button">Cerrar</button>
   </div>
@@ -7157,8 +7482,26 @@ window.addEventListener('message', (e) => {
   } else if (e.data.tipo === 'borrarArchivoDriveError' && vistasReqPendientes[e.data.reqId]) {
     vistasReqPendientes[e.data.reqId].reject(new Error(e.data.error || 'Error al borrar el archivo'));
     delete vistasReqPendientes[e.data.reqId];
+  } else if (e.data.tipo === 'generarQRCaladoDXFOK' && vistasReqPendientes[e.data.reqId]) {
+    vistasReqPendientes[e.data.reqId].resolve(e.data.dxfTexto);
+    delete vistasReqPendientes[e.data.reqId];
+  } else if (e.data.tipo === 'generarQRCaladoDXFError' && vistasReqPendientes[e.data.reqId]) {
+    vistasReqPendientes[e.data.reqId].reject(new Error(e.data.error || 'No se pudo generar el QR calado'));
+    delete vistasReqPendientes[e.data.reqId];
   }
 });
+
+// Le pide a la app externa que arme el DXF calado del link dado (ver
+// generarQRCaladoDXF ahí) — esta ventana (el iframe del visor) no tiene
+// las librerías de QR-matrix/decodificación cargadas, no vale la pena
+// duplicarlas acá para un botón que se usa poco.
+function pedirQRCaladoDXF(texto) {
+  return new Promise((resolve, reject) => {
+    const reqId = ++vistasReqSeq;
+    vistasReqPendientes[reqId] = { resolve, reject };
+    window.parent.postMessage({ tipo: 'generarQRCaladoDXF', reqId, texto }, '*');
+  });
+}
 
 function construirLinkVistaActual() {
   if (!archivoActualFileId || !appBaseUrlActual) return null;
@@ -7533,6 +7876,33 @@ document.getElementById('btnVistaDescargar').addEventListener('click', () => {
     toast('PNG descargado ✓');
   };
   img.src = thumb.src;
+});
+
+// El QR "calado" (versión con puentes, para cortar en chapa con láser) es
+// el MISMO link que el QR digital de arriba — no un código distinto — solo
+// que se le arma una geometría especial para que se pueda cortar sin que
+// se caigan pedazos sueltos. Ese cálculo (armar la matriz, detectar islas,
+// agregar puentes, verificar que siga leyendo) vive en la app externa (no
+// tiene sentido duplicarlo acá adentro), así que se le pide por postMessage,
+// igual que el resto de las operaciones que cruzan el iframe.
+document.getElementById('btnVistaDescargarQRDXF').addEventListener('click', () => {
+  if (!vistaLinkActual) return;
+  const btn = document.getElementById('btnVistaDescargarQRDXF');
+  btn.disabled = true;
+  const textoOriginal = btn.textContent;
+  btn.textContent = 'Generando…';
+  pedirQRCaladoDXF(vistaLinkActual)
+    .then(dxfTexto => {
+      const blob = new Blob([dxfTexto], { type: 'application/dxf' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'QR-calado.dxf';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast('QR calado (DXF) descargado ✓');
+    })
+    .catch(err => toast('❌ ' + err.message))
+    .finally(() => { btn.disabled = false; btn.textContent = textoOriginal; });
 });
 
 // ── RAYCASTER ────────────────────────────────────────────────────────
