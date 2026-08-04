@@ -757,17 +757,26 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
   padding: 3px 9px;
 }
 .tareas-seccion-count { font-family: "IBM Plex Mono", monospace; font-size: 10px; color: var(--muted); }
-.tareas-seccion-body { margin-top: 6px; }
+/* La lista suelta (solo un divisor fino entre filas) se leía "flotando"
+   sin borde de referencia — envolver cada sección en una tarjeta con
+   borde propio agrupa visualmente sus tareas, y los divisores quedan
+   contenidos adentro en vez de cortar todo el ancho de la pantalla. */
+.tareas-seccion-body {
+  margin-top: 6px; background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: var(--radius); overflow: hidden;
+}
 .tareas-fila {
   display: grid; grid-template-columns: 1fr 60px 64px 74px; align-items: center; gap: 10px;
-  width: 100%; text-align: left; background: none; border: none; border-top: 1px solid var(--line);
-  padding: 9px 4px; cursor: pointer; font-family: inherit;
+  width: 100%; text-align: left; background: none; border: none; border-bottom: 1px solid var(--line);
+  padding: 11px 12px; cursor: pointer; font-family: inherit; transition: background .1s;
 }
 .tareas-fila-header {
-  grid-template-columns: 1fr 60px 64px 74px; border-top: none; padding: 0 4px 6px; cursor: default;
+  grid-template-columns: 1fr 60px 64px 74px; padding: 8px 12px; cursor: default;
   font-family: "IBM Plex Mono", monospace; font-size: 9px; color: var(--muted); text-transform: uppercase;
+  background: rgba(255,255,255,.02);
 }
-.tareas-fila:active { background: var(--surface-2); }
+.tareas-fila:hover { background: rgba(255,255,255,.03); }
+.tareas-fila:active { background: var(--surface); }
 .tareas-fila-nombre { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .tareas-fila-texto { font-size: 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tareas-fila-origen { font-size: 9.5px; color: var(--muted); font-family: "IBM Plex Mono", monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -775,9 +784,11 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 .tareas-fila-prioridad { font-size: 9.5px; font-family: "IBM Plex Mono", monospace; }
 .tareas-fila-vacio { color: var(--muted); font-size: 11px; }
 .tareas-fila-add {
-  width: 100%; text-align: left; background: none; border: none; padding: 8px 4px;
-  color: var(--muted); font-size: 11px; font-family: inherit; cursor: pointer;
+  width: 100%; text-align: left; background: none; border: none; border-top: 1px solid var(--line);
+  padding: 10px 12px; color: var(--muted); font-size: 11px; font-family: inherit; cursor: pointer;
+  transition: background .1s, color .1s;
 }
+.tareas-fila-add:hover { background: rgba(255,255,255,.03); color: var(--text); }
 .tareas-fila-add:active { color: var(--accent); }
 
 /* Upload bar */
