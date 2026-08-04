@@ -1598,7 +1598,11 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
     <textarea id="tareaTextoInput" rows="3" placeholder="Escribí la tarea… (ej: cambiar por DN80)" style="width:100%;resize:vertical;border:1px solid var(--border);border-radius:8px;background:var(--surf);color:var(--text);font-size:14px;padding:8px;line-height:1.5;font-family:inherit"></textarea>
     <label style="width:100%;font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Estado</label>
     <div id="tareaEstados" style="display:flex;gap:6px;width:100%"></div>
-    <div class="sheet-actions" style="width:100%">
+    <div id="tarea-login-banner" style="display:none;width:100%;flex-direction:column;gap:8px;align-items:center;padding:10px;border:1px dashed var(--line);border-radius:8px">
+      <p style="margin:0;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);text-align:center">Para crear o editar tareas necesitás conectarte con tu cuenta de Google (permiso de escritura en Drive).</p>
+      <button class="btn-sheet btn-sheet-primary" id="btn-tarea-conectar-drive" style="width:100%">Conectar con Google</button>
+    </div>
+    <div class="sheet-actions" style="width:100%" id="tarea-guardar-row">
       <button class="btn-sheet btn-sheet-primary" id="btn-tarea-guardar" style="width:100%">Guardar</button>
     </div>
     <button class="btn-sheet btn-sheet-secondary" id="btn-tarea-abrir3d" style="width:100%;display:none">Abrir en el modelo 3D</button>
@@ -4527,11 +4531,25 @@ function desconectarEscrituraDrive() {
 
 function actualizarUIEscrituraDrive() {
   const btn = document.getElementById("btn-drive-escritura");
-  if (!btn) return;
+  if (btn) {
+    const conectado = driveEscrituraConectada();
+    btn.classList.toggle("activo", conectado);
+    const label = btn.querySelector("span");
+    if (label) label.textContent = conectado ? "Edición: conectada ✓" : "Conectar edición (Drive)";
+  }
+  actualizarLoginTarea();
+}
+
+// Modal de tarea: mientras no haya edición de Drive conectada, se
+// oculta "Guardar" y se muestra un cartel con botón para loguearse —
+// mismo login (OAuth) que usa el resto de la app, no es un sistema
+// de cuentas propio.
+function actualizarLoginTarea() {
+  const modal = document.getElementById("modal-tarea");
+  if (!modal || !modal.classList.contains("visible")) return;
   const conectado = driveEscrituraConectada();
-  btn.classList.toggle("activo", conectado);
-  const label = btn.querySelector("span");
-  if (label) label.textContent = conectado ? "Edición: conectada ✓" : "Conectar edición (Drive)";
+  document.getElementById("tarea-login-banner").style.display = conectado ? "none" : "flex";
+  document.getElementById("tarea-guardar-row").style.display = conectado ? "flex" : "none";
 }
 
 // Sube un Blob a Drive — si ya existe un archivo con ese nombre en la
@@ -4884,6 +4902,7 @@ function abrirModalTareaNueva() {
   else document.getElementById("tareaModeloSel").innerHTML = "";
 
   document.getElementById("modal-tarea").classList.add("visible");
+  actualizarLoginTarea();
 }
 
 async function abrirModalTareaEditar(t) {
@@ -4896,6 +4915,7 @@ async function abrirModalTareaEditar(t) {
   document.getElementById("btn-tarea-abrir3d").style.display = "";
   document.getElementById("btn-tarea-eliminar").style.display = "";
   document.getElementById("modal-tarea").classList.add("visible");
+  actualizarLoginTarea();
 }
 
 async function guardarTareaDesdeModal() {
@@ -4973,6 +4993,7 @@ async function eliminarTareaDesdeModal() {
 
 document.getElementById("btn-tareas-nueva").addEventListener("click", abrirModalTareaNueva);
 document.getElementById("btn-tarea-x").addEventListener("click", () => document.getElementById("modal-tarea").classList.remove("visible"));
+document.getElementById("btn-tarea-conectar-drive").addEventListener("click", conectarEscrituraDrive);
 document.getElementById("btn-tarea-guardar").addEventListener("click", guardarTareaDesdeModal);
 document.getElementById("btn-tarea-eliminar").addEventListener("click", eliminarTareaDesdeModal);
 document.getElementById("btn-tarea-abrir3d").addEventListener("click", () => {
