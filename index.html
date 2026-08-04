@@ -186,6 +186,14 @@ input  { font-family: inherit; }
   color: var(--muted); cursor: pointer;
 }
 .qr-calado-modo-btn.activo { background: var(--accent); color: #14161A; }
+.tareas-vista-btn {
+  height: 26px; padding: 0 10px;
+  border-radius: calc(var(--radius) - 1px); border: none; background: transparent;
+  font-family: "Chakra Petch", sans-serif; font-weight: 600;
+  font-size: 9.5px; letter-spacing: .03em; text-transform: uppercase;
+  color: var(--muted); cursor: pointer;
+}
+.tareas-vista-btn.activa { background: var(--accent); color: #14161A; }
 
 /* PlantView iframe container */
 #pv-wrap {
@@ -700,6 +708,36 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 }
 .btn-qr:active { border-color: var(--accent); color: var(--accent); }
 
+/* Pantalla Tareas — lista/tablero de notas marcadas como tarea/OT,
+   juntadas de todos los modelos de todas las obras conectadas. */
+.tarea-item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  text-align: left; background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 10px 12px; cursor: pointer;
+  font-family: inherit; margin-bottom: 8px;
+}
+.tarea-item:active { border-color: var(--accent); }
+.tarea-estado-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.tarea-item-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tarea-item-texto { font-size: 12.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tarea-item-meta { font-size: 10px; color: var(--muted); font-family: "IBM Plex Mono", monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tarea-item-pieza { font-family: monospace; font-size: 9.5px; color: var(--accent); background: rgba(58,107,232,.08); border: 1px solid rgba(58,107,232,.25); border-radius: 5px; padding: 2px 6px; flex-shrink: 0; }
+
+.tareas-vacio { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 48px 20px; text-align: center; color: var(--muted); font-size: 12.5px; }
+
+.tareas-tablero { display: flex; gap: 12px; padding: 12px 14px; overflow-x: auto; align-items: flex-start; }
+.tareas-columna { flex: 1 0 220px; min-width: 220px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; }
+.tareas-columna-titulo { display: flex; align-items: center; gap: 6px; font-family: "Chakra Petch", sans-serif; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 10px; }
+.tareas-columna-count { margin-left: auto; font-family: "IBM Plex Mono", monospace; font-size: 10px; color: var(--muted); }
+.tarea-card {
+  display: block; width: 100%; text-align: left; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+  margin-bottom: 8px; cursor: pointer; font-family: inherit;
+}
+.tarea-card:active { border-color: var(--accent); }
+.tarea-card-texto { font-size: 11.5px; color: var(--text); display: block; margin-bottom: 4px; }
+.tarea-card-meta { font-size: 9.5px; color: var(--muted); font-family: "IBM Plex Mono", monospace; }
+
 /* Upload bar */
 .upload-bar {
   padding: 8px 12px 2px;
@@ -1006,6 +1044,12 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
           <line x1="12" y1="3" x2="12" y2="21"/>
         </svg>
         Split
+      </button>
+      <button class="mode-tab" data-mode="tareas" aria-pressed="false">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+        </svg>
+        Tareas
       </button>
     </div>
 
@@ -1343,6 +1387,26 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
           </div>
         </div>
 
+        <!-- PANTALLA TAREAS — junta todas las notas marcadas como
+             tarea/OT de todos los modelos de todas las obras conectadas
+             (hoy viven dispersas, una nota a la vez, adentro de cada
+             GLB) en una sola vista List/Board, con click-through al
+             modelo/pieza real. Ver cargarTareas(). -->
+        <div class="pantalla" id="p-tareas">
+          <div class="exp-topbar">
+            <span class="exp-folder-name app-brand" style="font-size:14px">Tareas <em style="color:var(--accent)">·</em></span>
+            <button class="btn-back-sm" id="btn-tareas-refrescar" type="button" title="Actualizar">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              Actualizar
+            </button>
+          </div>
+          <div id="tareas-vista-tabs" style="display:flex;gap:2px;margin:10px 14px 0;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius);padding:3px;width:fit-content">
+            <button type="button" class="tareas-vista-btn activa" data-vista="lista">Lista</button>
+            <button type="button" class="tareas-vista-btn" data-vista="tablero">Tablero</button>
+          </div>
+          <div class="exp-scroll" id="tareas-contenido"></div>
+        </div>
+
       </div><!-- /explorer-stack -->
 
       <!-- PDF PREVIEW PANEL — se superpone al explorador -->
@@ -1421,6 +1485,12 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
       <path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
     </svg>
     <span>3D</span>
+  </button>
+  <button class="bnav-tab" data-mode="tareas" type="button" aria-pressed="false">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+    </svg>
+    <span>Tareas</span>
   </button>
 </nav>
 
@@ -1910,6 +1980,7 @@ divider.addEventListener("pointerup", () => {
 const P = {
   home:     document.getElementById("p-home"),
   archivos: document.getElementById("p-archivos"),
+  tareas:   document.getElementById("p-tareas"),
 };
 
 function irAExp(pantalla, desde) {
@@ -4567,6 +4638,151 @@ async function generarOReusarShortlink(rutaCorta) {
   return codigo;
 }
 
+/* ============================================================
+   PANTALLA TAREAS — junta todas las notas marcadas como tarea/OT
+   (esTarea:true, ver el visor 3D) de todos los modelos de todas las
+   obras conectadas, en una vista única List/Board. Hoy esa info vive
+   dispersa: una nota a la vez, adentro de cada GLB, en su propia
+   subcarpeta "<modelo> - notas" — acá se recorre todo eso y se agrega.
+   Solo lectura (API Key), no requiere login.
+   ============================================================ */
+async function buscarSubcarpetaDriveSoloLectura(nombreCarpeta, carpetaPadreId) {
+  if (!driveConfig.apiKey || !carpetaPadreId) return null;
+  const nombreEscapado = nombreCarpeta.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  const q = encodeURIComponent(`name='${nombreEscapado}' and '${carpetaPadreId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+  const data = await fetchDriveJSON(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&key=${driveConfig.apiKey}`);
+  return data.files?.[0]?.id || null;
+}
+async function buscarArchivoEnCarpetaSoloLectura(nombreArchivo, carpetaId) {
+  if (!driveConfig.apiKey || !carpetaId) return null;
+  const q = encodeURIComponent(`name='${nombreArchivo}' and '${carpetaId}' in parents and trashed=false`);
+  const data = await fetchDriveJSON(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&key=${driveConfig.apiKey}`);
+  return data.files?.[0] || null;
+}
+
+// Mismo camino de lectura (subcarpeta nueva, con respaldo al lugar viejo
+// suelto en la carpeta) que ya usa el visor para cargarNotasDrive() — acá
+// reescrito porque el visor es un documento aparte (iframe), no comparte
+// funciones con esta app externa.
+async function cargarNotasDeModelo(carpeta, archivo) {
+  try {
+    const nombreGlb = archivo.nombre.replace(/\.[a-zA-Z0-9]+$/, "");
+    const nombreArchivoNotas = `plantview-notas-${archivo.driveId}.json`;
+    const subcarpetaId = await buscarSubcarpetaDriveSoloLectura(`${nombreGlb} - notas`, carpeta.driveId);
+    let found = subcarpetaId ? await buscarArchivoEnCarpetaSoloLectura(nombreArchivoNotas, subcarpetaId) : null;
+    if (!found) found = await buscarArchivoEnCarpetaSoloLectura(nombreArchivoNotas, carpeta.driveId);
+    if (!found) return [];
+    const buffer = await descargarBufferDrive(found.id);
+    const data = JSON.parse(new TextDecoder("utf-8").decode(buffer));
+    return Array.isArray(data) ? data : [];
+  } catch (e) {
+    return []; // un modelo puntual sin notas o con error de red no bloquea el resto
+  }
+}
+
+let tareasCache = null;
+let tareasVistaActual = "lista";
+
+async function cargarTareas(forzar) {
+  const cont = document.getElementById("tareas-contenido");
+  if (tareasCache && !forzar) { renderTareas(); return; }
+  cont.innerHTML = `<div style="padding:32px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div>`;
+
+  const tareas = [];
+  for (const carpeta of carpetasOrden) {
+    if (!carpeta.driveId) continue;
+    let archivos;
+    try { archivos = await asegurarArchivosCargados(carpeta); } catch (e) { continue; }
+    const modelos = archivos.filter(a => a.tipo === "glb" || a.tipo === "stl");
+    for (const modelo of modelos) {
+      const notas = await cargarNotasDeModelo(carpeta, modelo);
+      notas.filter(n => n.esTarea).forEach(n => {
+        tareas.push({
+          id: n.id,
+          texto: n.texto || "(sin texto)",
+          estado: n.estado || "no_iniciado",
+          pieza: n.objName || null,
+          modeloNombre: modelo.nombre,
+          obraNombre: carpeta.nombre,
+          carpetaId: carpeta.id,
+          archivoDriveId: modelo.driveId,
+        });
+      });
+    }
+  }
+  tareasCache = tareas;
+  renderTareas();
+}
+
+const TAREAS_ESTADOS = [
+  { key: "no_iniciado", label: "No iniciado", color: "#8a9099" },
+  { key: "en_proceso",  label: "En proceso",  color: "#d97a00" },
+  { key: "finalizado",  label: "Finalizado",  color: "#188a5c" },
+];
+
+function renderTareas() {
+  const cont = document.getElementById("tareas-contenido");
+  const tareas = tareasCache || [];
+  if (!tareas.length) {
+    cont.innerHTML = `<div class="tareas-vacio">
+      <strong style="color:var(--text);font-family:'Chakra Petch',sans-serif;font-weight:700">Sin tareas todavía</strong>
+      <span>Marcá una nota como "Es una tarea/OT" en el visor 3D para que aparezca acá.</span>
+    </div>`;
+    return;
+  }
+  if (tareasVistaActual === "tablero") {
+    cont.innerHTML = `<div class="tareas-tablero">` + TAREAS_ESTADOS.map(e => {
+      const delEstado = tareas.filter(t => t.estado === e.key);
+      return `<div class="tareas-columna">
+        <div class="tareas-columna-titulo" style="color:${e.color}">${esc(e.label)}<span class="tareas-columna-count">${delEstado.length}</span></div>
+        ${delEstado.map(t => `<button type="button" class="tarea-card" data-id="${esc(t.id)}">
+          <span class="tarea-card-texto">${esc(t.texto)}</span>
+          <span class="tarea-card-meta">${esc(t.pieza || "—")} · ${esc(t.obraNombre)}</span>
+        </button>`).join("") || `<p style="font-size:10.5px;color:var(--muted);text-align:center;padding:12px 0">Nada acá</p>`}
+      </div>`;
+    }).join("") + `</div>`;
+  } else {
+    cont.innerHTML = tareas.map(t => {
+      const e = TAREAS_ESTADOS.find(x => x.key === t.estado) || TAREAS_ESTADOS[0];
+      return `<button type="button" class="tarea-item" data-id="${esc(t.id)}" style="margin:0 14px 8px">
+        <span class="tarea-estado-dot" style="background:${e.color}"></span>
+        <span class="tarea-item-info">
+          <span class="tarea-item-texto">${esc(t.texto)}</span>
+          <span class="tarea-item-meta">${esc(e.label)} · ${esc(t.obraNombre)} / ${esc(t.modeloNombre)}</span>
+        </span>
+        ${t.pieza ? `<span class="tarea-item-pieza">${esc(t.pieza)}</span>` : ""}
+      </button>`;
+    }).join("");
+  }
+  cont.querySelectorAll("[data-id]").forEach(el => {
+    el.addEventListener("click", () => {
+      const t = tareas.find(x => x.id === el.dataset.id);
+      if (t) abrirTareaEnModelo(t);
+    });
+  });
+}
+
+function abrirTareaEnModelo(t) {
+  const carpeta = carpetasOrden.find(c => c.id === t.carpetaId);
+  if (!carpeta) { showToast("❌ No se encontró la obra de esta tarea"); return; }
+  state.carpetaActual = carpeta;
+  asegurarArchivosCargados(carpeta).then(archivos => {
+    const archivo = archivos.find(a => a.driveId === t.archivoDriveId);
+    if (!archivo) { showToast("❌ No se encontró el modelo de esta tarea"); return; }
+    aplicarModo(esMobileUI() ? "3d" : "split");
+    setTimeout(() => abrirVisor(archivo), esMobileUI() ? 150 : 450);
+  });
+}
+
+document.getElementById("btn-tareas-refrescar").addEventListener("click", () => cargarTareas(true));
+document.querySelectorAll("#tareas-vista-tabs .tareas-vista-btn").forEach(b => {
+  b.addEventListener("click", () => {
+    tareasVistaActual = b.dataset.vista;
+    document.querySelectorAll("#tareas-vista-tabs .tareas-vista-btn").forEach(x => x.classList.toggle("activa", x === b));
+    renderTareas();
+  });
+});
+
 // Sube un lote de archivos (con su ruta relativa, para preservar
 // subcarpetas) como una obra nueva dentro de la carpeta raíz de Drive.
 async function subirArchivosAObraNueva(nombreCarpeta, archivosConRuta) {
@@ -5720,6 +5936,14 @@ function aplicarModo(modo, save = true) {
     // hay pestañas por tipo, así que no tocamos el split (lo maneja el propio
     // usuario con el divisor, como siempre).
     if (esMobileUI()) setSplit(false);
+    // Si veníamos de Tareas, volver a Home — Tareas no tiene su propia
+    // sub-navegación (a diferencia de Archivos, que sí la necesita).
+    if (P.tareas.classList.contains("activa")) irAExp(P.home, P.tareas);
+  } else if (modo === "tareas") {
+    if (backBtn) backBtn.classList.add("hidden");
+    if (esMobileUI()) setSplit(false);
+    irAExp(P.tareas, P.home);
+    cargarTareas();
   } else if (modo === "pdf" || modo === "edrawing") {
     if (backBtn) backBtn.classList.add("hidden");
     mostrarSoloVisorPara(modo);
