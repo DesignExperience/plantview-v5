@@ -3803,22 +3803,25 @@ function mostrarQRCaladoModo(modo) {
 }
 document.querySelectorAll(".qr-calado-modo-btn").forEach(b => b.addEventListener("click", () => mostrarQRCaladoModo(b.dataset.modo)));
 
-// Mismo link/contenido que el QR de arriba — no es un código distinto,
-// solo una geometría especial (con puentes) para poder cortarlo en chapa
-// sin que se caigan pedazos sueltos. Antes de bajar el archivo se
-// muestra una vista previa (ver modal-qr-calado-preview) para poder
-// escanearla directo de la pantalla — un DXF no tiene color, así que esa
-// es la forma más simple de confirmar que el diseño lee bien sin tener
-// que cortar nada primero. Por defecto se muestra la simulación de la
-// pieza calada (contraste realista, más exigente), no el ideal.
-document.getElementById("btn-qr-dxf").addEventListener("click", async () => {
-  if (!qrLinkActual) return;
+// El link normal (?carpeta=... / ?file=...) es demasiado largo para un
+// QR que se pueda calar cómodo a mano — arma una grilla de cientos de
+// módulos. Para el calado en particular, primero se resuelve (o crea) un
+// código corto de 6 caracteres (?q=A3F9K2, ver generarOReusarShortlink) y
+// se cala ESO en vez del link completo — el QR resultante es chico y
+// manejable. Crear un código nuevo requiere escritura en Drive (guarda
+// el mapeo compartido); leerlo después no — cualquiera puede escanear el
+// QR sin estar logueado.
+async function ejecutarGenerarQRCalado() {
   const btn = document.getElementById("btn-qr-dxf");
   btn.disabled = true;
   const textoOriginal = btn.textContent;
   btn.textContent = "Generando…";
   try {
-    const { dxfTexto, previewDataUrl, previewMetalDataUrl } = generarQRCalado(qrLinkActual);
+    const url = new URL(qrLinkActual);
+    const rutaCorta = url.search; // ej. "?carpeta=drive:xyz" — sin el origin/pathname, eso es fijo
+    const codigo = await generarOReusarShortlink(rutaCorta);
+    const linkCorto = `${location.origin}${location.pathname}?q=${codigo}`;
+    const { dxfTexto, previewDataUrl, previewMetalDataUrl } = generarQRCalado(linkCorto);
     dxfCaladoActual = dxfTexto;
     previewsCaladoActuales = { digital: previewDataUrl, metal: previewMetalDataUrl };
     mostrarQRCaladoModo("metal");
@@ -3828,6 +3831,22 @@ document.getElementById("btn-qr-dxf").addEventListener("click", async () => {
   } finally {
     btn.disabled = false;
     btn.textContent = textoOriginal;
+  }
+}
+// Mismo contenido que el QR digital de arriba (una vez resuelto el
+// código corto) — no es un código distinto, solo una geometría especial
+// (con puentes) para poder cortarlo en chapa sin que se caigan pedazos
+// sueltos. Antes de bajar el archivo se muestra una vista previa (ver
+// modal-qr-calado-preview) para poder escanearla directo de la pantalla
+// — un DXF no tiene color, así que esa es la forma más simple de
+// confirmar que el diseño lee bien sin tener que cortar nada primero.
+document.getElementById("btn-qr-dxf").addEventListener("click", () => {
+  if (!qrLinkActual) return;
+  if (driveEscrituraConectada()) {
+    ejecutarGenerarQRCalado();
+  } else {
+    callbackTrasLoginDrive = ejecutarGenerarQRCalado;
+    conectarEscrituraDrive();
   }
 });
 document.getElementById("btn-qr-calado-x").addEventListener("click", () =>
@@ -3846,6 +3865,29 @@ document.getElementById("btn-qr-calado-descargar").addEventListener("click", () 
   URL.revokeObjectURL(a.href);
   showToast("QR calado (DXF) descargado ✓");
 });
+
+/* ============================================================
+   CÓDIGO CORTO (?q=<código>) — resuelve contra plantview-shortlinks.json
+   y redirige a la URL real (?carpeta=.../?file=...), que el bloque DEEP
+   LINK de abajo ya sabe procesar. Diferido a DOMContentLoaded porque
+   cargarShortlinks() usa driveConfig, declarado más abajo en el script
+   con "let" — llamarlo antes de que se inicialice rompe todo (ver los
+   demás comentarios sobre TDZ en este archivo).
+   ============================================================ */
+if (new URLSearchParams(location.search).get("q")) {
+  window.addEventListener("DOMContentLoaded", async () => {
+    const codigo = new URLSearchParams(location.search).get("q");
+    if (!codigo) return;
+    try {
+      const mapa = await cargarShortlinks();
+      const ruta = mapa[codigo];
+      if (ruta) location.replace(location.pathname + ruta);
+      else console.warn("Código corto no encontrado:", codigo);
+    } catch (e) {
+      console.warn("No se pudo resolver el código corto:", e);
+    }
+  });
+}
 
 /* ============================================================
    DEEP LINK
@@ -4396,6 +4438,58 @@ function raizDriveIdActual() {
   if (conRaiz) return conRaiz.raizDriveId;
   if (driveConfig.folders?.[0]?.id) return driveConfig.folders[0].id;
   return null;
+}
+
+/* ============================================================
+   CÓDIGOS CORTOS — solo para el QR calado. Un link normal (?carpeta=...
+   o ?file=...) tiene ~90 caracteres, lo que arma un QR de cientos de
+   módulos: técnicamente calable (ver PR anterior), pero poco práctico
+   para cortar a mano. Un código de 6 caracteres (?q=A3F9K2) arma un QR
+   mucho más chico — la tabla código→link real vive en un único JSON
+   compartido (plantview-shortlinks.json) en la carpeta raíz conectada,
+   así cualquiera que escanee el QR (sin necesidad de estar logueado)
+   puede resolverlo con la sola API Key de lectura.
+   ============================================================ */
+const SHORTLINKS_ARCHIVO = "plantview-shortlinks.json";
+
+async function cargarShortlinks() {
+  const raizId = raizDriveIdActual();
+  if (!raizId || !driveConfig.apiKey) return {};
+  try {
+    const q = encodeURIComponent(`name='${SHORTLINKS_ARCHIVO}' and '${raizId}' in parents and trashed=false`);
+    const meta = await fetchDriveJSON(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&key=${driveConfig.apiKey}`);
+    const found = meta.files?.[0];
+    if (!found) return {};
+    const buffer = await descargarBufferDrive(found.id);
+    const data = JSON.parse(new TextDecoder("utf-8").decode(buffer));
+    return (data && typeof data === "object") ? data : {};
+  } catch (e) {
+    console.warn("No se pudieron cargar los códigos cortos:", e);
+    return {};
+  }
+}
+
+// Genera (o reutiliza, si ya existía uno para el mismo destino) un código
+// corto de 6 caracteres para "rutaCorta" (ej. "?carpeta=drive:xyz") y lo
+// guarda en el JSON compartido. Requiere escritura conectada — se
+// resuelve una sola vez por destino, no en cada QR que se pida después.
+async function generarOReusarShortlink(rutaCorta) {
+  const raizId = raizDriveIdActual();
+  if (!raizId) throw new Error("No hay una carpeta de Drive conectada para guardar el código corto");
+  const mapa = await cargarShortlinks();
+  const existente = Object.entries(mapa).find(([, v]) => v === rutaCorta);
+  if (existente) return existente[0];
+
+  const ALFABETO = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // sin 0/O/1/I, para que se pueda transcribir a mano sin ambigüedad
+  let codigo;
+  do {
+    codigo = Array.from({ length: 6 }, () => ALFABETO[Math.floor(Math.random() * ALFABETO.length)]).join("");
+  } while (mapa[codigo]);
+  mapa[codigo] = rutaCorta;
+
+  const blob = new Blob([JSON.stringify(mapa)], { type: "application/json" });
+  await subirArchivoADrive(SHORTLINKS_ARCHIVO, blob, raizId);
+  return codigo;
 }
 
 // Sube un lote de archivos (con su ruta relativa, para preservar
