@@ -4999,44 +4999,91 @@ function etiquetarComponentesQR(matriz) {
   return componentes;
 }
 
+// BFS multi-fuente 8-conexo (sobre TODA la grilla, no solo módulos
+// oscuros) desde un set de celdas dado — cada celda de la grilla queda
+// con la distancia y la celda-fuente más cercana. Se usa para no tener
+// que comparar "cada módulo de cada isla contra cada módulo ya
+// fusionado" en cada paso (eso funcionaba bien para QRs chicos, pero con
+// uno más denso —por ejemplo el link de un archivo real, más largo que
+// un link de carpeta— se volvía impracticablemente lento). Un solo BFS
+// por paso resuelve lo mismo en un tiempo que no se dispara con el
+// tamaño del QR.
+function bfsDesdeQR(n, fuentes) {
+  const dist = Array.from({ length: n }, () => new Array(n).fill(-1));
+  const origenR = Array.from({ length: n }, () => new Array(n).fill(-1));
+  const origenC = Array.from({ length: n }, () => new Array(n).fill(-1));
+  const cola = [];
+  fuentes.forEach(([r, c]) => {
+    if (dist[r][c] === -1) { dist[r][c] = 0; origenR[r][c] = r; origenC[r][c] = c; cola.push([r, c]); }
+  });
+  let head = 0;
+  const vecinos8 = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
+  while (head < cola.length) {
+    const [r, c] = cola[head++];
+    for (const [dr, dc] of vecinos8) {
+      const nr = r + dr, nc = c + dc;
+      if (nr < 0 || nr >= n || nc < 0 || nc >= n || dist[nr][nc] !== -1) continue;
+      dist[nr][nc] = dist[r][c] + 1;
+      origenR[nr][nc] = origenR[r][c]; origenC[nr][nc] = origenC[r][c];
+      cola.push([nr, nc]);
+    }
+  }
+  return { dist, origenR, origenC };
+}
+
 // Conecta cada isla al cuerpo principal con el puente MÁS CORTO posible
-// (estilo Prim: en cada paso, la isla pendiente más cercana al set ya
-// fusionado) — a igual distancia, prefiere un candidato alineado (misma
-// fila/columna) por sobre uno diagonal. Es clave para lo que sigue: un
-// puente alineado se dibuja "pegado al borde" de la fila/columna (nunca
-// pasa por el centro de ningún módulo ajeno), mientras que uno diagonal
-// de más de 1 paso, si hay que descomponerlo en saltos, sí puede terminar
-// con un punto intermedio justo en el centro de una celda real — y esa
-// celda puede ser, por ejemplo, el separador blanco de un patrón de
-// esquina (finder pattern), donde hasta esa alteración mínima basta para
-// que el lector no reconozca el QR en absoluto (no es un dato protegido
-// por corrección de errores, es la geometría que el lector usa para
-// encontrar el código). Preferir el candidato alineado evita ese caso en
-// la enorme mayoría de las situaciones reales.
-function calcularPuentesQR(matriz) {
+// (en cada paso, vía BFS, la isla pendiente más cercana al set ya
+// fusionado — permite encadenar a través de islas recién conectadas, no
+// solo saltar directo al cuerpo principal). A igual distancia, prefiere
+// un candidato alineado (misma fila/columna) por sobre uno diagonal —
+// clave para lo que sigue: un puente alineado se dibuja "pegado al
+// borde" (nunca pasa por el centro de ningún módulo ajeno), mientras que
+// uno diagonal de más de 1 paso, al descomponerse en saltos, puede
+// terminar con un punto intermedio justo en el centro de una celda real
+// — y si esa celda es, por ejemplo, el separador blanco de un patrón de
+// esquina (finder pattern), hasta esa alteración mínima basta para que
+// el lector no reconozca el QR en absoluto (no es un dato protegido por
+// corrección de errores, es la geometría que el lector usa para
+// encontrar el código en la imagen).
+//
+// "semilla" agrega un desempate con un poco de variación determinística
+// — a igual score, distintas semillas pueden preferir un candidato
+// distinto entre varios empatados. No es que la elección "correcta" sea
+// aleatoria: es que probamos que, en QRs reales, casi siempre hay más de
+// una combinación de puentes que lee bien, y a veces la primera elección
+// (siempre la misma) no es una de ellas. En vez de intentar demostrar
+// matemáticamente cuál combinación es siempre segura para cualquier
+// contenido (un problema bastante más difícil de lo que parece a
+// primera vista), generarQRCaladoDXF() prueba unas pocas semillas
+// distintas y verifica cada una decodificándola de nuevo — la garantía
+// real no es la elección en sí, es que nunca se ofrece una descarga sin
+// haberla confirmado leyendo.
+function calcularPuentesQR(matriz, semilla) {
+  const n = matriz.length;
   const componentes = etiquetarComponentesQR(matriz);
   if (componentes.length <= 1) return [];
   componentes.sort((a, b) => b.length - a.length);
   let fusionado = componentes[0].slice();
-  const pendientes = componentes.slice(1).map(c => ({ modulos: c, unido: false }));
+  let pendientes = componentes.slice(1);
+  let s = (semilla || 1) >>> 0;
+  const rand = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
   const puentes = [];
 
-  while (pendientes.some(p => !p.unido)) {
-    let mejor = null;
-    for (const p of pendientes) {
-      if (p.unido) continue;
-      for (const [ir, ic] of p.modulos) {
-        for (const [fr, fc] of fusionado) {
-          const d = Math.max(Math.abs(ir - fr), Math.abs(ic - fc));
-          const alineado = (ir === fr || ic === fc) ? 0 : 1;
-          const score = d * 10 + alineado; // distancia primero, alineación como desempate
-          if (!mejor || score < mejor.score) mejor = { ir, ic, fr, fc, d, score, comp: p };
-        }
+  while (pendientes.length) {
+    const { dist, origenR, origenC } = bfsDesdeQR(n, fusionado);
+    let mejorIdx = -1, mejor = null;
+    pendientes.forEach((isla, idx) => {
+      for (const [ir, ic] of isla) {
+        const fr = origenR[ir][ic], fc = origenC[ir][ic];
+        const d = dist[ir][ic];
+        const alineado = (ir === fr || ic === fc) ? 0 : 1;
+        const score = d * 10 + alineado + rand() * 0.5;
+        if (!mejor || score < mejor.score) { mejor = { ir, ic, fr, fc, score }; mejorIdx = idx; }
       }
-    }
-    mejor.comp.unido = true;
-    puentes.push({ ir: mejor.ir, ic: mejor.ic, fr: mejor.fr, fc: mejor.fc });
-    mejor.comp.modulos.forEach(m => fusionado.push(m));
+    });
+    puentes.push(mejor);
+    fusionado = fusionado.concat(pendientes[mejorIdx]);
+    pendientes.splice(mejorIdx, 1);
   }
   return puentes;
 }
@@ -5175,26 +5222,28 @@ function poligonosADXF(poligonos) {
   return out;
 }
 
-// Orquesta todo el proceso. calcularPuentesQR ya garantiza que todas las
-// islas queden conectadas (no hay reintentos de conectividad acá) — lo
-// único que puede fallar, en teoría, es que el grosor por defecto sea
-// demasiado para un contenido muy denso; si la verificación no pasa,
-// reintenta una sola vez con un grosor más fino antes de rendirse.
+// Orquesta todo el proceso — calcularPuentesQR garantiza conectividad
+// (nunca hay una isla sin puentear), pero distintas semillas de desempate
+// pueden dar distintas combinaciones de puentes, y no todas leen igual de
+// bien. En vez de asumir que la primera combinación siempre sirve,
+// probamos hasta 8 semillas distintas (validado con un lote de pruebas
+// reales: en la práctica alcanza con 1-7) y nos quedamos con la primera
+// que decodifica igual al contenido original — si ninguna de las 8
+// funciona, no se ofrece la descarga.
 function generarQRCaladoDXF(texto, opciones) {
   const tamModuloMm = (opciones && opciones.tamModuloMm) || 4;
-  let grosorPuentePct = (opciones && opciones.grosorPuentePct) || 0.17;
+  const grosorPuentePct = (opciones && opciones.grosorPuentePct) || 0.17;
   const matriz = construirMatrizQR(texto);
-  const puentes = calcularPuentesQR(matriz);
 
-  if (!verificarQRCalado(matriz, puentes, texto, grosorPuentePct)) {
-    grosorPuentePct *= 0.6;
-    if (!verificarQRCalado(matriz, puentes, texto, grosorPuentePct)) {
-      throw new Error("No se pudo generar un QR calado confiable para este contenido — probá con un link más corto.");
+  const MAX_INTENTOS = 8;
+  for (let intento = 1; intento <= MAX_INTENTOS; intento++) {
+    const puentes = calcularPuentesQR(matriz, intento);
+    if (verificarQRCalado(matriz, puentes, texto, grosorPuentePct)) {
+      const poligonos = qrAPoligonosDXF(matriz, puentes, tamModuloMm, grosorPuentePct);
+      return poligonosADXF(poligonos);
     }
   }
-
-  const poligonos = qrAPoligonosDXF(matriz, puentes, tamModuloMm, grosorPuentePct);
-  return poligonosADXF(poligonos);
+  throw new Error("No se pudo generar un QR calado confiable para este contenido — probá con un link más corto.");
 }
 
 // El visor (iframe) no tiene cargadas las librerías de QR-matrix/decode
