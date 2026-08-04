@@ -170,6 +170,15 @@ input  { font-family: inherit; }
 .mode-tab.active { background: var(--accent); color: #14161A; }
 .mode-tab:not(.active):hover { color: var(--text); }
 
+.qr-calado-modo-btn {
+  height: 26px; padding: 0 10px;
+  border-radius: calc(var(--radius) - 1px); border: none; background: transparent;
+  font-family: "Chakra Petch", sans-serif; font-weight: 600;
+  font-size: 9.5px; letter-spacing: .03em; text-transform: uppercase;
+  color: var(--muted); cursor: pointer;
+}
+.qr-calado-modo-btn.activo { background: var(--accent); color: #14161A; }
+
 /* PlantView iframe container */
 #pv-wrap {
   position: fixed;
@@ -1446,6 +1455,33 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
     <button class="btn-sheet btn-sheet-secondary" id="btn-qr-dxf" style="width:100%">
       Descargar QR calado (DXF)
     </button>
+  </div>
+</div>
+
+<!-- Vista previa del QR calado — un DXF no tiene "color": el contraste
+     que necesita un lector de QR depende de cómo quede la pieza física
+     (luz de atrás, fondo, etc.), así que antes de bajar el archivo se
+     muestra acá con contraste real (negro sobre blanco) para escanearlo
+     directo desde la pantalla y confirmar que lee bien. -->
+<div class="modal-overlay" id="modal-qr-calado-preview">
+  <div class="modal-sheet" style="align-items:center">
+    <button class="sheet-x" id="btn-qr-calado-x" aria-label="Cerrar">×</button>
+    <div class="sheet-handle"></div>
+    <p class="sheet-title">Probá escanear esto</p>
+    <div id="qr-calado-modo-tabs" style="display:flex;gap:2px;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius);padding:3px">
+      <button type="button" class="qr-calado-modo-btn activo" data-modo="metal">Simulación pieza calada</button>
+      <button type="button" class="qr-calado-modo-btn" data-modo="digital">Contraste ideal</button>
+    </div>
+    <p id="qr-calado-modo-hint" style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted);text-align:center;line-height:1.6;margin:0">
+      Así se ve la pieza ya calada, con luz normal y sin fondo especial detrás — el contraste real que vas a tener en la obra, salvo que uses luz de atrás.
+    </p>
+    <img id="qr-calado-preview-img" alt="Vista previa del QR calado" style="width:220px;height:220px;border:1px solid var(--line);border-radius:8px">
+    <div class="sheet-actions" style="width:100%">
+      <button class="btn-sheet btn-sheet-primary" id="btn-qr-calado-descargar" style="width:100%">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 3v12m0 0-4-4m4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+        Descargar DXF
+      </button>
+    </div>
   </div>
 </div>
 
@@ -3748,7 +3784,33 @@ document.getElementById("btn-qr-dl").addEventListener("click", () => {
 });
 // Mismo link/contenido que el QR de arriba — no es un código distinto,
 // solo una geometría especial (con puentes) para poder cortarlo en chapa
-// sin que se caigan pedazos sueltos. Ver generarQRCaladoDXF.
+// sin que se caigan pedazos sueltos. Antes de bajar el archivo se
+// muestra una vista previa con contraste real (ver modal-qr-calado-preview)
+// para poder escanearla directo de la pantalla — un DXF no tiene color,
+// así que esa es la forma más simple de confirmar que el diseño lee bien
+// sin tener que cortar nada primero.
+let dxfCaladoActual = null;
+let previewsCaladoActuales = null; // { digital, metal }
+const HINTS_MODO_CALADO = {
+  metal: "Así se ve la pieza ya calada, con luz normal y sin fondo especial detrás — el contraste real que vas a tener en la obra, salvo que uses luz de atrás.",
+  digital: "Contraste ideal — el mismo diseño ya verificado, sin simular iluminación. Sirve para comparar contra la simulación de al lado.",
+};
+function mostrarQRCaladoModo(modo) {
+  if (!previewsCaladoActuales) return;
+  document.getElementById("qr-calado-preview-img").src = previewsCaladoActuales[modo];
+  document.getElementById("qr-calado-modo-hint").textContent = HINTS_MODO_CALADO[modo];
+  document.querySelectorAll(".qr-calado-modo-btn").forEach(b => b.classList.toggle("activo", b.dataset.modo === modo));
+}
+document.querySelectorAll(".qr-calado-modo-btn").forEach(b => b.addEventListener("click", () => mostrarQRCaladoModo(b.dataset.modo)));
+
+// Mismo link/contenido que el QR de arriba — no es un código distinto,
+// solo una geometría especial (con puentes) para poder cortarlo en chapa
+// sin que se caigan pedazos sueltos. Antes de bajar el archivo se
+// muestra una vista previa (ver modal-qr-calado-preview) para poder
+// escanearla directo de la pantalla — un DXF no tiene color, así que esa
+// es la forma más simple de confirmar que el diseño lee bien sin tener
+// que cortar nada primero. Por defecto se muestra la simulación de la
+// pieza calada (contraste realista, más exigente), no el ideal.
 document.getElementById("btn-qr-dxf").addEventListener("click", async () => {
   if (!qrLinkActual) return;
   const btn = document.getElementById("btn-qr-dxf");
@@ -3756,20 +3818,33 @@ document.getElementById("btn-qr-dxf").addEventListener("click", async () => {
   const textoOriginal = btn.textContent;
   btn.textContent = "Generando…";
   try {
-    const dxfTexto = generarQRCaladoDXF(qrLinkActual);
-    const blob = new Blob([dxfTexto], { type: "application/dxf" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "QR-" + document.getElementById("qr-filename").textContent.replace(/\s+/g, "_") + "-calado.dxf";
-    a.click();
-    URL.revokeObjectURL(a.href);
-    showToast("QR calado (DXF) descargado ✓");
+    const { dxfTexto, previewDataUrl, previewMetalDataUrl } = generarQRCalado(qrLinkActual);
+    dxfCaladoActual = dxfTexto;
+    previewsCaladoActuales = { digital: previewDataUrl, metal: previewMetalDataUrl };
+    mostrarQRCaladoModo("metal");
+    document.getElementById("modal-qr-calado-preview").classList.add("visible");
   } catch (e) {
     showToast("❌ " + e.message);
   } finally {
     btn.disabled = false;
     btn.textContent = textoOriginal;
   }
+});
+document.getElementById("btn-qr-calado-x").addEventListener("click", () =>
+  document.getElementById("modal-qr-calado-preview").classList.remove("visible"));
+document.getElementById("modal-qr-calado-preview").addEventListener("click", e => {
+  if (e.target === document.getElementById("modal-qr-calado-preview"))
+    document.getElementById("modal-qr-calado-preview").classList.remove("visible");
+});
+document.getElementById("btn-qr-calado-descargar").addEventListener("click", () => {
+  if (!dxfCaladoActual) return;
+  const blob = new Blob([dxfCaladoActual], { type: "application/dxf" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "QR-" + document.getElementById("qr-filename").textContent.replace(/\s+/g, "_") + "-calado.dxf";
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showToast("QR calado (DXF) descargado ✓");
 });
 
 /* ============================================================
@@ -5119,27 +5194,52 @@ function recorrerPuenteQR(ir, ic, fr, fc, onTramoAlineado, onTramoDiagonal) {
   });
 }
 
-// Renderiza matriz+puentes a un canvas chico y lo decodifica con jsQR —
-// la única forma de saber con certeza (no en teoría) que el QR calado
-// sigue leyendo el contenido correcto.
-function verificarQRCalado(matriz, puentes, textoOriginal, grosorPuentePct) {
+// Renderiza matriz+puentes a un <canvas>. Dos modos:
+//  - "digital" (default): negro puro sobre blanco puro — el contraste
+//    ideal, el que se usa para verificar con jsQR que el diseño es
+//    correcto en sí mismo, y el que se ve bien escaneado directo de una
+//    pantalla.
+//  - "metal": SIMULA cómo se ve la pieza ya calada, bajo luz normal, sin
+//    luz de atrás ni fondo especial — que es la situación real más
+//    común. Un corte de lado a lado no dibuja "blanco", deja un agujero:
+//    lo que se ve ahí es lo que sea que haya detrás (acá, un gris oscuro
+//    parecido a una sombra/mesa), no blanco puro. Y el metal que queda
+//    sólido tampoco es negro puro, es un gris más claro con textura leve
+//    (simulando el brillo/textura de una chapa). Este modo es a
+//    propósito de MENOR contraste que el digital — la idea es que
+//    puedas probar con la cámara del celular si esa lectura, más
+//    parecida a la realidad, todavía funciona o no.
+function renderizarQRCaladoCanvas(matriz, puentes, grosorPuentePct, escala, modo) {
   const n = matriz.length;
-  const escala = 10;
+  escala = escala || 10;
+  const esMetal = modo === "metal";
   const margen = 4 * escala; // quiet zone, como espera cualquier lector de QR
   const canvas = document.createElement("canvas");
   canvas.width = n * escala + margen * 2;
   canvas.height = n * escala + margen * 2;
   const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#fff";
+  const colorFondo = esMetal ? "#2e2e2e" : "#fff"; // "agujero" — lo que se ve detrás sin luz de atrás
+  const colorSolido = esMetal ? "#b9b9b9" : "#000"; // metal que queda, bajo luz normal (no negro real)
+  ctx.fillStyle = colorFondo;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "#000";
+  ctx.fillStyle = colorSolido;
   for (let r = 0; r < n; r++) {
     for (let c = 0; c < n; c++) {
-      if (matriz[r][c]) ctx.fillRect(margen + c * escala, margen + r * escala, escala, escala);
+      if (matriz[r][c]) {
+        ctx.fillRect(margen + c * escala, margen + r * escala, escala, escala);
+        if (esMetal) {
+          // textura sutil (variación de brillo por módulo) — un metal
+          // cortado con láser nunca es un gris 100% parejo
+          const v = 6 + Math.round(((r * 7 + c * 13) % 11) - 5);
+          ctx.fillStyle = `rgb(${185 + v},${185 + v},${185 + v})`;
+          ctx.fillRect(margen + c * escala + escala * 0.15, margen + r * escala + escala * 0.15, escala * 0.7, escala * 0.7);
+          ctx.fillStyle = colorSolido;
+        }
+      }
     }
   }
   ctx.lineWidth = escala * grosorPuentePct;
-  ctx.strokeStyle = "#000";
+  ctx.strokeStyle = colorSolido;
   ctx.lineCap = "butt";
   const bordeOffset = escala * 0.1;
   puentes.forEach(({ ir, ic, fr, fc }) => {
@@ -5157,6 +5257,16 @@ function verificarQRCalado(matriz, puentes, textoOriginal, grosorPuentePct) {
         ctx.stroke();
       });
   });
+  return canvas;
+}
+
+// La única forma de saber con certeza (no en teoría) que el QR calado
+// sigue leyendo el contenido correcto: renderizarlo (contraste ideal,
+// nunca el modo "metal" — la verificación tiene que ser sobre el diseño
+// en sí, no sobre una simulación de iluminación) y decodificarlo.
+function verificarQRCalado(matriz, puentes, textoOriginal, grosorPuentePct) {
+  const canvas = renderizarQRCaladoCanvas(matriz, puentes, grosorPuentePct);
+  const ctx = canvas.getContext("2d");
   const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const resultado = jsQR(img.data, canvas.width, canvas.height);
   return !!resultado && resultado.data === textoOriginal;
@@ -5229,8 +5339,14 @@ function poligonosADXF(poligonos) {
 // probamos hasta 8 semillas distintas (validado con un lote de pruebas
 // reales: en la práctica alcanza con 1-7) y nos quedamos con la primera
 // que decodifica igual al contenido original — si ninguna de las 8
-// funciona, no se ofrece la descarga.
-function generarQRCaladoDXF(texto, opciones) {
+// funciona, no se ofrece la descarga. Devuelve también una vista previa
+// (PNG en base64, negro sobre blanco con contraste real) para que se
+// pueda escanear directo desde la pantalla antes de cortar nada — un
+// DXF no tiene "color", el contraste que necesita un lector de QR
+// depende de cómo quede montada la pieza física (ver mensajes al
+// usuario), así que probar en pantalla es la forma más simple de
+// confirmar que el diseño lee bien antes de ir al láser.
+function generarQRCalado(texto, opciones) {
   const tamModuloMm = (opciones && opciones.tamModuloMm) || 4;
   const grosorPuentePct = (opciones && opciones.grosorPuentePct) || 0.17;
   const matriz = construirMatrizQR(texto);
@@ -5240,7 +5356,15 @@ function generarQRCaladoDXF(texto, opciones) {
     const puentes = calcularPuentesQR(matriz, intento);
     if (verificarQRCalado(matriz, puentes, texto, grosorPuentePct)) {
       const poligonos = qrAPoligonosDXF(matriz, puentes, tamModuloMm, grosorPuentePct);
-      return poligonosADXF(poligonos);
+      const dxfTexto = poligonosADXF(poligonos);
+      // Dos vistas previas: "digital" (contraste ideal, para comparar) y
+      // "metal" (simula la pieza ya calada bajo luz normal, sin luz de
+      // atrás — ver renderizarQRCaladoCanvas) — el usuario puede probar
+      // las dos con la cámara del celular antes de decidir si necesita
+      // luz de atrás/fondo de contraste para que lea bien en la obra.
+      const previewDataUrl = renderizarQRCaladoCanvas(matriz, puentes, grosorPuentePct, 14, "digital").toDataURL("image/png");
+      const previewMetalDataUrl = renderizarQRCaladoCanvas(matriz, puentes, grosorPuentePct, 14, "metal").toDataURL("image/png");
+      return { dxfTexto, previewDataUrl, previewMetalDataUrl };
     }
   }
   throw new Error("No se pudo generar un QR calado confiable para este contenido — probá con un link más corto.");
@@ -5248,14 +5372,15 @@ function generarQRCaladoDXF(texto, opciones) {
 
 // El visor (iframe) no tiene cargadas las librerías de QR-matrix/decode
 // — no vale la pena duplicarlas ahí adentro para un botón que se usa
-// poco, así que pide el DXF acá por postMessage, igual que el resto de
-// las operaciones que cruzan el iframe. No requiere Drive/OAuth (es
-// puro cálculo), por eso es un listener aparte del de EJECUTORES_DRIVE.
+// poco, así que pide el DXF (+ vista previa) acá por postMessage, igual
+// que el resto de las operaciones que cruzan el iframe. No requiere
+// Drive/OAuth (es puro cálculo), por eso es un listener aparte del de
+// EJECUTORES_DRIVE.
 window.addEventListener("message", (e) => {
   if (!e.data || e.data.tipo !== "generarQRCaladoDXF") return;
   try {
-    const dxfTexto = generarQRCaladoDXF(e.data.texto);
-    if (e.source) e.source.postMessage({ tipo: "generarQRCaladoDXFOK", reqId: e.data.reqId, dxfTexto }, "*");
+    const { dxfTexto, previewDataUrl, previewMetalDataUrl } = generarQRCalado(e.data.texto);
+    if (e.source) e.source.postMessage({ tipo: "generarQRCaladoDXFOK", reqId: e.data.reqId, dxfTexto, previewDataUrl, previewMetalDataUrl }, "*");
   } catch (err) {
     if (e.source) e.source.postMessage({ tipo: "generarQRCaladoDXFError", reqId: e.data.reqId, error: err.message || String(err) }, "*");
   }
