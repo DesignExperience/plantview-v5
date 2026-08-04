@@ -716,18 +716,7 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 
 /* Pantalla Tareas — lista/tablero de notas marcadas como tarea/OT,
    juntadas de todos los modelos de todas las obras conectadas. */
-.tarea-item {
-  display: flex; align-items: center; gap: 10px; width: 100%;
-  text-align: left; background: var(--surface-2); border: 1px solid var(--line);
-  border-radius: var(--radius); padding: 10px 12px; cursor: pointer;
-  font-family: inherit; margin-bottom: 8px;
-}
-.tarea-item:active { border-color: var(--accent); }
-.tarea-estado-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
-.tarea-item-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.tarea-item-texto { font-size: 12.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tarea-item-meta { font-size: 10px; color: var(--muted); font-family: "IBM Plex Mono", monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tarea-item-pieza { font-family: monospace; font-size: 9.5px; color: var(--accent); background: rgba(58,107,232,.08); border: 1px solid rgba(58,107,232,.25); border-radius: 5px; padding: 2px 6px; flex-shrink: 0; }
+.tarea-item-pieza { font-family: monospace; font-size: 9.5px; color: var(--accent); background: rgba(58,107,232,.08); border: 1px solid rgba(58,107,232,.25); border-radius: 5px; padding: 2px 6px; flex-shrink: 0; align-self: flex-start; }
 
 .tareas-vacio { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 48px 20px; text-align: center; color: var(--muted); font-size: 12.5px; }
 
@@ -742,7 +731,54 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 }
 .tarea-card:active { border-color: var(--accent); }
 .tarea-card-texto { font-size: 11.5px; color: var(--text); display: block; margin-bottom: 4px; }
-.tarea-card-meta { font-size: 9.5px; color: var(--muted); font-family: "IBM Plex Mono", monospace; }
+.tarea-card-meta { font-size: 9.5px; color: var(--muted); font-family: "IBM Plex Mono", monospace; display: block; margin-bottom: 8px; }
+.tarea-card-footer { display: flex; align-items: center; gap: 8px; }
+.tarea-card-prioridad { font-size: 9.5px; font-family: "IBM Plex Mono", monospace; }
+.tarea-card-fecha { font-size: 9.5px; color: var(--muted); font-family: "IBM Plex Mono", monospace; }
+.tarea-avatar {
+  width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0; margin-left: auto;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 8.5px; font-weight: 700; color: #fff; font-family: "Chakra Petch", sans-serif;
+}
+
+/* Vista Lista estilo ClickUp: secciones colapsables por estado, cada
+   una con una "tabla" de filas (Nombre / Asignado / Fecha límite /
+   Prioridad). Ver renderTareas(). */
+.tareas-tabla { padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 14px; }
+.tareas-seccion-header {
+  display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: none;
+  padding: 4px 0; cursor: pointer; font-family: inherit;
+}
+.tareas-seccion-chevron { color: var(--muted); transition: transform .15s; flex-shrink: 0; }
+.tareas-seccion-chevron.colapsada { transform: rotate(-90deg); }
+.tareas-seccion-pill {
+  font-family: "Chakra Petch", sans-serif; font-weight: 700; font-size: 10px;
+  text-transform: uppercase; letter-spacing: .04em; border: 1px solid; border-radius: 6px;
+  padding: 3px 9px;
+}
+.tareas-seccion-count { font-family: "IBM Plex Mono", monospace; font-size: 10px; color: var(--muted); }
+.tareas-seccion-body { margin-top: 6px; }
+.tareas-fila {
+  display: grid; grid-template-columns: 1fr 60px 64px 74px; align-items: center; gap: 10px;
+  width: 100%; text-align: left; background: none; border: none; border-top: 1px solid var(--line);
+  padding: 9px 4px; cursor: pointer; font-family: inherit;
+}
+.tareas-fila-header {
+  grid-template-columns: 1fr 60px 64px 74px; border-top: none; padding: 0 4px 6px; cursor: default;
+  font-family: "IBM Plex Mono", monospace; font-size: 9px; color: var(--muted); text-transform: uppercase;
+}
+.tareas-fila:active { background: var(--surface-2); }
+.tareas-fila-nombre { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tareas-fila-texto { font-size: 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tareas-fila-origen { font-size: 9.5px; color: var(--muted); font-family: "IBM Plex Mono", monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tareas-fila-fecha-txt { font-size: 10.5px; color: var(--text); font-family: "IBM Plex Mono", monospace; }
+.tareas-fila-prioridad { font-size: 9.5px; font-family: "IBM Plex Mono", monospace; }
+.tareas-fila-vacio { color: var(--muted); font-size: 11px; }
+.tareas-fila-add {
+  width: 100%; text-align: left; background: none; border: none; padding: 8px 4px;
+  color: var(--muted); font-size: 11px; font-family: inherit; cursor: pointer;
+}
+.tareas-fila-add:active { color: var(--accent); }
 
 /* Upload bar */
 .upload-bar {
@@ -1598,6 +1634,18 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
     <textarea id="tareaTextoInput" rows="3" placeholder="Escribí la tarea… (ej: cambiar por DN80)" style="width:100%;resize:vertical;border:1px solid var(--border);border-radius:8px;background:var(--surf);color:var(--text);font-size:14px;padding:8px;line-height:1.5;font-family:inherit"></textarea>
     <label style="width:100%;font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Estado</label>
     <div id="tareaEstados" style="display:flex;gap:6px;width:100%"></div>
+    <label style="width:100%;font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Prioridad</label>
+    <div id="tareaPrioridades" style="display:flex;gap:6px;width:100%"></div>
+    <div style="display:flex;gap:10px;width:100%">
+      <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+        <label style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Asignado</label>
+        <input type="text" id="tareaAsignadoInput" placeholder="ej: Diego" style="width:100%;height:36px;border-radius:8px;border:1px solid var(--border);background:var(--surf);color:var(--text);font-family:inherit;padding:0 8px">
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+        <label style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Fecha límite</label>
+        <input type="date" id="tareaFechaInput" style="width:100%;height:36px;border-radius:8px;border:1px solid var(--border);background:var(--surf);color:var(--text);font-family:inherit;padding:0 8px">
+      </div>
+    </div>
     <div id="tarea-login-banner" style="display:none;width:100%;flex-direction:column;gap:8px;align-items:center;padding:10px;border:1px dashed var(--line);border-radius:8px">
       <p style="margin:0;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);text-align:center">Para crear o editar tareas necesitás conectarte con tu cuenta de Google (permiso de escritura en Drive).</p>
       <button class="btn-sheet btn-sheet-primary" id="btn-tarea-conectar-drive" style="width:100%">Conectar con Google</button>
@@ -4773,6 +4821,9 @@ async function cargarTareas(forzar) {
           texto: n.texto || "(sin texto)",
           estado: n.estado || "no_iniciado",
           pieza: n.objName || null,
+          asignado: n.asignado || "",
+          fechaLimite: n.fechaLimite || "",
+          prioridad: n.prioridad || "normal",
           modeloNombre: modelo.nombre,
           obraNombre: carpeta.nombre,
           carpetaId: carpeta.id,
@@ -4791,13 +4842,41 @@ const TAREAS_ESTADOS = [
   { key: "finalizado",  label: "Finalizado",  color: "#188a5c" },
 ];
 
+const TAREAS_PRIORIDADES = [
+  { key: "urgente", label: "Urgente", color: "#e0455a" },
+  { key: "alta",    label: "Alta",    color: "#d97a00" },
+  { key: "normal",  label: "Normal",  color: "#3a6be8" },
+  { key: "baja",    label: "Baja",    color: "#8a9099" },
+];
+function prioridadTarea(key) {
+  return TAREAS_PRIORIDADES.find(p => p.key === key) || TAREAS_PRIORIDADES[2];
+}
+function inicialesAsignado(nombre) {
+  if (!nombre) return "";
+  const partes = nombre.trim().split(/\s+/).filter(Boolean);
+  return ((partes[0]?.[0] || "") + (partes[1]?.[0] || "")).toUpperCase();
+}
+function colorDeTexto(txt) {
+  // color determinístico (mismo nombre = mismo color siempre) para el avatar del asignado
+  let h = 0;
+  for (let i = 0; i < txt.length; i++) h = (h * 31 + txt.charCodeAt(i)) >>> 0;
+  return `hsl(${h % 360} 55% 45%)`;
+}
+function fechaCorta(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}`;
+}
+
+const tareasSeccionesColapsadas = new Set();
+
 function renderTareas() {
   const cont = document.getElementById("tareas-contenido");
   const tareas = tareasCache || [];
   if (!tareas.length) {
     cont.innerHTML = `<div class="tareas-vacio">
       <strong style="color:var(--text);font-family:'Chakra Petch',sans-serif;font-weight:700">Sin tareas todavía</strong>
-      <span>Marcá una nota como "Es una tarea/OT" en el visor 3D para que aparezca acá.</span>
+      <span>Creá una con el botón "Nueva" o marcá una nota como "Es una tarea/OT" en el visor 3D.</span>
     </div>`;
     return;
   }
@@ -4806,24 +4885,63 @@ function renderTareas() {
       const delEstado = tareas.filter(t => t.estado === e.key);
       return `<div class="tareas-columna">
         <div class="tareas-columna-titulo" style="color:${e.color}">${esc(e.label)}<span class="tareas-columna-count">${delEstado.length}</span></div>
-        ${delEstado.map(t => `<button type="button" class="tarea-card" data-id="${esc(t.id)}">
+        ${delEstado.map(t => {
+          const p = prioridadTarea(t.prioridad);
+          return `<button type="button" class="tarea-card" data-id="${esc(t.id)}">
           <span class="tarea-card-texto">${esc(t.texto)}</span>
           <span class="tarea-card-meta">${esc(t.pieza || "—")} · ${esc(t.obraNombre)}</span>
-        </button>`).join("") || `<p style="font-size:10.5px;color:var(--muted);text-align:center;padding:12px 0">Nada acá</p>`}
+          <span class="tarea-card-footer">
+            <span class="tarea-card-prioridad" style="color:${p.color}">🚩 ${esc(p.label)}</span>
+            ${t.fechaLimite ? `<span class="tarea-card-fecha">${esc(fechaCorta(t.fechaLimite))}</span>` : ""}
+            ${t.asignado ? `<span class="tarea-avatar" style="background:${colorDeTexto(t.asignado)}" title="${esc(t.asignado)}">${esc(inicialesAsignado(t.asignado))}</span>` : ""}
+          </span>
+        </button>`;
+        }).join("") || `<p style="font-size:10.5px;color:var(--muted);text-align:center;padding:12px 0">Nada acá</p>`}
       </div>`;
     }).join("") + `</div>`;
   } else {
-    cont.innerHTML = tareas.map(t => {
-      const e = TAREAS_ESTADOS.find(x => x.key === t.estado) || TAREAS_ESTADOS[0];
-      return `<button type="button" class="tarea-item" data-id="${esc(t.id)}" style="margin:0 14px 8px">
-        <span class="tarea-estado-dot" style="background:${e.color}"></span>
-        <span class="tarea-item-info">
-          <span class="tarea-item-texto">${esc(t.texto)}</span>
-          <span class="tarea-item-meta">${esc(e.label)} · ${esc(t.obraNombre)} / ${esc(t.modeloNombre)}</span>
-        </span>
-        ${t.pieza ? `<span class="tarea-item-pieza">${esc(t.pieza)}</span>` : ""}
-      </button>`;
-    }).join("");
+    cont.innerHTML = `<div class="tareas-tabla">` + TAREAS_ESTADOS.map(e => {
+      const delEstado = tareas.filter(t => t.estado === e.key);
+      const colapsada = tareasSeccionesColapsadas.has(e.key);
+      return `<div class="tareas-seccion">
+        <button type="button" class="tareas-seccion-header" data-toggle-estado="${e.key}">
+          <svg class="tareas-seccion-chevron${colapsada ? " colapsada" : ""}" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M6 9l6 6 6-6"/></svg>
+          <span class="tareas-seccion-pill" style="background:${e.color}22;color:${e.color};border-color:${e.color}55">${esc(e.label)}</span>
+          <span class="tareas-seccion-count">${delEstado.length}</span>
+        </button>
+        <div class="tareas-seccion-body" style="display:${colapsada ? "none" : "block"}">
+          ${delEstado.length ? `<div class="tareas-fila tareas-fila-header">
+            <span>Nombre</span><span>Asignado</span><span>Fecha límite</span><span>Prioridad</span>
+          </div>` : ""}
+          ${delEstado.map(t => {
+            const p = prioridadTarea(t.prioridad);
+            return `<button type="button" class="tareas-fila" data-id="${esc(t.id)}">
+            <span class="tareas-fila-nombre">
+              ${t.pieza ? `<span class="tarea-item-pieza">${esc(t.pieza)}</span>` : ""}
+              <span class="tareas-fila-texto">${esc(t.texto)}</span>
+              <span class="tareas-fila-origen">${esc(t.obraNombre)} / ${esc(t.modeloNombre)}</span>
+            </span>
+            <span>${t.asignado ? `<span class="tarea-avatar" style="background:${colorDeTexto(t.asignado)}" title="${esc(t.asignado)}">${esc(inicialesAsignado(t.asignado))}</span>` : `<span class="tareas-fila-vacio">—</span>`}</span>
+            <span class="tareas-fila-fecha-txt">${t.fechaLimite ? esc(fechaCorta(t.fechaLimite)) : `<span class="tareas-fila-vacio">—</span>`}</span>
+            <span class="tareas-fila-prioridad" style="color:${p.color}">🚩 ${esc(p.label)}</span>
+          </button>`;
+          }).join("")}
+          <button type="button" class="tareas-fila-add" data-add-estado="${e.key}">+ Añadir tarea</button>
+        </div>
+      </div>`;
+    }).join("") + `</div>`;
+
+    cont.querySelectorAll("[data-toggle-estado]").forEach(el => {
+      el.addEventListener("click", () => {
+        const key = el.dataset.toggleEstado;
+        if (tareasSeccionesColapsadas.has(key)) tareasSeccionesColapsadas.delete(key);
+        else tareasSeccionesColapsadas.add(key);
+        renderTareas();
+      });
+    });
+    cont.querySelectorAll("[data-add-estado]").forEach(el => {
+      el.addEventListener("click", () => abrirModalTareaNueva(el.dataset.addEstado));
+    });
   }
   cont.querySelectorAll("[data-id]").forEach(el => {
     el.addEventListener("click", () => {
@@ -4854,22 +4972,28 @@ function abrirTareaEnModelo(t) {
    Requiere escritura en Drive conectada (mismo login que el resto). */
 let tareaModalEditando = null; // { id, carpetaId, archivoDriveId } o null si es "Nueva"
 
-function crearSelectorEstadoTarea(cont, seleccionado) {
+function crearSelectorPillsTarea(cont, opciones, defecto, seleccionado, atributo) {
   cont.innerHTML = "";
-  TAREAS_ESTADOS.forEach(e => {
+  opciones.forEach(o => {
     const b = document.createElement("button");
     b.type = "button";
-    b.className = "tarea-estado-pill" + (e.key === (seleccionado || "no_iniciado") ? " sel" : "");
-    b.textContent = e.label;
-    b.dataset.estado = e.key;
-    if (b.classList.contains("sel")) b.style.background = e.color;
+    b.className = "tarea-estado-pill" + (o.key === (seleccionado || defecto) ? " sel" : "");
+    b.textContent = o.label;
+    b.dataset[atributo] = o.key;
+    if (b.classList.contains("sel")) b.style.background = o.color;
     b.addEventListener("click", () => {
       cont.querySelectorAll(".tarea-estado-pill").forEach(x => { x.classList.remove("sel"); x.style.background = ""; });
       b.classList.add("sel");
-      b.style.background = e.color;
+      b.style.background = o.color;
     });
     cont.appendChild(b);
   });
+}
+function crearSelectorEstadoTarea(cont, seleccionado) {
+  crearSelectorPillsTarea(cont, TAREAS_ESTADOS, "no_iniciado", seleccionado, "estado");
+}
+function crearSelectorPrioridadTarea(cont, seleccionado) {
+  crearSelectorPillsTarea(cont, TAREAS_PRIORIDADES, "normal", seleccionado, "prioridad");
 }
 
 async function poblarSelectModelosTarea(carpetaId) {
@@ -4884,13 +5008,16 @@ async function poblarSelectModelosTarea(carpetaId) {
     : `<option value="">(sin modelos 3D en esta obra)</option>`;
 }
 
-function abrirModalTareaNueva() {
+function abrirModalTareaNueva(estadoInicial) {
   tareaModalEditando = null;
   document.getElementById("tarea-modal-titulo").textContent = "Nueva tarea";
   document.getElementById("tarea-campo-obra").style.display = "flex";
   document.getElementById("tareaPiezaInput").value = "";
   document.getElementById("tareaTextoInput").value = "";
-  crearSelectorEstadoTarea(document.getElementById("tareaEstados"), "no_iniciado");
+  document.getElementById("tareaAsignadoInput").value = "";
+  document.getElementById("tareaFechaInput").value = "";
+  crearSelectorEstadoTarea(document.getElementById("tareaEstados"), estadoInicial || "no_iniciado");
+  crearSelectorPrioridadTarea(document.getElementById("tareaPrioridades"), "normal");
   document.getElementById("btn-tarea-abrir3d").style.display = "none";
   document.getElementById("btn-tarea-eliminar").style.display = "none";
 
@@ -4911,7 +5038,10 @@ async function abrirModalTareaEditar(t) {
   document.getElementById("tarea-campo-obra").style.display = "none";
   document.getElementById("tareaPiezaInput").value = t.pieza || "";
   document.getElementById("tareaTextoInput").value = t.texto || "";
+  document.getElementById("tareaAsignadoInput").value = t.asignado || "";
+  document.getElementById("tareaFechaInput").value = t.fechaLimite || "";
   crearSelectorEstadoTarea(document.getElementById("tareaEstados"), t.estado);
+  crearSelectorPrioridadTarea(document.getElementById("tareaPrioridades"), t.prioridad);
   document.getElementById("btn-tarea-abrir3d").style.display = "";
   document.getElementById("btn-tarea-eliminar").style.display = "";
   document.getElementById("modal-tarea").classList.add("visible");
@@ -4926,8 +5056,12 @@ async function guardarTareaDesdeModal() {
     return;
   }
   const pieza = document.getElementById("tareaPiezaInput").value.trim();
+  const asignado = document.getElementById("tareaAsignadoInput").value.trim();
+  const fechaLimite = document.getElementById("tareaFechaInput").value || "";
   const estadoSel = document.querySelector("#tareaEstados .tarea-estado-pill.sel");
   const estado = estadoSel ? estadoSel.dataset.estado : "no_iniciado";
+  const prioridadSel = document.querySelector("#tareaPrioridades .tarea-estado-pill.sel");
+  const prioridad = prioridadSel ? prioridadSel.dataset.prioridad : "normal";
   const btn = document.getElementById("btn-tarea-guardar");
   btn.disabled = true;
   try {
@@ -4950,6 +5084,7 @@ async function guardarTareaDesdeModal() {
       const n = notas.find(x => x.id === tareaModalEditando.id);
       if (!n) throw new Error("No se encontró la nota original (¿se borró desde el visor?)");
       n.texto = texto; n.objName = pieza || null; n.estado = estado;
+      n.asignado = asignado || ""; n.fechaLimite = fechaLimite; n.prioridad = prioridad;
     } else {
       notas.push({
         id: "n" + Date.now() + Math.random().toString(36).slice(2, 7),
@@ -4957,6 +5092,7 @@ async function guardarTareaDesdeModal() {
         objName: pieza || null,
         texto, mostrarPin: false, negrita: false, color: "#3a6be8",
         esTarea: true, estado,
+        asignado: asignado || "", fechaLimite, prioridad,
         fecha: new Date().toISOString().slice(0, 10),
       });
     }
@@ -4991,7 +5127,7 @@ async function eliminarTareaDesdeModal() {
   }
 }
 
-document.getElementById("btn-tareas-nueva").addEventListener("click", abrirModalTareaNueva);
+document.getElementById("btn-tareas-nueva").addEventListener("click", () => abrirModalTareaNueva());
 document.getElementById("btn-tarea-x").addEventListener("click", () => document.getElementById("modal-tarea").classList.remove("visible"));
 document.getElementById("btn-tarea-conectar-drive").addEventListener("click", conectarEscrituraDrive);
 document.getElementById("btn-tarea-guardar").addEventListener("click", guardarTareaDesdeModal);
@@ -6345,6 +6481,12 @@ canvas{display:block;width:100%;height:100%}
   .fab{width:44px; height:44px; flex-shrink:0}
   .fab span{display:none}
   .fab-sep{height:22px}
+
+  /* Tabla de Tareas: en mobile no entran las 4 columnas — se deja solo
+     Nombre + Prioridad, el resto (asignado/fecha) se ve al abrir el detalle. */
+  .tareas-fila, .tareas-fila-header { grid-template-columns: 1fr 70px; }
+  .tareas-fila-header span:nth-child(2), .tareas-fila-header span:nth-child(3),
+  .tareas-fila > span:nth-child(2), .tareas-fila > span:nth-child(3) { display: none; }
 }
 .hover-label{position:fixed;bottom:calc(104px + var(--safe-bottom));left:50%;transform:translateX(-50%);background:rgba(58,107,232,.12);border:1px solid rgba(58,107,232,.25);backdrop-filter:blur(8px);border-radius:20px;padding:6px 14px;font-size:11px;color:var(--acc);white-space:nowrap;pointer-events:none;z-index:190;opacity:0;transition:opacity .2s;max-width:220px;overflow:hidden;text-overflow:ellipsis}
 .hover-label.show{opacity:1}
