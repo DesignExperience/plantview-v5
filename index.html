@@ -4820,18 +4820,20 @@ async function ejecutarSubidaDrive(payload) {
   }
 }
 
-// Vistas guardadas: cada modelo guarda sus capturas en una subcarpeta propia
-// ("<nombre del glb> - vistas guardadas") dentro de la carpeta del modelo.
-// Buscarla/crearla requiere el token de escritura (listar podría hacerse con
-// la API Key, pero crear no), así que todo pasa por acá igual que el resto.
-async function ejecutarResolverCarpetaVistas(payload) {
-  const { nombreGlb, carpetaPadreId, reqId } = payload;
+// Vistas guardadas y notas: cada modelo guarda cada cosa en su propia
+// subcarpeta ("<nombre del glb> - vistas guardadas", "<nombre del glb> -
+// notas") dentro de la carpeta del modelo, en vez de mezclarse sueltas con
+// los planos. Buscarla/crearla requiere el token de escritura (listar
+// podría hacerse con la API Key, pero crear no), así que todo pasa por acá
+// igual que el resto de las operaciones de Drive.
+async function ejecutarResolverCarpeta(payload) {
+  const { nombreGlb, carpetaPadreId, reqId, sufijo, tipoRespuesta } = payload;
   try {
-    const nombreCarpeta = `${nombreGlb} - vistas guardadas`;
+    const nombreCarpeta = `${nombreGlb} - ${sufijo}`;
     const folderId = await obtenerOCrearCarpetaDrive(nombreCarpeta, carpetaPadreId);
-    enviarAlVisor3D({ tipo: "resolverCarpetaVistasOK", reqId, carpetaId: folderId });
+    enviarAlVisor3D({ tipo: `${tipoRespuesta}OK`, reqId, carpetaId: folderId });
   } catch (err) {
-    enviarAlVisor3D({ tipo: "resolverCarpetaVistasError", reqId, error: err.message || String(err) });
+    enviarAlVisor3D({ tipo: `${tipoRespuesta}Error`, reqId, error: err.message || String(err) });
   }
 }
 
@@ -4853,7 +4855,8 @@ async function ejecutarBorrarArchivoDrive(payload) {
 
 const EJECUTORES_DRIVE = {
   subidaDrive: ejecutarSubidaDrive,
-  resolverCarpetaVistas: ejecutarResolverCarpetaVistas,
+  resolverCarpetaVistas: (p) => ejecutarResolverCarpeta({ ...p, sufijo: "vistas guardadas", tipoRespuesta: "resolverCarpetaVistas" }),
+  resolverCarpetaNotas: (p) => ejecutarResolverCarpeta({ ...p, sufijo: "notas", tipoRespuesta: "resolverCarpetaNotas" }),
   borrarArchivoDrive: ejecutarBorrarArchivoDrive,
 };
 window.addEventListener("message", (e) => {
@@ -8077,16 +8080,42 @@ function actualizarBadgeNotas(){
   badge.classList.toggle('show', n>0);
 }
 
+// Busca (sin crear — eso requiere el token de escritura) una subcarpeta
+// por nombre dentro de carpetaPadreId. Solo lectura, con la API Key nomás.
+async function buscarSubcarpetaDrive(nombreCarpeta, carpetaPadreId){
+  if(!driveApiKeyActual || !carpetaPadreId) return null;
+  const nombreEscapado=nombreCarpeta.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  const q=encodeURIComponent(`name='${nombreEscapado}' and '${carpetaPadreId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+  const url=`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&key=${driveApiKeyActual}`;
+  try{
+    const data=await (await fetch(url)).json();
+    return data.files && data.files[0] ? data.files[0].id : null;
+  }catch(e){ return null; }
+}
+// Busca un archivo por nombre dentro de una carpeta puntual — solo lectura.
+async function buscarArchivoEnCarpeta(nombreArchivo, carpetaId){
+  if(!driveApiKeyActual || !carpetaId) return null;
+  const q=encodeURIComponent(`name='${nombreArchivo}' and '${carpetaId}' in parents and trashed=false`);
+  const url=`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&key=${driveApiKeyActual}`;
+  try{
+    const data=await (await fetch(url)).json();
+    return data.files && data.files[0] ? data.files[0] : null;
+  }catch(e){ return null; }
+}
+
 async function cargarNotasDrive(){
   notas3d=[];
   renderPinesNotas();
   const archivo=nombreArchivoNotas();
   if(!archivo || !driveApiKeyActual || !carpetaDriveIdActual || !appBaseUrlActual) return;
   try{
-    const q=encodeURIComponent(`name='${archivo}' and '${carpetaDriveIdActual}' in parents and trashed=false`);
-    const metaUrl=`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&key=${driveApiKeyActual}`;
-    const meta=await (await fetch(metaUrl)).json();
-    const found=meta.files && meta.files[0];
+    const nombreGlb=(archivoNombreActual||'modelo').replace(/\.[a-zA-Z0-9]+$/,'');
+    const carpetaNotasId=await buscarSubcarpetaDrive(`${nombreGlb} - notas`, carpetaDriveIdActual);
+    // Compatibilidad: notas guardadas antes de que existiera la subcarpeta
+    // "<modelo> - notas" quedaron sueltas directo en la carpeta del modelo —
+    // si no aparece en la subcarpeta nueva, se busca ahí como respaldo.
+    let found=carpetaNotasId ? await buscarArchivoEnCarpeta(archivo, carpetaNotasId) : null;
+    if(!found) found=await buscarArchivoEnCarpeta(archivo, carpetaDriveIdActual);
     if(!found) return;
     const origen=new URL(appBaseUrlActual).origin;
     // Bucket de 20s en vez de no-store puro: sigue sintiéndose "en vivo" en
@@ -8156,11 +8185,24 @@ function subirArchivoADriveDesdeVisor(nombre, archivo, carpetaId){
   });
 }
 
+// Resuelve (o crea) la subcarpeta "<nombre del glb> - notas" — requiere el
+// token de escritura, así que pasa por la app externa como el resto de las
+// operaciones de Drive (mismo patrón que resolverCarpetaVistasDrive).
+function resolverCarpetaNotasDrive(){
+  return new Promise((resolve, reject) => {
+    if(!carpetaDriveIdActual){ reject(new Error('No hay carpeta de Drive asociada a este modelo')); return; }
+    const nombreGlb=(archivoNombreActual||'modelo').replace(/\.[a-zA-Z0-9]+$/,'');
+    const reqId=++notasReqSeq;
+    notasReqPendientes[reqId]={resolve,reject};
+    window.parent.postMessage({ tipo:'resolverCarpetaNotas', reqId, nombreGlb, carpetaPadreId: carpetaDriveIdActual }, '*');
+  });
+}
+
 function guardarNotasDrive(){
   const archivo=nombreArchivoNotas();
   if(!archivo) return Promise.reject(new Error('No hay carpeta de Drive asociada a este modelo'));
   const blob=new Blob([JSON.stringify(notas3d)],{type:'application/json'});
-  return subirArchivoADriveDesdeVisor(archivo, blob, carpetaDriveIdActual);
+  return resolverCarpetaNotasDrive().then(carpetaNotas => subirArchivoADriveDesdeVisor(archivo, blob, carpetaNotas));
 }
 
 window.addEventListener('message',(e)=>{
@@ -8170,6 +8212,12 @@ window.addEventListener('message',(e)=>{
     delete notasReqPendientes[e.data.reqId];
   }else if(e.data.tipo==='subidaDriveError' && notasReqPendientes[e.data.reqId]){
     notasReqPendientes[e.data.reqId].reject(new Error(e.data.error||'Error al guardar en Drive'));
+    delete notasReqPendientes[e.data.reqId];
+  }else if(e.data.tipo==='resolverCarpetaNotasOK' && notasReqPendientes[e.data.reqId]){
+    notasReqPendientes[e.data.reqId].resolve(e.data.carpetaId);
+    delete notasReqPendientes[e.data.reqId];
+  }else if(e.data.tipo==='resolverCarpetaNotasError' && notasReqPendientes[e.data.reqId]){
+    notasReqPendientes[e.data.reqId].reject(new Error(e.data.error||'Error al resolver la carpeta de notas'));
     delete notasReqPendientes[e.data.reqId];
   }
 });
