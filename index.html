@@ -194,6 +194,12 @@ input  { font-family: inherit; }
   color: var(--muted); cursor: pointer;
 }
 .tareas-vista-btn.activa { background: var(--accent); color: #14161A; }
+.tarea-estado-pill {
+  flex: 1; height: 32px; border-radius: 8px; border: 1.5px solid var(--border);
+  background: var(--surf); color: var(--muted); font-size: 10.5px; font-weight: 700;
+  cursor: pointer; font-family: inherit; text-transform: uppercase; letter-spacing: .02em;
+}
+.tarea-estado-pill.sel { color: #fff; border-color: transparent; }
 
 /* PlantView iframe container */
 #pv-wrap {
@@ -1395,6 +1401,10 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
         <div class="pantalla" id="p-tareas">
           <div class="exp-topbar">
             <span class="exp-folder-name app-brand" style="font-size:14px">Tareas <em style="color:var(--accent)">·</em></span>
+            <button class="btn-back-sm" id="btn-tareas-nueva" type="button" title="Nueva tarea">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg>
+              Nueva
+            </button>
             <button class="btn-back-sm" id="btn-tareas-refrescar" type="button" title="Actualizar">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
               Actualizar
@@ -1563,6 +1573,36 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
         Descargar DXF
       </button>
     </div>
+  </div>
+</div>
+
+<!-- Modal Tarea (crear/editar) — la nota vive adentro del JSON de notas
+     del modelo elegido (misma subcarpeta "<modelo> - notas" que usa el
+     visor 3D), así que crear/editar desde acá requiere escritura en
+     Drive conectada (mismo botón "Conectar edición" que ya usa el resto
+     de la app). Ver guardarNotaTarea() / abrirModalTarea(). -->
+<div class="modal-overlay" id="modal-tarea">
+  <div class="modal-sheet">
+    <button class="sheet-x" id="btn-tarea-x" aria-label="Cerrar">×</button>
+    <div class="sheet-handle"></div>
+    <p class="sheet-title" id="tarea-modal-titulo">Nueva tarea</p>
+    <div id="tarea-campo-obra" style="width:100%;display:flex;flex-direction:column;gap:6px">
+      <label style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Obra</label>
+      <select id="tareaObraSel" style="width:100%;height:36px;border-radius:8px;border:1px solid var(--border);background:var(--surf);color:var(--text);font-family:inherit;padding:0 8px"></select>
+      <label style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Modelo</label>
+      <select id="tareaModeloSel" style="width:100%;height:36px;border-radius:8px;border:1px solid var(--border);background:var(--surf);color:var(--text);font-family:inherit;padding:0 8px"></select>
+    </div>
+    <label style="width:100%;font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Pieza / zona (opcional)</label>
+    <input type="text" id="tareaPiezaInput" placeholder="ej: Codo DN80 sector 3" style="width:100%;height:36px;border-radius:8px;border:1px solid var(--border);background:var(--surf);color:var(--text);font-family:inherit;padding:0 8px">
+    <label style="width:100%;font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Descripción</label>
+    <textarea id="tareaTextoInput" rows="3" placeholder="Escribí la tarea… (ej: cambiar por DN80)" style="width:100%;resize:vertical;border:1px solid var(--border);border-radius:8px;background:var(--surf);color:var(--text);font-size:14px;padding:8px;line-height:1.5;font-family:inherit"></textarea>
+    <label style="width:100%;font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Estado</label>
+    <div id="tareaEstados" style="display:flex;gap:6px;width:100%"></div>
+    <div class="sheet-actions" style="width:100%">
+      <button class="btn-sheet btn-sheet-primary" id="btn-tarea-guardar" style="width:100%">Guardar</button>
+    </div>
+    <button class="btn-sheet btn-sheet-secondary" id="btn-tarea-abrir3d" style="width:100%;display:none">Abrir en el modelo 3D</button>
+    <button class="btn-sheet btn-sheet-secondary" id="btn-tarea-eliminar" style="width:100%;display:none;color:#e0455a;border-color:#e0455a55">Eliminar tarea</button>
   </div>
 </div>
 
@@ -4680,6 +4720,19 @@ async function cargarNotasDeModelo(carpeta, archivo) {
   }
 }
 
+// Contraparte de escritura de cargarNotasDeModelo — usa las funciones de
+// escritura ya existentes (subirArchivoADrive/obtenerOCrearCarpetaDrive,
+// mismo OAuth que el resto de la app) en vez del postMessage que usa el
+// visor, porque acá (fuera del iframe) ya tenemos el token directo.
+async function guardarNotasDeModelo(carpeta, archivo, notas) {
+  if (!driveEscrituraConectada()) throw new Error("La escritura a Drive no está conectada");
+  const nombreGlb = archivo.nombre.replace(/\.[a-zA-Z0-9]+$/, "");
+  const nombreArchivoNotas = `plantview-notas-${archivo.driveId}.json`;
+  const subcarpetaId = await obtenerOCrearCarpetaDrive(`${nombreGlb} - notas`, carpeta.driveId);
+  const blob = new Blob([JSON.stringify(notas)], { type: "application/json" });
+  await subirArchivoADrive(nombreArchivoNotas, blob, subcarpetaId);
+}
+
 let tareasCache = null;
 let tareasVistaActual = "lista";
 
@@ -4757,7 +4810,7 @@ function renderTareas() {
   cont.querySelectorAll("[data-id]").forEach(el => {
     el.addEventListener("click", () => {
       const t = tareas.find(x => x.id === el.dataset.id);
-      if (t) abrirTareaEnModelo(t);
+      if (t) abrirModalTareaEditar(t);
     });
   });
 }
@@ -4773,6 +4826,161 @@ function abrirTareaEnModelo(t) {
     setTimeout(() => abrirVisor(archivo), esMobileUI() ? 150 : 450);
   });
 }
+
+/* ── Crear / editar tarea ──────────────────────────────────────────
+   Una "tarea" es simplemente una nota con esTarea:true adentro del
+   JSON de notas del modelo — no hay un objeto "tarea" separado en
+   Drive. Crear una desde acá arma una nota nueva sin anclaje 3D
+   (sin point/local, porque no hay un click en el modelo); el usuario
+   puede después abrirla en el visor y anclarla a una pieza si quiere.
+   Requiere escritura en Drive conectada (mismo login que el resto). */
+let tareaModalEditando = null; // { id, carpetaId, archivoDriveId } o null si es "Nueva"
+
+function crearSelectorEstadoTarea(cont, seleccionado) {
+  cont.innerHTML = "";
+  TAREAS_ESTADOS.forEach(e => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "tarea-estado-pill" + (e.key === (seleccionado || "no_iniciado") ? " sel" : "");
+    b.textContent = e.label;
+    b.dataset.estado = e.key;
+    if (b.classList.contains("sel")) b.style.background = e.color;
+    b.addEventListener("click", () => {
+      cont.querySelectorAll(".tarea-estado-pill").forEach(x => { x.classList.remove("sel"); x.style.background = ""; });
+      b.classList.add("sel");
+      b.style.background = e.color;
+    });
+    cont.appendChild(b);
+  });
+}
+
+async function poblarSelectModelosTarea(carpetaId) {
+  const selModelo = document.getElementById("tareaModeloSel");
+  selModelo.innerHTML = `<option>Cargando…</option>`;
+  const carpeta = carpetasOrden.find(c => c.id === carpetaId);
+  if (!carpeta) { selModelo.innerHTML = ""; return; }
+  const archivos = await asegurarArchivosCargados(carpeta);
+  const modelos = archivos.filter(a => a.tipo === "glb" || a.tipo === "stl");
+  selModelo.innerHTML = modelos.length
+    ? modelos.map(m => `<option value="${esc(m.driveId)}">${esc(m.nombre)}</option>`).join("")
+    : `<option value="">(sin modelos 3D en esta obra)</option>`;
+}
+
+function abrirModalTareaNueva() {
+  tareaModalEditando = null;
+  document.getElementById("tarea-modal-titulo").textContent = "Nueva tarea";
+  document.getElementById("tarea-campo-obra").style.display = "flex";
+  document.getElementById("tareaPiezaInput").value = "";
+  document.getElementById("tareaTextoInput").value = "";
+  crearSelectorEstadoTarea(document.getElementById("tareaEstados"), "no_iniciado");
+  document.getElementById("btn-tarea-abrir3d").style.display = "none";
+  document.getElementById("btn-tarea-eliminar").style.display = "none";
+
+  const selObra = document.getElementById("tareaObraSel");
+  const conectadas = carpetasOrden.filter(c => c.driveId);
+  selObra.innerHTML = conectadas.map(c => `<option value="${esc(c.id)}">${esc(c.nombre)}</option>`).join("");
+  selObra.onchange = () => poblarSelectModelosTarea(selObra.value);
+  if (conectadas.length) poblarSelectModelosTarea(conectadas[0].id);
+  else document.getElementById("tareaModeloSel").innerHTML = "";
+
+  document.getElementById("modal-tarea").classList.add("visible");
+}
+
+async function abrirModalTareaEditar(t) {
+  tareaModalEditando = { id: t.id, carpetaId: t.carpetaId, archivoDriveId: t.archivoDriveId };
+  document.getElementById("tarea-modal-titulo").textContent = `${t.obraNombre} / ${t.modeloNombre}`;
+  document.getElementById("tarea-campo-obra").style.display = "none";
+  document.getElementById("tareaPiezaInput").value = t.pieza || "";
+  document.getElementById("tareaTextoInput").value = t.texto || "";
+  crearSelectorEstadoTarea(document.getElementById("tareaEstados"), t.estado);
+  document.getElementById("btn-tarea-abrir3d").style.display = "";
+  document.getElementById("btn-tarea-eliminar").style.display = "";
+  document.getElementById("modal-tarea").classList.add("visible");
+}
+
+async function guardarTareaDesdeModal() {
+  const texto = document.getElementById("tareaTextoInput").value.trim();
+  if (!texto) { showToast("Escribí una descripción para la tarea"); return; }
+  if (!driveEscrituraConectada()) {
+    showToast("Conectá la edición de Drive primero (botón arriba en Obras)");
+    return;
+  }
+  const pieza = document.getElementById("tareaPiezaInput").value.trim();
+  const estadoSel = document.querySelector("#tareaEstados .tarea-estado-pill.sel");
+  const estado = estadoSel ? estadoSel.dataset.estado : "no_iniciado";
+  const btn = document.getElementById("btn-tarea-guardar");
+  btn.disabled = true;
+  try {
+    let carpeta, archivo;
+    if (tareaModalEditando) {
+      carpeta = carpetasOrden.find(c => c.id === tareaModalEditando.carpetaId);
+      const archivos = carpeta ? await asegurarArchivosCargados(carpeta) : [];
+      archivo = archivos.find(a => a.driveId === tareaModalEditando.archivoDriveId);
+    } else {
+      const carpetaId = document.getElementById("tareaObraSel").value;
+      const archivoDriveId = document.getElementById("tareaModeloSel").value;
+      carpeta = carpetasOrden.find(c => c.id === carpetaId);
+      const archivos = carpeta ? await asegurarArchivosCargados(carpeta) : [];
+      archivo = archivos.find(a => a.driveId === archivoDriveId);
+    }
+    if (!carpeta || !archivo) throw new Error("Elegí una obra y un modelo válidos");
+
+    const notas = await cargarNotasDeModelo(carpeta, archivo);
+    if (tareaModalEditando) {
+      const n = notas.find(x => x.id === tareaModalEditando.id);
+      if (!n) throw new Error("No se encontró la nota original (¿se borró desde el visor?)");
+      n.texto = texto; n.objName = pieza || null; n.estado = estado;
+    } else {
+      notas.push({
+        id: "n" + Date.now() + Math.random().toString(36).slice(2, 7),
+        zoneId: null,
+        objName: pieza || null,
+        texto, mostrarPin: false, negrita: false, color: "#3a6be8",
+        esTarea: true, estado,
+        fecha: new Date().toISOString().slice(0, 10),
+      });
+    }
+    await guardarNotasDeModelo(carpeta, archivo, notas);
+    document.getElementById("modal-tarea").classList.remove("visible");
+    showToast(tareaModalEditando ? "✅ Tarea actualizada" : "✅ Tarea creada");
+    cargarTareas(true);
+  } catch (err) {
+    showToast("❌ " + (err.message || "No se pudo guardar la tarea"));
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function eliminarTareaDesdeModal() {
+  if (!tareaModalEditando) return;
+  if (!confirm("¿Eliminar esta tarea? No se puede deshacer.")) return;
+  if (!driveEscrituraConectada()) { showToast("Conectá la edición de Drive primero"); return; }
+  try {
+    const carpeta = carpetasOrden.find(c => c.id === tareaModalEditando.carpetaId);
+    const archivos = carpeta ? await asegurarArchivosCargados(carpeta) : [];
+    const archivo = archivos.find(a => a.driveId === tareaModalEditando.archivoDriveId);
+    if (!carpeta || !archivo) throw new Error("No se encontró el modelo de esta tarea");
+    const notas = await cargarNotasDeModelo(carpeta, archivo);
+    const restantes = notas.filter(x => x.id !== tareaModalEditando.id);
+    await guardarNotasDeModelo(carpeta, archivo, restantes);
+    document.getElementById("modal-tarea").classList.remove("visible");
+    showToast("🗑️ Tarea eliminada");
+    cargarTareas(true);
+  } catch (err) {
+    showToast("❌ " + (err.message || "No se pudo eliminar"));
+  }
+}
+
+document.getElementById("btn-tareas-nueva").addEventListener("click", abrirModalTareaNueva);
+document.getElementById("btn-tarea-x").addEventListener("click", () => document.getElementById("modal-tarea").classList.remove("visible"));
+document.getElementById("btn-tarea-guardar").addEventListener("click", guardarTareaDesdeModal);
+document.getElementById("btn-tarea-eliminar").addEventListener("click", eliminarTareaDesdeModal);
+document.getElementById("btn-tarea-abrir3d").addEventListener("click", () => {
+  if (!tareaModalEditando) return;
+  document.getElementById("modal-tarea").classList.remove("visible");
+  const t = (tareasCache || []).find(x => x.id === tareaModalEditando.id);
+  if (t) abrirTareaEnModelo(t);
+});
 
 document.getElementById("btn-tareas-refrescar").addEventListener("click", () => cargarTareas(true));
 document.querySelectorAll("#tareas-vista-tabs .tareas-vista-btn").forEach(b => {
