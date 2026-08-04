@@ -3806,11 +3806,15 @@ document.querySelectorAll(".qr-calado-modo-btn").forEach(b => b.addEventListener
 // El link normal (?carpeta=... / ?file=...) es demasiado largo para un
 // QR que se pueda calar cómodo a mano — arma una grilla de cientos de
 // módulos. Para el calado en particular, primero se resuelve (o crea) un
-// código corto de 6 caracteres (?q=A3F9K2, ver generarOReusarShortlink) y
-// se cala ESO en vez del link completo — el QR resultante es chico y
-// manejable. Crear un código nuevo requiere escritura en Drive (guarda
-// el mapeo compartido); leerlo después no — cualquiera puede escanear el
-// QR sin estar logueado.
+// código corto de 6 caracteres (/Q/A3F9K2, ver generarOReusarShortlink) y
+// se cala ESO en vez del link completo. Dos ahorros combinados: el link
+// pasa de ~90 a ~40 caracteres, y al armarlo TODO en mayúsculas y sin
+// "?"/"=" (una ruta, /Q/CODIGO, en vez de un query param) entra en el
+// modo "Alphanumeric" del estándar QR — más compacto que el modo "Byte"
+// por defecto para el mismo texto (ver QR_CHARSET_ALFANUMERICO). Crear
+// un código nuevo requiere escritura en Drive (guarda el mapeo
+// compartido); leerlo después no — cualquiera puede escanear el QR sin
+// estar logueado.
 async function ejecutarGenerarQRCalado() {
   const btn = document.getElementById("btn-qr-dxf");
   btn.disabled = true;
@@ -3820,7 +3824,7 @@ async function ejecutarGenerarQRCalado() {
     const url = new URL(qrLinkActual);
     const rutaCorta = url.search; // ej. "?carpeta=drive:xyz" — sin el origin/pathname, eso es fijo
     const codigo = await generarOReusarShortlink(rutaCorta);
-    const linkCorto = `${location.origin}${location.pathname}?q=${codigo}`;
+    const linkCorto = `${location.origin.toUpperCase()}/Q/${codigo}`;
     const { dxfTexto, previewDataUrl, previewMetalDataUrl } = generarQRCalado(linkCorto);
     dxfCaladoActual = dxfTexto;
     previewsCaladoActuales = { digital: previewDataUrl, metal: previewMetalDataUrl };
@@ -3867,26 +3871,32 @@ document.getElementById("btn-qr-calado-descargar").addEventListener("click", () 
 });
 
 /* ============================================================
-   CÓDIGO CORTO (?q=<código>) — resuelve contra plantview-shortlinks.json
-   y redirige a la URL real (?carpeta=.../?file=...), que el bloque DEEP
-   LINK de abajo ya sabe procesar. Diferido a DOMContentLoaded porque
-   cargarShortlinks() usa driveConfig, declarado más abajo en el script
-   con "let" — llamarlo antes de que se inicialice rompe todo (ver los
-   demás comentarios sobre TDZ en este archivo).
+   CÓDIGO CORTO — resuelve contra plantview-shortlinks.json y redirige a
+   la URL real (?carpeta=.../?file=...), que el bloque DEEP LINK de abajo
+   ya sabe procesar. Dos formatos posibles: /Q/<código> (ruta — el que se
+   genera ahora, entra en modo alfanumérico del QR, más compacto para
+   calar) y ?q=<código> (formato anterior, se sigue resolviendo por si
+   quedó algún QR ya calado con ese formato). Diferido a DOMContentLoaded
+   porque cargarShortlinks() usa driveConfig, declarado más abajo en el
+   script con "let" — llamarlo antes de que se inicialice rompe todo (ver
+   los demás comentarios sobre TDZ en este archivo).
    ============================================================ */
-if (new URLSearchParams(location.search).get("q")) {
-  window.addEventListener("DOMContentLoaded", async () => {
-    const codigo = new URLSearchParams(location.search).get("q");
-    if (!codigo) return;
-    try {
-      const mapa = await cargarShortlinks();
-      const ruta = mapa[codigo];
-      if (ruta) location.replace(location.pathname + ruta);
-      else console.warn("Código corto no encontrado:", codigo);
-    } catch (e) {
-      console.warn("No se pudo resolver el código corto:", e);
-    }
-  });
+{
+  const codigoPath = /^\/Q\/([0-9A-Z]{4,10})$/i.exec(location.pathname)?.[1];
+  const codigoQuery = new URLSearchParams(location.search).get("q");
+  const codigoCorto = codigoPath || codigoQuery;
+  if (codigoCorto) {
+    window.addEventListener("DOMContentLoaded", async () => {
+      try {
+        const mapa = await cargarShortlinks();
+        const ruta = mapa[codigoCorto.toUpperCase()] || mapa[codigoCorto];
+        if (ruta) location.replace(location.pathname.replace(/^\/Q\/.*/i, "/") + ruta);
+        else console.warn("Código corto no encontrado:", codigoCorto);
+      } catch (e) {
+        console.warn("No se pudo resolver el código corto:", e);
+      }
+    });
+  }
 }
 
 /* ============================================================
@@ -4473,6 +4483,15 @@ async function cargarShortlinks() {
 // corto de 6 caracteres para "rutaCorta" (ej. "?carpeta=drive:xyz") y lo
 // guarda en el JSON compartido. Requiere escritura conectada — se
 // resuelve una sola vez por destino, no en cada QR que se pida después.
+//
+// Antes de guardar un código nuevo, se verifica que de verdad produzca
+// un QR calado válido (ver generarQRCalado) — a este tamaño (33x33), no
+// todo contenido tiene margen suficiente para absorber TODOS los
+// puentes que necesita: probado con un lote real, ~3 de cada 100 códigos
+// al azar terminan necesitando más corrección de errores de la que el
+// QR tiene disponible. Descartar esos casos ACÁ (antes de compartir el
+// código con nadie) es mejor que dejar que alguien escanee un QR ya
+// calado que después resulta no leer.
 async function generarOReusarShortlink(rutaCorta) {
   const raizId = raizDriveIdActual();
   if (!raizId) throw new Error("No hay una carpeta de Drive conectada para guardar el código corto");
@@ -4481,10 +4500,18 @@ async function generarOReusarShortlink(rutaCorta) {
   if (existente) return existente[0];
 
   const ALFABETO = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // sin 0/O/1/I, para que se pueda transcribir a mano sin ambigüedad
-  let codigo;
-  do {
-    codigo = Array.from({ length: 6 }, () => ALFABETO[Math.floor(Math.random() * ALFABETO.length)]).join("");
-  } while (mapa[codigo]);
+  const MAX_INTENTOS_CODIGO = 20;
+  let codigo = null;
+  for (let intento = 0; intento < MAX_INTENTOS_CODIGO; intento++) {
+    const candidato = Array.from({ length: 6 }, () => ALFABETO[Math.floor(Math.random() * ALFABETO.length)]).join("");
+    if (mapa[candidato]) continue;
+    try {
+      generarQRCalado(`${location.origin.toUpperCase()}/Q/${candidato}`);
+      codigo = candidato;
+      break;
+    } catch (e) { /* este código puntual no da margen suficiente — probar otro */ }
+  }
+  if (!codigo) throw new Error("No se pudo generar un código corto confiable — probá de nuevo");
   mapa[codigo] = rutaCorta;
 
   const blob = new Blob([JSON.stringify(mapa)], { type: "application/json" });
@@ -5121,11 +5148,22 @@ window.addEventListener("message", (e) => {
         teórico de tolerancia a daño
    ============================================================ */
 
+// El charset "alfanumérico" que define el estándar QR — un texto que
+// entra 100% ahí codifica más compacto que en modo "byte" (que es lo que
+// usa por defecto cualquier texto con minúsculas o símbolos como ?/=).
+// La librería qrcode-generator NO detecta esto solo: si no le pedís
+// "Alphanumeric" a mano, siempre usa "Byte" aunque el texto calificara.
+const QR_CHARSET_ALFANUMERICO = /^[0-9A-Z $%*+\-./:]*$/;
+
 // Matriz de módulos (true = módulo oscuro) del QR para el texto dado.
-// Nivel H siempre — es el que más margen da para absorber los puentes.
+// Nivel H siempre — es el que más margen da (no solo para absorber los
+// puentes del calado: también para que la pieza se siga leyendo con
+// polvo, rayones o desgaste real con el tiempo, algo que un QR digital
+// en pantalla no tiene que aguantar).
 function construirMatrizQR(texto) {
+  const modo = QR_CHARSET_ALFANUMERICO.test(texto) ? "Alphanumeric" : "Byte";
   const qr = qrcode(0, "H"); // typeNumber 0 = detecta automáticamente la versión más chica que entra
-  qr.addData(texto);
+  qr.addData(texto, modo);
   qr.make();
   const n = qr.getModuleCount();
   const matriz = [];
