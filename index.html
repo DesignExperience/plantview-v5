@@ -4799,6 +4799,29 @@ async function guardarNotasDeModelo(carpeta, archivo, notas) {
   await subirArchivoADrive(nombreArchivoNotas, blob, subcarpetaId);
 }
 
+// Tareas "generales" de una obra, sin modelo 3D asociado (ej. obras que
+// todavía no tienen ningún GLB/STL subido) — un único JSON suelto
+// directo en la carpeta de la obra, no adentro de ninguna subcarpeta
+// "<modelo> - notas" porque no hay modelo.
+const TAREAS_CARPETA_ARCHIVO = "plantview-tareas-obra.json";
+async function cargarTareasCarpeta(carpeta) {
+  try {
+    if (!carpeta.driveId) return [];
+    const found = await buscarArchivoEnCarpetaSoloLectura(TAREAS_CARPETA_ARCHIVO, carpeta.driveId);
+    if (!found) return [];
+    const buffer = await descargarBufferDrive(found.id);
+    const data = JSON.parse(new TextDecoder("utf-8").decode(buffer));
+    return Array.isArray(data) ? data : [];
+  } catch (e) {
+    return [];
+  }
+}
+async function guardarTareasCarpeta(carpeta, tareas) {
+  if (!driveEscrituraConectada()) throw new Error("La escritura a Drive no está conectada");
+  const blob = new Blob([JSON.stringify(tareas)], { type: "application/json" });
+  await subirArchivoADrive(TAREAS_CARPETA_ARCHIVO, blob, carpeta.driveId);
+}
+
 let tareasCache = null;
 let tareasVistaActual = "lista";
 
@@ -4831,6 +4854,23 @@ async function cargarTareas(forzar) {
         });
       });
     }
+
+    const generales = await cargarTareasCarpeta(carpeta);
+    generales.filter(n => n.esTarea).forEach(n => {
+      tareas.push({
+        id: n.id,
+        texto: n.texto || "(sin texto)",
+        estado: n.estado || "no_iniciado",
+        pieza: n.objName || null,
+        asignado: n.asignado || "",
+        fechaLimite: n.fechaLimite || "",
+        prioridad: n.prioridad || "normal",
+        modeloNombre: null,
+        obraNombre: carpeta.nombre,
+        carpetaId: carpeta.id,
+        archivoDriveId: null,
+      });
+    });
   }
   tareasCache = tareas;
   renderTareas();
@@ -4919,7 +4959,7 @@ function renderTareas() {
             <span class="tareas-fila-nombre">
               ${t.pieza ? `<span class="tarea-item-pieza">${esc(t.pieza)}</span>` : ""}
               <span class="tareas-fila-texto">${esc(t.texto)}</span>
-              <span class="tareas-fila-origen">${esc(t.obraNombre)} / ${esc(t.modeloNombre)}</span>
+              <span class="tareas-fila-origen">${esc(t.obraNombre)}${t.modeloNombre ? " / " + esc(t.modeloNombre) : " (general)"}</span>
             </span>
             <span>${t.asignado ? `<span class="tarea-avatar" style="background:${colorDeTexto(t.asignado)}" title="${esc(t.asignado)}">${esc(inicialesAsignado(t.asignado))}</span>` : `<span class="tareas-fila-vacio">—</span>`}</span>
             <span class="tareas-fila-fecha-txt">${t.fechaLimite ? esc(fechaCorta(t.fechaLimite)) : `<span class="tareas-fila-vacio">—</span>`}</span>
@@ -5003,9 +5043,11 @@ async function poblarSelectModelosTarea(carpetaId) {
   if (!carpeta) { selModelo.innerHTML = ""; return; }
   const archivos = await asegurarArchivosCargados(carpeta);
   const modelos = archivos.filter(a => a.tipo === "glb" || a.tipo === "stl");
-  selModelo.innerHTML = modelos.length
-    ? modelos.map(m => `<option value="${esc(m.driveId)}">${esc(m.nombre)}</option>`).join("")
-    : `<option value="">(sin modelos 3D en esta obra)</option>`;
+  // El modelo es opcional: una tarea puede quedar asociada a la obra en
+  // general (ej. obras que todavía no tienen ningún GLB/STL subido) en
+  // vez de a una pieza puntual — ver guardarTareaDesdeModal().
+  selModelo.innerHTML = `<option value="">(tarea general de la obra — sin modelo)</option>`
+    + modelos.map(m => `<option value="${esc(m.driveId)}">${esc(m.nombre)}</option>`).join("");
 }
 
 function abrirModalTareaNueva(estadoInicial) {
@@ -5034,7 +5076,7 @@ function abrirModalTareaNueva(estadoInicial) {
 
 async function abrirModalTareaEditar(t) {
   tareaModalEditando = { id: t.id, carpetaId: t.carpetaId, archivoDriveId: t.archivoDriveId };
-  document.getElementById("tarea-modal-titulo").textContent = `${t.obraNombre} / ${t.modeloNombre}`;
+  document.getElementById("tarea-modal-titulo").textContent = t.modeloNombre ? `${t.obraNombre} / ${t.modeloNombre}` : `${t.obraNombre} (tarea general)`;
   document.getElementById("tarea-campo-obra").style.display = "none";
   document.getElementById("tareaPiezaInput").value = t.pieza || "";
   document.getElementById("tareaTextoInput").value = t.texto || "";
@@ -5042,7 +5084,7 @@ async function abrirModalTareaEditar(t) {
   document.getElementById("tareaFechaInput").value = t.fechaLimite || "";
   crearSelectorEstadoTarea(document.getElementById("tareaEstados"), t.estado);
   crearSelectorPrioridadTarea(document.getElementById("tareaPrioridades"), t.prioridad);
-  document.getElementById("btn-tarea-abrir3d").style.display = "";
+  document.getElementById("btn-tarea-abrir3d").style.display = t.archivoDriveId ? "" : "none";
   document.getElementById("btn-tarea-eliminar").style.display = "";
   document.getElementById("modal-tarea").classList.add("visible");
   actualizarLoginTarea();
@@ -5068,21 +5110,30 @@ async function guardarTareaDesdeModal() {
     let carpeta, archivo;
     if (tareaModalEditando) {
       carpeta = carpetasOrden.find(c => c.id === tareaModalEditando.carpetaId);
-      const archivos = carpeta ? await asegurarArchivosCargados(carpeta) : [];
-      archivo = archivos.find(a => a.driveId === tareaModalEditando.archivoDriveId);
+      if (tareaModalEditando.archivoDriveId) {
+        const archivos = carpeta ? await asegurarArchivosCargados(carpeta) : [];
+        archivo = archivos.find(a => a.driveId === tareaModalEditando.archivoDriveId);
+      }
     } else {
       const carpetaId = document.getElementById("tareaObraSel").value;
       const archivoDriveId = document.getElementById("tareaModeloSel").value;
       carpeta = carpetasOrden.find(c => c.id === carpetaId);
-      const archivos = carpeta ? await asegurarArchivosCargados(carpeta) : [];
-      archivo = archivos.find(a => a.driveId === archivoDriveId);
+      if (archivoDriveId) {
+        const archivos = carpeta ? await asegurarArchivosCargados(carpeta) : [];
+        archivo = archivos.find(a => a.driveId === archivoDriveId);
+      }
     }
-    if (!carpeta || !archivo) throw new Error("Elegí una obra y un modelo válidos");
+    if (!carpeta) throw new Error("Elegí una obra válida");
+    // Sin modelo elegido (o tarea general ya existente): se guarda suelta
+    // en la carpeta de la obra en vez de adentro del JSON de notas de un
+    // modelo puntual — ver cargarTareasCarpeta/guardarTareasCarpeta.
+    const cargar = archivo ? () => cargarNotasDeModelo(carpeta, archivo) : () => cargarTareasCarpeta(carpeta);
+    const guardar = archivo ? (arr) => guardarNotasDeModelo(carpeta, archivo, arr) : (arr) => guardarTareasCarpeta(carpeta, arr);
 
-    const notas = await cargarNotasDeModelo(carpeta, archivo);
+    const notas = await cargar();
     if (tareaModalEditando) {
       const n = notas.find(x => x.id === tareaModalEditando.id);
-      if (!n) throw new Error("No se encontró la nota original (¿se borró desde el visor?)");
+      if (!n) throw new Error("No se encontró la tarea original (¿se borró desde otro lado?)");
       n.texto = texto; n.objName = pieza || null; n.estado = estado;
       n.asignado = asignado || ""; n.fechaLimite = fechaLimite; n.prioridad = prioridad;
     } else {
@@ -5096,7 +5147,7 @@ async function guardarTareaDesdeModal() {
         fecha: new Date().toISOString().slice(0, 10),
       });
     }
-    await guardarNotasDeModelo(carpeta, archivo, notas);
+    await guardar(notas);
     document.getElementById("modal-tarea").classList.remove("visible");
     showToast(tareaModalEditando ? "✅ Tarea actualizada" : "✅ Tarea creada");
     cargarTareas(true);
@@ -5113,12 +5164,20 @@ async function eliminarTareaDesdeModal() {
   if (!driveEscrituraConectada()) { showToast("Conectá la edición de Drive primero"); return; }
   try {
     const carpeta = carpetasOrden.find(c => c.id === tareaModalEditando.carpetaId);
-    const archivos = carpeta ? await asegurarArchivosCargados(carpeta) : [];
-    const archivo = archivos.find(a => a.driveId === tareaModalEditando.archivoDriveId);
-    if (!carpeta || !archivo) throw new Error("No se encontró el modelo de esta tarea");
-    const notas = await cargarNotasDeModelo(carpeta, archivo);
+    if (!carpeta) throw new Error("No se encontró la obra de esta tarea");
+    let notas, guardar;
+    if (tareaModalEditando.archivoDriveId) {
+      const archivos = await asegurarArchivosCargados(carpeta);
+      const archivo = archivos.find(a => a.driveId === tareaModalEditando.archivoDriveId);
+      if (!archivo) throw new Error("No se encontró el modelo de esta tarea");
+      notas = await cargarNotasDeModelo(carpeta, archivo);
+      guardar = (arr) => guardarNotasDeModelo(carpeta, archivo, arr);
+    } else {
+      notas = await cargarTareasCarpeta(carpeta);
+      guardar = (arr) => guardarTareasCarpeta(carpeta, arr);
+    }
     const restantes = notas.filter(x => x.id !== tareaModalEditando.id);
-    await guardarNotasDeModelo(carpeta, archivo, restantes);
+    await guardar(restantes);
     document.getElementById("modal-tarea").classList.remove("visible");
     showToast("🗑️ Tarea eliminada");
     cargarTareas(true);
