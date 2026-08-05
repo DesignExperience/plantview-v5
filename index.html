@@ -195,8 +195,8 @@ input  { font-family: inherit; }
 }
 .tareas-vista-btn.activa { background: var(--accent); color: #14161A; }
 .tarea-estado-pill {
-  flex: 1; height: 32px; border-radius: 8px; border: 1.5px solid var(--border);
-  background: var(--surf); color: var(--muted); font-size: 10.5px; font-weight: 700;
+  flex: 1; height: 32px; border-radius: 8px; border: 1.5px solid var(--line);
+  background: var(--surface-2); color: var(--muted); font-size: 10.5px; font-weight: 700;
   cursor: pointer; font-family: inherit; text-transform: uppercase; letter-spacing: .02em;
 }
 .tarea-estado-pill.sel { color: #fff; border-color: transparent; }
@@ -897,10 +897,20 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
   background: #e0455a; color: #fff; font-size: 11px; line-height: 18px; text-align: center;
   cursor: pointer; border: 2px solid var(--surface); padding: 0;
 }
-.tarea-comentario { background: var(--surf); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.tarea-comentario { background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
 .tarea-comentario-texto { font-size: 12px; color: var(--text); white-space: pre-wrap; word-break: break-word; }
 .tarea-comentario-fecha { font-size: 9px; color: var(--muted); font-family: "IBM Plex Mono", monospace; margin-top: 4px; display: block; }
 .tareas-vacio-chico { font-size: 10.5px; color: var(--muted); }
+.tarea-modal-divider { width: 100%; height: 1px; background: var(--line); margin: 2px 0; }
+/* Antes el aviso de "conectate con Google" solo aparecía al pie del
+   formulario, después de todos los campos — quien no estaba logueado
+   completaba todo y recién al final se enteraba de que no podía
+   guardar. Este chip corto arriba del todo avisa desde el principio. */
+.tarea-login-chip {
+  width: 100%; text-align: center; background: rgba(217,163,0,.12); border: 1px solid rgba(217,163,0,.35);
+  color: #d9a300; border-radius: 8px; padding: 7px 10px; font-family: "IBM Plex Mono", monospace;
+  font-size: 10px; cursor: pointer;
+}
 .sheet-sub { font-family: "IBM Plex Mono", monospace; font-size: 10px; color: var(--muted); align-self: flex-start; word-break: break-all; line-height: 1.5; }
 #qr-canvas { background: #fff; padding: 12px; border-radius: 8px; }
 .sheet-actions { display: flex; gap: 10px; width: 100%; }
@@ -1690,16 +1700,20 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
       <div class="sheet-handle"></div>
       <p class="sheet-title" id="tarea-modal-titulo">Nueva tarea</p>
     </div>
+    <button type="button" id="tarea-login-banner-top" class="tarea-login-chip" style="display:none">
+      🔒 Conectate con Google para poder guardar — tocá acá
+    </button>
     <div id="tarea-campo-obra" style="width:100%;display:flex;flex-direction:column;gap:6px">
       <label style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Obra</label>
-      <select id="tareaObraSel" style="width:100%;height:36px;border-radius:8px;border:1px solid var(--border);background:var(--surf);color:var(--text);font-family:inherit;padding:0 8px"></select>
+      <select id="tareaObraSel" style="width:100%;height:36px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);font-family:inherit;padding:0 8px"></select>
       <label style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Modelo</label>
-      <select id="tareaModeloSel" style="width:100%;height:36px;border-radius:8px;border:1px solid var(--border);background:var(--surf);color:var(--text);font-family:inherit;padding:0 8px"></select>
+      <select id="tareaModeloSel" style="width:100%;height:36px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);font-family:inherit;padding:0 8px"></select>
     </div>
     <label style="width:100%;font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Pieza / zona (opcional)</label>
-    <input type="text" id="tareaPiezaInput" placeholder="ej: Codo DN80 sector 3" style="width:100%;height:36px;border-radius:8px;border:1px solid var(--border);background:var(--surf);color:var(--text);font-family:inherit;padding:0 8px">
+    <input type="text" id="tareaPiezaInput" placeholder="ej: Codo DN80 sector 3" style="width:100%;height:36px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);font-family:inherit;padding:0 8px">
     <label style="width:100%;font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Descripción</label>
-    <textarea id="tareaTextoInput" rows="3" placeholder="Escribí la tarea… (ej: cambiar por DN80)" style="width:100%;resize:vertical;border:1px solid var(--border);border-radius:8px;background:var(--surf);color:var(--text);font-size:14px;padding:8px;line-height:1.5;font-family:inherit"></textarea>
+    <textarea id="tareaTextoInput" rows="3" placeholder="Escribí la tarea… (ej: cambiar por DN80)" style="width:100%;resize:vertical;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--text);font-size:14px;padding:8px;line-height:1.5;font-family:inherit"></textarea>
+    <div class="tarea-modal-divider"></div>
     <label style="width:100%;font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Estado</label>
     <div id="tareaEstados" style="display:flex;gap:6px;width:100%"></div>
     <label style="width:100%;font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Prioridad</label>
@@ -1707,14 +1721,15 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
     <div style="display:flex;gap:10px;width:100%">
       <div style="flex:1;display:flex;flex-direction:column;gap:6px">
         <label style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Asignado</label>
-        <input type="text" id="tareaAsignadoInput" placeholder="ej: Diego" style="width:100%;height:36px;border-radius:8px;border:1px solid var(--border);background:var(--surf);color:var(--text);font-family:inherit;padding:0 8px">
+        <input type="text" id="tareaAsignadoInput" placeholder="ej: Diego" style="width:100%;height:36px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);font-family:inherit;padding:0 8px">
       </div>
       <div style="flex:1;display:flex;flex-direction:column;gap:6px">
         <label style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Fecha límite</label>
-        <input type="date" id="tareaFechaInput" style="width:100%;height:36px;border-radius:8px;border:1px solid var(--border);background:var(--surf);color:var(--text);font-family:inherit;padding:0 8px">
+        <input type="date" id="tareaFechaInput" style="width:100%;height:36px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);font-family:inherit;padding:0 8px">
       </div>
     </div>
     <div id="tarea-adjuntos-comentarios" style="display:none;width:100%;flex-direction:column;gap:16px">
+      <div class="tarea-modal-divider" style="margin:0"></div>
       <div style="width:100%">
         <label style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Adjuntos</label>
         <div id="tareaAdjuntosList" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"></div>
@@ -1725,7 +1740,7 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
         <label style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Comentarios</label>
         <div id="tareaComentariosList" style="display:flex;flex-direction:column;gap:8px;margin-top:8px;max-height:180px;overflow-y:auto"></div>
         <div style="display:flex;gap:6px;margin-top:8px">
-          <input type="text" id="tareaComentarioInput" placeholder="Escribí un comentario…" style="flex:1;height:36px;border-radius:8px;border:1px solid var(--border);background:var(--surf);color:var(--text);font-family:inherit;padding:0 8px">
+          <input type="text" id="tareaComentarioInput" placeholder="Escribí un comentario…" style="flex:1;height:36px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);font-family:inherit;padding:0 8px">
           <button type="button" id="btn-tarea-comentar" class="btn-sheet btn-sheet-primary" style="width:72px;height:36px">Enviar</button>
         </div>
       </div>
@@ -4682,6 +4697,7 @@ function actualizarLoginTarea() {
   const conectado = driveEscrituraConectada();
   document.getElementById("tarea-login-banner").style.display = conectado ? "none" : "flex";
   document.getElementById("tarea-guardar-row").style.display = conectado ? "flex" : "none";
+  document.getElementById("tarea-login-banner-top").style.display = conectado ? "none" : "block";
 }
 
 // Sube un Blob a Drive — si ya existe un archivo con ese nombre en la
@@ -5093,19 +5109,35 @@ function abrirTareaEnModelo(t) {
    Requiere escritura en Drive conectada (mismo login que el resto). */
 let tareaModalEditando = null; // { id, carpetaId, archivoDriveId } o null si es "Nueva"
 
+// Antes las pills sin seleccionar quedaban todas grises iguales — se
+// perdía justo la info que más importa poder ver de un vistazo (qué es
+// urgente vs. qué no) hasta tocarlas. Ahora cada pill lleva su color
+// siempre (tenue sin seleccionar, sólido al seleccionar), como ya usan
+// los pills de estado en la lista de Tareas.
+function pintarPillTarea(b, color, seleccionada) {
+  if (seleccionada) {
+    b.style.background = color; b.style.color = "#fff"; b.style.borderColor = "transparent";
+  } else {
+    b.style.background = color + "1c"; b.style.color = color; b.style.borderColor = color + "55";
+  }
+}
 function crearSelectorPillsTarea(cont, opciones, defecto, seleccionado, atributo) {
   cont.innerHTML = "";
   opciones.forEach(o => {
     const b = document.createElement("button");
     b.type = "button";
-    b.className = "tarea-estado-pill" + (o.key === (seleccionado || defecto) ? " sel" : "");
+    const sel = o.key === (seleccionado || defecto);
+    b.className = "tarea-estado-pill" + (sel ? " sel" : "");
     b.textContent = o.label;
     b.dataset[atributo] = o.key;
-    if (b.classList.contains("sel")) b.style.background = o.color;
+    pintarPillTarea(b, o.color, sel);
     b.addEventListener("click", () => {
-      cont.querySelectorAll(".tarea-estado-pill").forEach(x => { x.classList.remove("sel"); x.style.background = ""; });
+      cont.querySelectorAll(".tarea-estado-pill").forEach(x => {
+        x.classList.remove("sel");
+        pintarPillTarea(x, opciones.find(op => op.key === x.dataset[atributo]).color, false);
+      });
       b.classList.add("sel");
-      b.style.background = o.color;
+      pintarPillTarea(b, o.color, true);
     });
     cont.appendChild(b);
   });
@@ -5471,6 +5503,7 @@ async function eliminarTareaDesdeModal() {
 document.getElementById("btn-tareas-nueva").addEventListener("click", () => abrirModalTareaNueva());
 document.getElementById("btn-tarea-x").addEventListener("click", () => document.getElementById("modal-tarea").classList.remove("visible"));
 document.getElementById("btn-tarea-conectar-drive").addEventListener("click", conectarEscrituraDrive);
+document.getElementById("tarea-login-banner-top").addEventListener("click", conectarEscrituraDrive);
 document.getElementById("btn-tarea-guardar").addEventListener("click", guardarTareaDesdeModal);
 document.getElementById("btn-tarea-eliminar").addEventListener("click", eliminarTareaDesdeModal);
 document.getElementById("btn-tarea-abrir3d").addEventListener("click", () => {
