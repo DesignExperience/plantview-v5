@@ -2022,6 +2022,31 @@ const CONFIG = {
   USE_DRIVE: false,
 };
 
+// El <meta name="viewport" ... maximum-scale=1.0, user-scalable=no> del
+// <head> no alcanza: iOS Safari (y todo lo que corre sobre su motor,
+// incluido Chrome en iPhone) IGNORA esa parte del viewport desde hace
+// años por accesibilidad — un pellizco sin querer sigue dejando la
+// página zoomeada con scroll horizontal, la bottom nav corrida, todo
+// recortado (justo lo que se reportó). "gesturestart"/"gesturechange"
+// son eventos propios de WebKit para el pellizco de PÁGINA — bloquearlos
+// sí funciona pase lo que pase con la meta tag, y no interfiere con el
+// pinch-to-zoom propio que ya tienen el preview de PDF y el visor DXF
+// (esos usan touchstart/touchmove crudos, no estos eventos).
+document.addEventListener("gesturestart", e => e.preventDefault());
+document.addEventListener("gesturechange", e => e.preventDefault());
+// Doble-tap-para-zoomear: mismo motivo, tampoco respeta la meta tag.
+// Dos toques en menos de 350ms cerca del mismo punto = zoom nativo —
+// se cancela el segundo tap (el primero ya disparó su click normal).
+let ultimoTapZoom = { t: 0, x: 0, y: 0 };
+document.addEventListener("touchend", (e) => {
+  const ahora = Date.now();
+  const toque = e.changedTouches && e.changedTouches[0];
+  if (!toque) return;
+  const cerca = Math.abs(toque.clientX - ultimoTapZoom.x) < 30 && Math.abs(toque.clientY - ultimoTapZoom.y) < 30;
+  if (ahora - ultimoTapZoom.t < 350 && cerca) e.preventDefault();
+  ultimoTapZoom = { t: ahora, x: toque.clientX, y: toque.clientY };
+}, { passive: false });
+
 // Estado de la sesión OAuth de Drive (escritura) — declarado bien arriba,
 // lejos del código que lo usa, para que nunca más un reorder accidental
 // dispare un "Cannot access before initialization" (ya nos pasó una vez).
