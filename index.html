@@ -5259,6 +5259,7 @@ function abrirModalTareaNueva(estadoInicial) {
   // que existen desde el arranque; la primera vez que se usa alguno,
   // asegurarTareaGuardada() la crea en silencio sin cerrar el modal.
   tareaModalNotaActual = null;
+  tareaModalNotasArray = null;
   document.getElementById("tarea-adjuntos-comentarios").style.display = "flex";
   renderAdjuntosTarea();
   renderDocumentosTarea();
@@ -5279,6 +5280,7 @@ async function abrirModalTareaEditar(t) {
   const hojaTarea = document.querySelector("#modal-tarea .modal-sheet");
   hojaTarea.style.position = ""; hojaTarea.style.left = ""; hojaTarea.style.top = ""; hojaTarea.style.margin = ""; hojaTarea.style.width = "";
   tareaModalEditando = { id: t.id, carpetaId: t.carpetaId, archivoDriveId: t.archivoDriveId };
+  tareaModalNotasArray = null; // fuerza a recargarNotaTareaActual a pedir de nuevo, no reusar la de una tarea anterior
   document.getElementById("tarea-modal-titulo").textContent = t.modeloNombre ? `${t.obraNombre} / ${t.modeloNombre}` : `${t.obraNombre} (tarea general)`;
   document.getElementById("tarea-campo-obra").style.display = "none";
   document.getElementById("tareaTextoInput").value = t.texto || "";
@@ -5326,18 +5328,43 @@ async function guardarArrayNotasTarea(arr) {
 // Trae de nuevo la nota completa desde Drive (con sus adjuntos/
 // comentarios, que no viajan en tareasCache porque esa lista es la
 // versión "resumida" para la grilla) y la vuelve a pintar.
+//
+// tareaModalNotasArray guarda el ARRAY COMPLETO (no solo la nota) en
+// memoria durante la sesión del modal — los adjuntos/documentos/
+// comentarios que se agregan después reusan esa misma referencia en
+// vez de volver a pedirla a Drive cada vez. Esto evita una carrera
+// real: justo después de crear la tarea (escritura vía OAuth), una
+// lectura inmediata por la API key pública puede todavía no ver ese
+// archivo (el índice de búsqueda de Drive tarda un rato en
+// actualizarse) y tirar "no se encontró la tarea original" pese a que
+// se guardó bien — se vio en producción con "tarea general" recién
+// creada + adjuntar un archivo al toque.
 let tareaModalNotaActual = null;
+let tareaModalNotasArray = null;
 async function recargarNotaTareaActual() {
   if (!tareaModalEditando) return;
   try {
     const notas = await cargarArrayNotasTarea();
+    tareaModalNotasArray = notas;
     tareaModalNotaActual = notas.find(x => x.id === tareaModalEditando.id) || null;
   } catch (e) {
+    tareaModalNotasArray = null;
     tareaModalNotaActual = null;
   }
   renderAdjuntosTarea();
   renderDocumentosTarea();
   renderComentariosTarea();
+}
+
+// Devuelve el array de notas ya cacheado en memoria (mismo array que
+// usan Adjuntos/Documentos/Comentarios) — solo pide uno nuevo a Drive
+// si todavía no hay ninguno cargado. Usar esto en vez de
+// cargarArrayNotasTarea() directo evita el problema de lectura
+// desactualizada explicado arriba.
+async function obtenerNotasTareaEnMemoria() {
+  if (tareaModalNotasArray) return tareaModalNotasArray;
+  tareaModalNotasArray = await cargarArrayNotasTarea();
+  return tareaModalNotasArray;
 }
 
 function urlAdjuntoDriveExterno(fileId) {
@@ -5418,7 +5445,7 @@ async function agregarDocumentoTarea() {
   btn.disabled = true; btn.textContent = "…";
   try {
     const meta = await fetchDriveJSON(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(driveId)}?fields=id,name,mimeType&key=${encodeURIComponent(driveConfig.apiKey)}`);
-    const notas = await cargarArrayNotasTarea();
+    const notas = await obtenerNotasTareaEnMemoria();
     const n = notas.find(x => x.id === tareaModalEditando.id);
     if (!n) throw new Error("No se encontró la tarea original");
     if (!Array.isArray(n.documentos)) n.documentos = [];
@@ -5439,7 +5466,7 @@ async function quitarDocumentoTarea(driveId) {
   if (!tareaModalEditando) return;
   if (!driveEscrituraConectada()) { showToast("Conectá la edición de Drive primero"); return; }
   try {
-    const notas = await cargarArrayNotasTarea();
+    const notas = await obtenerNotasTareaEnMemoria();
     const n = notas.find(x => x.id === tareaModalEditando.id);
     if (!n) throw new Error("No se encontró la tarea original");
     n.documentos = (n.documentos || []).filter(d => d.driveId !== driveId);
@@ -5477,7 +5504,7 @@ async function agregarAdjuntoTarea(file) {
     const nombreDrive = `plantview-adjunto-tarea-${tareaModalEditando.id}-${Date.now()}${ext}`;
     const driveId = await subirArchivoADrive(nombreDrive, file, carpeta.driveId);
 
-    const notas = await cargarArrayNotasTarea();
+    const notas = await obtenerNotasTareaEnMemoria();
     const n = notas.find(x => x.id === tareaModalEditando.id);
     if (!n) throw new Error("No se encontró la tarea original");
     if (!Array.isArray(n.adjuntos)) n.adjuntos = [];
@@ -5498,7 +5525,7 @@ async function quitarAdjuntoTarea(driveId) {
   if (!tareaModalEditando) return;
   if (!driveEscrituraConectada()) { showToast("Conectá la edición de Drive primero"); return; }
   try {
-    const notas = await cargarArrayNotasTarea();
+    const notas = await obtenerNotasTareaEnMemoria();
     const n = notas.find(x => x.id === tareaModalEditando.id);
     if (!n) throw new Error("No se encontró la tarea original");
     n.adjuntos = (n.adjuntos || []).filter(a => a.driveId !== driveId);
@@ -5522,7 +5549,7 @@ async function agregarComentarioTarea() {
   const btn = document.getElementById("btn-tarea-comentar");
   btn.disabled = true;
   try {
-    const notas = await cargarArrayNotasTarea();
+    const notas = await obtenerNotasTareaEnMemoria();
     const n = notas.find(x => x.id === tareaModalEditando.id);
     if (!n) throw new Error("No se encontró la tarea original");
     if (!Array.isArray(n.comentarios)) n.comentarios = [];
@@ -5583,7 +5610,10 @@ async function guardarTareaDesdeModal(cerrarAlTerminar = true) {
     const cargar = archivo ? () => cargarNotasDeModelo(carpeta, archivo) : () => cargarTareasCarpeta(carpeta);
     const guardar = archivo ? (arr) => guardarNotasDeModelo(carpeta, archivo, arr) : (arr) => guardarTareasCarpeta(carpeta, arr);
 
-    const notas = await cargar();
+    // Editando: reusa el array ya cacheado en memoria en vez de volver a
+    // pedirlo a Drive — evita la carrera de lectura-justo-después-de-
+    // escritura (ver comentario en tareaModalNotasArray más abajo).
+    const notas = tareaModalEditando ? await obtenerNotasTareaEnMemoria() : await cargar();
     let nuevoId = null;
     if (tareaModalEditando) {
       const n = notas.find(x => x.id === tareaModalEditando.id);
@@ -5610,7 +5640,14 @@ async function guardarTareaDesdeModal(cerrarAlTerminar = true) {
       document.getElementById("tarea-modal-titulo").textContent = archivo ? `${carpeta.nombre} / ${archivo.nombre}` : `${carpeta.nombre} (tarea general)`;
       document.getElementById("btn-tarea-abrir3d").style.display = archivo ? "" : "none";
       document.getElementById("btn-tarea-eliminar").style.display = "";
-      await recargarNotaTareaActual();
+      // Cachea directo el array que acabamos de escribir en vez de
+      // volver a pedirlo a Drive (recargarNotaTareaActual) — evita la
+      // misma carrera de lectura-justo-después-de-escritura.
+      tareaModalNotasArray = notas;
+      tareaModalNotaActual = notas.find(x => x.id === nuevoId) || null;
+      renderAdjuntosTarea();
+      renderDocumentosTarea();
+      renderComentariosTarea();
     }
     if (cerrarAlTerminar) document.getElementById("modal-tarea").classList.remove("visible");
     showToast(creando ? "✅ Tarea creada" : "✅ Tarea actualizada");
