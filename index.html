@@ -900,6 +900,21 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 .tarea-comentario { background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
 .tarea-comentario-texto { font-size: 12px; color: var(--text); white-space: pre-wrap; word-break: break-word; }
 .tarea-comentario-fecha { font-size: 9px; color: var(--muted); font-family: "IBM Plex Mono", monospace; margin-top: 4px; display: block; }
+/* Tarjeta de preview para un link de Drive pegado como "Documentación
+   asociada" — mismo patrón visual en fila que usa el resto de la app
+   para filas de archivo (icono + nombre + acción), sin reinventar. */
+.tarea-doc-item {
+  display: flex; align-items: center; gap: 10px; width: 100%; background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; cursor: pointer; text-align: left;
+}
+.tarea-doc-thumb { width: 34px; height: 34px; border-radius: 6px; object-fit: cover; flex-shrink: 0; }
+.tarea-doc-icono {
+  width: 34px; height: 34px; border-radius: 6px; background: var(--surface); flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; color: var(--accent); font-size: 15px;
+}
+.tarea-doc-nombre { flex: 1; min-width: 0; font-size: 11.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tarea-doc-quitar { flex-shrink: 0; background: none; border: none; color: var(--muted); font-size: 15px; cursor: pointer; padding: 4px; }
+.tarea-doc-quitar:active { color: #e0455a; }
 .tareas-vacio-chico { font-size: 10.5px; color: var(--muted); }
 .tarea-modal-divider { width: 100%; height: 1px; background: var(--line); margin: 2px 0; }
 /* Antes el aviso de "conectate con Google" solo aparecía al pie del
@@ -1735,6 +1750,14 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
         <div id="tareaAdjuntosList" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"></div>
         <input type="file" id="tareaAdjuntoInput" accept="image/*" style="display:none">
         <button type="button" id="btn-tarea-adjuntar" class="btn-sheet btn-sheet-secondary" style="width:100%;height:34px;margin-top:8px;font-size:11px">+ Agregar imagen</button>
+      </div>
+      <div style="width:100%">
+        <label style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Documentación asociada</label>
+        <div id="tareaDocumentosList" style="display:flex;flex-direction:column;gap:6px;margin-top:8px"></div>
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <input type="text" id="tareaDocumentoInput" placeholder="Pegá un link de Drive (plano, PDF, modelo 3D)…" style="flex:1;min-width:0;height:36px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);font-family:inherit;padding:0 8px">
+          <button type="button" id="btn-tarea-documento" class="btn-sheet btn-sheet-secondary" style="width:76px;height:36px;font-size:11px">Agregar</button>
+        </div>
       </div>
       <div style="width:100%">
         <label style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Comentarios</label>
@@ -5252,6 +5275,7 @@ async function abrirModalTareaEditar(t) {
 
   document.getElementById("tarea-adjuntos-comentarios").style.display = "flex";
   document.getElementById("tareaAdjuntosList").innerHTML = `<span class="tareas-vacio-chico">Cargando…</span>`;
+  document.getElementById("tareaDocumentosList").innerHTML = "";
   document.getElementById("tareaComentariosList").innerHTML = "";
   await recargarNotaTareaActual();
 }
@@ -5294,6 +5318,7 @@ async function recargarNotaTareaActual() {
     tareaModalNotaActual = null;
   }
   renderAdjuntosTarea();
+  renderDocumentosTarea();
   renderComentariosTarea();
 }
 
@@ -5315,6 +5340,92 @@ function renderAdjuntosTarea() {
   cont.querySelectorAll(".tarea-adjunto-thumb").forEach(img => {
     img.addEventListener("click", () => window.open(img.src, "_blank"));
   });
+}
+
+// Documentación asociada: a diferencia de Adjuntos (subís un archivo
+// nuevo), acá se pega el link de un archivo que YA existe en Drive
+// (un plano, un PDF, un modelo 3D de otra obra) y se resuelve su
+// nombre/tipo para armar una tarjeta de preview — no se sube nada.
+function extraerIdDriveDeLink(texto) {
+  const m = texto.match(/\/d\/([a-zA-Z0-9_-]{15,})/) || texto.match(/[?&]id=([a-zA-Z0-9_-]{15,})/);
+  return m ? m[1] : (/^[a-zA-Z0-9_-]{15,}$/.test(texto.trim()) ? texto.trim() : null);
+}
+function iconoDocTarea(mime, nombre) {
+  const n = (nombre || "").toLowerCase();
+  if ((mime || "").startsWith("image/")) return null; // se usa la miniatura real, no un ícono
+  if (mime === "application/pdf" || n.endsWith(".pdf")) return "📄";
+  if (n.endsWith(".glb") || n.endsWith(".gltf") || n.endsWith(".stl")) return "🧊";
+  if (n.endsWith(".dwg") || n.endsWith(".dxf")) return "📐";
+  return "📎";
+}
+function renderDocumentosTarea() {
+  const cont = document.getElementById("tareaDocumentosList");
+  const documentos = tareaModalNotaActual?.documentos || [];
+  if (!documentos.length) { cont.innerHTML = `<span class="tareas-vacio-chico">Sin documentación asociada</span>`; return; }
+  cont.innerHTML = documentos.map(d => {
+    const esImagen = (d.mime || "").startsWith("image/");
+    return `<div class="tarea-doc-item" data-abrir-doc="${esc(d.driveId)}">
+      ${esImagen
+        ? `<img class="tarea-doc-thumb" src="${esc(urlAdjuntoDriveExterno(d.driveId))}" alt="" loading="lazy">`
+        : `<span class="tarea-doc-icono">${iconoDocTarea(d.mime, d.nombre)}</span>`}
+      <span class="tarea-doc-nombre">${esc(d.nombre || "Documento")}</span>
+      <button type="button" class="tarea-doc-quitar" data-quitar-doc="${esc(d.driveId)}" title="Quitar">×</button>
+    </div>`;
+  }).join("");
+  cont.querySelectorAll("[data-abrir-doc]").forEach(el => {
+    el.addEventListener("click", (e) => {
+      if (e.target.closest("[data-quitar-doc]")) return;
+      window.open(urlAdjuntoDriveExterno(el.dataset.abrirDoc), "_blank");
+    });
+  });
+  cont.querySelectorAll("[data-quitar-doc]").forEach(btn => {
+    btn.addEventListener("click", (e) => { e.stopPropagation(); quitarDocumentoTarea(btn.dataset.quitarDoc); });
+  });
+}
+
+async function agregarDocumentoTarea() {
+  if (!tareaModalEditando) return;
+  const input = document.getElementById("tareaDocumentoInput");
+  const valor = input.value.trim();
+  if (!valor) return;
+  const driveId = extraerIdDriveDeLink(valor);
+  if (!driveId) { showToast("No se reconoció un link/ID de Drive válido"); return; }
+  if (!driveEscrituraConectada()) { showToast("Conectá la edición de Drive primero"); return; }
+  const btn = document.getElementById("btn-tarea-documento");
+  btn.disabled = true; btn.textContent = "…";
+  try {
+    const meta = await fetchDriveJSON(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(driveId)}?fields=id,name,mimeType&key=${encodeURIComponent(driveConfig.apiKey)}`);
+    const notas = await cargarArrayNotasTarea();
+    const n = notas.find(x => x.id === tareaModalEditando.id);
+    if (!n) throw new Error("No se encontró la tarea original");
+    if (!Array.isArray(n.documentos)) n.documentos = [];
+    if (n.documentos.some(d => d.driveId === driveId)) { showToast("Ya estaba agregado"); return; }
+    n.documentos.push({ nombre: meta.name, driveId, mime: meta.mimeType || "" });
+    await guardarArrayNotasTarea(notas);
+    tareaModalNotaActual = n;
+    renderDocumentosTarea();
+    input.value = "";
+  } catch (err) {
+    showToast("❌ No se pudo resolver ese link — ¿está compartido como \"Cualquiera con el link\"?");
+  } finally {
+    btn.disabled = false; btn.textContent = "Agregar";
+  }
+}
+
+async function quitarDocumentoTarea(driveId) {
+  if (!tareaModalEditando) return;
+  if (!driveEscrituraConectada()) { showToast("Conectá la edición de Drive primero"); return; }
+  try {
+    const notas = await cargarArrayNotasTarea();
+    const n = notas.find(x => x.id === tareaModalEditando.id);
+    if (!n) throw new Error("No se encontró la tarea original");
+    n.documentos = (n.documentos || []).filter(d => d.driveId !== driveId);
+    await guardarArrayNotasTarea(notas);
+    tareaModalNotaActual = n;
+    renderDocumentosTarea();
+  } catch (err) {
+    showToast("❌ " + (err.message || "No se pudo quitar el documento"));
+  }
 }
 
 function renderComentariosTarea() {
@@ -5516,6 +5627,10 @@ document.getElementById("btn-tarea-adjuntar").addEventListener("click", () => do
 document.getElementById("tareaAdjuntoInput").addEventListener("change", (e) => {
   const file = e.target.files?.[0];
   if (file) agregarAdjuntoTarea(file);
+});
+document.getElementById("btn-tarea-documento").addEventListener("click", agregarDocumentoTarea);
+document.getElementById("tareaDocumentoInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); agregarDocumentoTarea(); }
 });
 document.getElementById("btn-tarea-comentar").addEventListener("click", agregarComentarioTarea);
 document.getElementById("tareaComentarioInput").addEventListener("keydown", (e) => {
