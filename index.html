@@ -1885,6 +1885,19 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
   </div>
 </div>
 
+<!-- Visor de imagen en pantalla — tocar una miniatura de Adjuntos/
+     Documentación abría el archivo con window.open(url, "_blank"), que
+     en mobile navega a una "página" separada con el binario crudo (sin
+     la app cargada ahí: sin header, sin bottom nav, sin forma de
+     volver salvo el botón atrás del navegador). Este modal muestra la
+     imagen adentro de la app en vez de salir de ella. */
+<div class="modal-overlay" id="modal-imagen-lightbox">
+  <div class="modal-sheet" style="align-items:center;padding:16px">
+    <button class="sheet-x" id="btn-lightbox-x" aria-label="Cerrar">×</button>
+    <img id="lightbox-img" alt="" style="width:100%;max-height:78vh;object-fit:contain;border-radius:8px;margin-top:6px">
+  </div>
+</div>
+
 <!-- Modal Notificaciones -->
 <div class="modal-overlay" id="modal-notif">
   <div class="modal-sheet">
@@ -5645,6 +5658,11 @@ function urlAdjuntoDriveExterno(fileId) {
   return `/api/drive-proxy?fileId=${encodeURIComponent(fileId)}&key=${encodeURIComponent(driveConfig.apiKey)}`;
 }
 
+function abrirLightboxImagen(url) {
+  document.getElementById("lightbox-img").src = url;
+  document.getElementById("modal-imagen-lightbox").classList.add("visible");
+}
+
 function renderAdjuntosTarea() {
   const cont = document.getElementById("tareaAdjuntosList");
   const adjuntos = tareaModalNotaActual?.adjuntos || [];
@@ -5662,7 +5680,14 @@ function renderAdjuntosTarea() {
     btn.addEventListener("click", (e) => { e.stopPropagation(); quitarAdjuntoTarea(btn.dataset.quitarAdjunto); });
   });
   cont.querySelectorAll(".tarea-adjunto-thumb").forEach(el => {
-    el.addEventListener("click", () => window.open(urlAdjuntoDriveExterno(el.closest(".tarea-adjunto-item").dataset.adjuntoId), "_blank"));
+    el.addEventListener("click", () => {
+      const url = urlAdjuntoDriveExterno(el.closest(".tarea-adjunto-item").dataset.adjuntoId);
+      // Las imágenes se ven adentro de la app (lightbox); el resto
+      // (PDF/GLB/DXF) no tiene un visor propio acá, así que se abren
+      // aparte — ver comentario del modal-imagen-lightbox.
+      if (el.tagName === "IMG") abrirLightboxImagen(url);
+      else window.open(url, "_blank");
+    });
   });
 }
 
@@ -5699,7 +5724,9 @@ function renderDocumentosTarea() {
   cont.querySelectorAll("[data-abrir-doc]").forEach(el => {
     el.addEventListener("click", (e) => {
       if (e.target.closest("[data-quitar-doc]")) return;
-      window.open(urlAdjuntoDriveExterno(el.dataset.abrirDoc), "_blank");
+      const url = urlAdjuntoDriveExterno(el.dataset.abrirDoc);
+      if (el.querySelector("img.tarea-doc-thumb")) abrirLightboxImagen(url);
+      else window.open(url, "_blank");
     });
   });
   cont.querySelectorAll("[data-quitar-doc]").forEach(btn => {
@@ -6208,6 +6235,10 @@ document.getElementById("tareaAdjuntoInput").addEventListener("change", (e) => {
 document.getElementById("btn-tarea-documento").addEventListener("click", agregarDocumentoTarea);
 document.getElementById("btn-tarea-explorar").addEventListener("click", abrirExploradorTarea);
 document.getElementById("btn-tarea-explorador-x").addEventListener("click", () => document.getElementById("modal-tarea-explorador").classList.remove("visible"));
+document.getElementById("btn-lightbox-x").addEventListener("click", () => {
+  document.getElementById("modal-imagen-lightbox").classList.remove("visible");
+  document.getElementById("lightbox-img").src = "";
+});
 document.getElementById("btn-tarea-explorador-agregar").addEventListener("click", confirmarSeleccionExplorador);
 document.querySelectorAll("#tarea-explorador-vista-tabs .tareas-vista-btn").forEach(b => {
   b.addEventListener("click", () => {
