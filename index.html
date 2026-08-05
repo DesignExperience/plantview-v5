@@ -907,6 +907,7 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
    texto con fecha. Ver renderAdjuntosTarea/renderComentariosTarea. */
 .tarea-adjunto-item { position: relative; width: 56px; height: 56px; flex-shrink: 0; }
 .tarea-adjunto-thumb { width: 56px; height: 56px; border-radius: 8px; object-fit: cover; border: 1px solid var(--line); cursor: pointer; display: block; }
+.tarea-adjunto-icono { background: var(--surface-2); display: flex; align-items: center; justify-content: center; font-size: 22px; }
 .tarea-adjunto-quitar {
   position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%;
   background: #e0455a; color: #fff; font-size: 11px; line-height: 18px; text-align: center;
@@ -1763,8 +1764,16 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
       <div style="width:100%">
         <label style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Adjuntos</label>
         <div id="tareaAdjuntosList" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"></div>
-        <input type="file" id="tareaAdjuntoInput" accept="image/*" style="display:none">
-        <button type="button" id="btn-tarea-adjuntar" class="btn-sheet btn-sheet-secondary" style="width:100%;height:34px;margin-top:8px;font-size:11px">+ Agregar imagen</button>
+        <input type="file" id="tareaAdjuntoInput" accept=".pdf,.glb,.dxf,image/*" style="display:none">
+        <button type="button" id="btn-tarea-adjuntar" class="btn-sheet btn-sheet-secondary" style="width:100%;height:34px;margin-top:8px;font-size:11px">+ Agregar archivo</button>
+      </div>
+      <div style="width:100%">
+        <label style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Documentación asociada</label>
+        <div id="tareaDocumentosList" style="display:flex;flex-direction:column;gap:6px;margin-top:8px"></div>
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <input type="text" id="tareaDocumentoInput" placeholder="Pegá un link de Drive (plano, PDF, modelo 3D)…" style="flex:1;min-width:0;height:36px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);font-family:inherit;padding:0 8px">
+          <button type="button" id="btn-tarea-documento" class="btn-sheet btn-sheet-secondary" style="width:76px;height:36px;font-size:11px">Agregar</button>
+        </div>
       </div>
       <div style="width:100%">
         <label style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Documentación asociada</label>
@@ -5345,15 +5354,20 @@ function renderAdjuntosTarea() {
   const cont = document.getElementById("tareaAdjuntosList");
   const adjuntos = tareaModalNotaActual?.adjuntos || [];
   if (!adjuntos.length) { cont.innerHTML = `<span class="tareas-vacio-chico">Sin adjuntos</span>`; return; }
-  cont.innerHTML = adjuntos.map(a => `<div class="tarea-adjunto-item" data-adjunto-id="${esc(a.driveId)}">
-    <img class="tarea-adjunto-thumb" src="${esc(urlAdjuntoDriveExterno(a.driveId))}" alt="${esc(a.nombre || "adjunto")}" loading="lazy">
+  cont.innerHTML = adjuntos.map(a => {
+    const esImagen = (a.mime || "").startsWith("image/");
+    return `<div class="tarea-adjunto-item" data-adjunto-id="${esc(a.driveId)}" title="${esc(a.nombre || "adjunto")}">
+    ${esImagen
+      ? `<img class="tarea-adjunto-thumb" src="${esc(urlAdjuntoDriveExterno(a.driveId))}" alt="${esc(a.nombre || "adjunto")}" loading="lazy">`
+      : `<div class="tarea-adjunto-thumb tarea-adjunto-icono">${iconoDocTarea(a.mime, a.nombre)}</div>`}
     <button type="button" class="tarea-adjunto-quitar" data-quitar-adjunto="${esc(a.driveId)}" title="Quitar">×</button>
-  </div>`).join("");
+  </div>`;
+  }).join("");
   cont.querySelectorAll("[data-quitar-adjunto]").forEach(btn => {
-    btn.addEventListener("click", () => quitarAdjuntoTarea(btn.dataset.quitarAdjunto));
+    btn.addEventListener("click", (e) => { e.stopPropagation(); quitarAdjuntoTarea(btn.dataset.quitarAdjunto); });
   });
-  cont.querySelectorAll(".tarea-adjunto-thumb").forEach(img => {
-    img.addEventListener("click", () => window.open(img.src, "_blank"));
+  cont.querySelectorAll(".tarea-adjunto-thumb").forEach(el => {
+    el.addEventListener("click", () => window.open(urlAdjuntoDriveExterno(el.closest(".tarea-adjunto-item").dataset.adjuntoId), "_blank"));
   });
 }
 
@@ -5460,14 +5474,14 @@ async function agregarAdjuntoTarea(file) {
   const btn = document.getElementById("btn-tarea-adjuntar");
   btn.disabled = true; btn.textContent = "Subiendo…";
   try {
-    const { carpeta, archivo } = await resolverContextoTarea();
+    const { carpeta } = await resolverContextoTarea();
     if (!carpeta) throw new Error("No se encontró la obra de esta tarea");
-    const carpetaDestinoId = archivo
-      ? await obtenerOCrearCarpetaDrive(`${archivo.nombre.replace(/\.[a-zA-Z0-9]+$/, "")} - notas`, carpeta.driveId)
-      : carpeta.driveId;
+    // Directo en la carpeta de la obra (no en la subcarpeta "<modelo> -
+    // notas") — así el archivo queda visible/accesible para cualquiera
+    // que abra la obra en Drive, sea la tarea general o de un modelo.
     const ext = (file.name.match(/\.[a-zA-Z0-9]+$/) || [""])[0];
     const nombreDrive = `plantview-adjunto-tarea-${tareaModalEditando.id}-${Date.now()}${ext}`;
-    const driveId = await subirArchivoADrive(nombreDrive, file, carpetaDestinoId);
+    const driveId = await subirArchivoADrive(nombreDrive, file, carpeta.driveId);
 
     const notas = await cargarArrayNotasTarea();
     const n = notas.find(x => x.id === tareaModalEditando.id);
@@ -5481,7 +5495,7 @@ async function agregarAdjuntoTarea(file) {
   } catch (err) {
     showToast("❌ " + (err.message || "No se pudo subir el adjunto"));
   } finally {
-    btn.disabled = false; btn.textContent = "+ Agregar imagen";
+    btn.disabled = false; btn.textContent = "+ Agregar archivo";
     document.getElementById("tareaAdjuntoInput").value = "";
   }
 }
