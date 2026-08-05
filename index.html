@@ -713,6 +713,11 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
   #modal-tarea .sheet-drag-handle, #modal-tarea-explorador .sheet-drag-handle { cursor: default; }
   #modal-tarea .sheet-handle, #modal-tarea-explorador .sheet-handle { display: none; }
   .tarea-exp-area.vista-grilla { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); }
+  /* Con las columnas de tamaño/fecha fijas (68px+56px) quedaba muy poco
+     ancho para el nombre en una pantalla angosta — se ocultan, mismo
+     criterio que ya usa la vista Tareas en mobile. */
+  .tarea-exp-fila { grid-template-columns: 22px 22px 1fr; }
+  .tarea-exp-fila .tarea-exp-meta { display: none; }
 }
 
 /* Accesibilidad: navegación por teclado visible en todos los interactivos */
@@ -944,7 +949,7 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
   height: min(680px, 86vh); max-height: none;
   padding: 20px 22px calc(20px + var(--safe-b));
 }
-.tarea-exp-header { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 10px; }
+.tarea-exp-header { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 10px; padding-right: 40px; flex-wrap: wrap; }
 .tareas-vista-btn-group { display: flex; gap: 2px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 3px; flex-shrink: 0; }
 .tarea-exp-breadcrumb { width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-family: "IBM Plex Mono", monospace; font-size: 10.5px; color: var(--muted); }
 .tarea-exp-crumb { background: none; border: none; color: var(--accent); cursor: pointer; font-family: inherit; font-size: inherit; padding: 2px 0; }
@@ -1869,7 +1874,7 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
     <div id="tarea-explorador-lista" class="tarea-exp-area"></div>
     <div class="tarea-exp-footer">
       <span id="tarea-explorador-contador" class="tareas-vacio-chico">Nada seleccionado</span>
-      <button class="btn-sheet btn-sheet-primary" id="btn-tarea-explorador-agregar" style="width:220px">Agregar seleccionados</button>
+      <button class="btn-sheet btn-sheet-primary" id="btn-tarea-explorador-agregar" style="flex-shrink:0">Agregar seleccionados</button>
     </div>
   </div>
 </div>
