@@ -10595,6 +10595,16 @@ function actualizarPosicionesNotas(){
     const n=notas3d.find(x=>x.id===id);
     const refs=notaMarkerEls[id];
     if(!n)return;
+    // Tareas creadas desde la pantalla Tareas (fuera del visor) no tienen
+    // point/local — no se anclaron haciendo click en una pieza, así que no
+    // hay una posición 3D real que dibujar. Sin este chequeo, n.point.x
+    // revienta ("undefined is not an object") apenas se abre un modelo que
+    // tenga alguna de esas tareas.
+    if(!n.point){
+      refs.g.style.display='none';
+      if(notaBurbujaEls[id]) notaBurbujaEls[id].style.display='none';
+      return;
+    }
     let worldPos=new THREE.Vector3(n.point.x,n.point.y,n.point.z);
     const mesh=resolveMeshNota(n);
     if(mesh){
@@ -10993,6 +11003,10 @@ function recentrarPanelNota(){
 function volarANota(notaId){
   const n=notas3d.find(x=>x.id===notaId);
   if(!n) return;
+  // Mismo caso que en actualizarPosicionesNotas(): una tarea creada desde
+  // la pantalla Tareas no tiene point (no se ancló a una pieza) — no hay
+  // adónde volar.
+  if(!n.point){ toast('Esta tarea no está anclada a una pieza del modelo'); abrirNota3D(notaId); return; }
   const p=new THREE.Vector3(n.point.x,n.point.y,n.point.z);
   const dirActual=camera.position.clone().sub(target);
   const dist=Math.max(dirActual.length()*0.35, targetRadius*0.25, 2);
