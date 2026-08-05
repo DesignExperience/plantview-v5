@@ -200,6 +200,8 @@ input  { font-family: inherit; }
   cursor: pointer; font-family: inherit; text-transform: uppercase; letter-spacing: .02em;
 }
 .tarea-estado-pill.sel { color: #fff; border-color: transparent; }
+.tarea-estado-pill-agregar { flex: 0 0 32px; border-style: dashed; color: var(--muted); font-weight: 700; }
+.tarea-estado-pill-agregar:active { color: var(--accent); border-color: var(--accent); }
 
 /* PlantView iframe container */
 #pv-wrap {
@@ -4862,6 +4864,64 @@ async function subirArchivoADrive(nombre, blob, carpetaIdPadre) {
   return (await resp.json()).id;
 }
 
+// Misma lógica que subirArchivoADrive (busca si ya existe para
+// actualizarlo en vez de duplicarlo) pero con XMLHttpRequest en vez de
+// fetch — fetch no expone progreso de SUBIDA de forma nativa (solo de
+// descarga), así que para archivos grandes (un GLB de cientos de MB)
+// el botón "Subiendo…" se sentía trabado sin ninguna señal de avance.
+// Se dejó como función aparte en vez de tocar subirArchivoADrive
+// directamente porque esa la usa medio proyecto — cambiar su firma
+// arriesgaba romper otros llamadores por un beneficio que solo hace
+// falta acá, donde sí puede haber archivos pesados.
+function subirArchivoADriveConProgreso(nombre, blob, carpetaIdPadre, onProgress) {
+  return new Promise((resolve, reject) => {
+    if (!driveEscrituraConectada()) { reject(new Error("La escritura a Drive no está conectada")); return; }
+
+    const nombreEscapado = nombre.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+    const q = encodeURIComponent(`name='${nombreEscapado}' and '${carpetaIdPadre}' in parents and trashed=false`);
+    fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)`, {
+      headers: { Authorization: `Bearer ${driveAccessToken}` },
+    })
+      .then(listResp => {
+        if (!listResp.ok) throw new Error(`No se pudo consultar Drive (HTTP ${listResp.status})`);
+        return listResp.json();
+      })
+      .then(listData => {
+        const existente = listData.files?.[0];
+        const metadata = existente ? {} : { name: nombre, parents: [carpetaIdPadre] };
+        const form = new FormData();
+        form.append("metadata", new Blob([JSON.stringify(metadata)], { type: "application/json" }));
+        form.append("file", blob);
+
+        const url = existente
+          ? `https://www.googleapis.com/upload/drive/v3/files/${existente.id}?uploadType=multipart`
+          : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
+
+        const xhr = new XMLHttpRequest();
+        xhr.open(existente ? "PATCH" : "POST", url);
+        xhr.setRequestHeader("Authorization", `Bearer ${driveAccessToken}`);
+        if (onProgress) {
+          xhr.upload.addEventListener("progress", (e) => {
+            if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+          });
+        }
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try { resolve(JSON.parse(xhr.responseText).id); }
+            catch (e) { reject(new Error("Respuesta inesperada de Drive al subir")); }
+          } else {
+            let msg = `HTTP ${xhr.status} al subir a Drive`;
+            try { msg = JSON.parse(xhr.responseText).error?.message || msg; } catch (e) {}
+            reject(new Error(msg));
+          }
+        };
+        xhr.onerror = () => reject(new Error("No se pudo contactar a Google Drive. Puede ser un problema de red."));
+        xhr.send(form);
+      })
+      .catch(reject);
+  });
+}
+
 // Busca una subcarpeta por nombre dentro de carpetaPadreId, o la crea si no existe.
 async function obtenerOCrearCarpetaDrive(nombre, carpetaPadreId) {
   const nombreEscapado = nombre.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
@@ -5053,6 +5113,7 @@ let tareasVistaActual = "lista";
 
 async function cargarTareas(forzar) {
   const cont = document.getElementById("tareas-contenido");
+  await cargarOpcionesCustomTarea();
   if (tareasCache && !forzar) { renderTareas(); return; }
   cont.innerHTML = `<div style="padding:32px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div>`;
 
@@ -5102,20 +5163,97 @@ async function cargarTareas(forzar) {
   renderTareas();
 }
 
-const TAREAS_ESTADOS = [
+// Los 3 estados y 4 prioridades de acá son los que trae la app de
+// fábrica — quedan fijos como base y no se pueden borrar. TAREAS_ESTADOS
+// / TAREAS_PRIORIDADES (sin _DEFECTO) son las listas EN USO, que pueden
+// crecer con opciones custom que cualquiera agregue desde el modal
+// (ver agregarOpcionCustomTarea) — se guardan en un JSON aparte en la
+// carpeta raíz de Drive, compartido entre todas las obras conectadas.
+const TAREAS_ESTADOS_DEFECTO = [
   { key: "no_iniciado", label: "No iniciado", color: "#8a9099" },
   { key: "en_proceso",  label: "En proceso",  color: "#d97a00" },
   { key: "finalizado",  label: "Finalizado",  color: "#188a5c" },
 ];
-
-const TAREAS_PRIORIDADES = [
+const TAREAS_PRIORIDADES_DEFECTO = [
   { key: "urgente", label: "Urgente", color: "#e0455a" },
   { key: "alta",    label: "Alta",    color: "#d97a00" },
   { key: "normal",  label: "Normal",  color: "#3a6be8" },
   { key: "baja",    label: "Baja",    color: "#8a9099" },
 ];
+let TAREAS_ESTADOS = TAREAS_ESTADOS_DEFECTO.slice();
+let TAREAS_PRIORIDADES = TAREAS_PRIORIDADES_DEFECTO.slice();
+
+const TAREAS_ESTADOS_ARCHIVO = "plantview-tareas-estados.json";
+const TAREAS_PRIORIDADES_ARCHIVO = "plantview-tareas-prioridades.json";
+let tareasOpcionesCustomCargadas = false;
+
+// Trae las opciones custom (si hay) UNA sola vez por sesión — no hace
+// falta escritura, son archivos de solo lectura vía API key igual que
+// el resto de lo que lee esta pantalla.
+async function cargarOpcionesCustomTarea() {
+  if (tareasOpcionesCustomCargadas) return;
+  tareasOpcionesCustomCargadas = true;
+  const raizId = raizDriveIdActual();
+  if (!raizId || !driveConfig.apiKey) return;
+  try {
+    const found = await buscarArchivoEnCarpetaSoloLectura(TAREAS_ESTADOS_ARCHIVO, raizId);
+    if (found) {
+      const buffer = await descargarBufferDrive(found.id);
+      const extra = JSON.parse(new TextDecoder("utf-8").decode(buffer));
+      if (Array.isArray(extra)) TAREAS_ESTADOS = TAREAS_ESTADOS_DEFECTO.concat(extra);
+    }
+  } catch (e) { /* sin custom todavía, o error de red — se sigue con los de fábrica */ }
+  try {
+    const found = await buscarArchivoEnCarpetaSoloLectura(TAREAS_PRIORIDADES_ARCHIVO, raizId);
+    if (found) {
+      const buffer = await descargarBufferDrive(found.id);
+      const extra = JSON.parse(new TextDecoder("utf-8").decode(buffer));
+      if (Array.isArray(extra)) TAREAS_PRIORIDADES = TAREAS_PRIORIDADES_DEFECTO.concat(extra);
+    }
+  } catch (e) {}
+}
+
+// Agrega un estado o prioridad nuevo (nombre + color elegidos por el
+// usuario), lo persiste en el JSON global correspondiente y refresca
+// la UI que esté visible en ese momento. Las claves de los nuevos
+// llevan un sufijo random para no chocar nunca con las de fábrica ni
+// entre sí (dos personas creando "Bloqueado" a la vez, por ejemplo).
+async function agregarOpcionCustomTarea(tipo) {
+  if (!driveEscrituraConectada()) { showToast("Conectá la edición de Drive primero"); return; }
+  const raizId = raizDriveIdActual();
+  if (!raizId) { showToast("Conectá primero una carpeta de Google Drive"); return; }
+  const esEstado = tipo === "estado";
+  const nombre = prompt(esEstado ? "Nombre del nuevo estado:" : "Nombre de la nueva prioridad:");
+  if (!nombre || !nombre.trim()) return;
+  const color = (prompt("Color (código hex, ej #3a6be8):", "#3a6be8") || "").trim();
+  if (!/^#[0-9a-fA-F]{6}$/.test(color)) { showToast("Color inválido — usá un código hex tipo #3a6be8"); return; }
+
+  const key = nombre.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") + "_" + Date.now().toString(36).slice(-5);
+  const nuevo = { key, label: nombre.trim(), color };
+  const archivoNombre = esEstado ? TAREAS_ESTADOS_ARCHIVO : TAREAS_PRIORIDADES_ARCHIVO;
+  const defecto = esEstado ? TAREAS_ESTADOS_DEFECTO : TAREAS_PRIORIDADES_DEFECTO;
+  const actual = esEstado ? TAREAS_ESTADOS : TAREAS_PRIORIDADES;
+  const customExistente = actual.slice(defecto.length);
+  const customNuevo = customExistente.concat([nuevo]);
+  try {
+    const blob = new Blob([JSON.stringify(customNuevo)], { type: "application/json" });
+    await subirArchivoADrive(archivoNombre, blob, raizId);
+    if (esEstado) TAREAS_ESTADOS = defecto.concat(customNuevo);
+    else TAREAS_PRIORIDADES = defecto.concat(customNuevo);
+    showToast(`✅ "${nuevo.label}" agregado`);
+    if (document.getElementById("modal-tarea").classList.contains("visible")) {
+      if (esEstado) crearSelectorEstadoTarea(document.getElementById("tareaEstados"), key);
+      else crearSelectorPrioridadTarea(document.getElementById("tareaPrioridades"), key);
+    }
+    renderTareas();
+  } catch (err) {
+    showToast("❌ " + (err.message || "No se pudo guardar"));
+  }
+}
+
 function prioridadTarea(key) {
-  return TAREAS_PRIORIDADES.find(p => p.key === key) || TAREAS_PRIORIDADES[2];
+  return TAREAS_PRIORIDADES.find(p => p.key === key) || TAREAS_PRIORIDADES.find(p => p.key === "normal") || TAREAS_PRIORIDADES[0];
 }
 function inicialesAsignado(nombre) {
   if (!nombre) return "";
@@ -5247,7 +5385,7 @@ function pintarPillTarea(b, color, seleccionada) {
     b.style.background = color + "1c"; b.style.color = color; b.style.borderColor = color + "55";
   }
 }
-function crearSelectorPillsTarea(cont, opciones, defecto, seleccionado, atributo) {
+function crearSelectorPillsTarea(cont, opciones, defecto, seleccionado, atributo, tipoAgregar) {
   cont.innerHTML = "";
   opciones.forEach(o => {
     const b = document.createElement("button");
@@ -5260,19 +5398,29 @@ function crearSelectorPillsTarea(cont, opciones, defecto, seleccionado, atributo
     b.addEventListener("click", () => {
       cont.querySelectorAll(".tarea-estado-pill").forEach(x => {
         x.classList.remove("sel");
-        pintarPillTarea(x, opciones.find(op => op.key === x.dataset[atributo]).color, false);
+        const op = opciones.find(op => op.key === x.dataset[atributo]);
+        if (op) pintarPillTarea(x, op.color, false);
       });
       b.classList.add("sel");
       pintarPillTarea(b, o.color, true);
     });
     cont.appendChild(b);
   });
+  if (tipoAgregar) {
+    const mas = document.createElement("button");
+    mas.type = "button";
+    mas.className = "tarea-estado-pill tarea-estado-pill-agregar";
+    mas.textContent = "+";
+    mas.title = tipoAgregar === "estado" ? "Agregar estado nuevo" : "Agregar prioridad nueva";
+    mas.addEventListener("click", () => agregarOpcionCustomTarea(tipoAgregar));
+    cont.appendChild(mas);
+  }
 }
 function crearSelectorEstadoTarea(cont, seleccionado) {
-  crearSelectorPillsTarea(cont, TAREAS_ESTADOS, "no_iniciado", seleccionado, "estado");
+  crearSelectorPillsTarea(cont, TAREAS_ESTADOS, "no_iniciado", seleccionado, "estado", "estado");
 }
 function crearSelectorPrioridadTarea(cont, seleccionado) {
-  crearSelectorPillsTarea(cont, TAREAS_PRIORIDADES, "normal", seleccionado, "prioridad");
+  crearSelectorPillsTarea(cont, TAREAS_PRIORIDADES, "normal", seleccionado, "prioridad", "prioridad");
 }
 
 async function poblarSelectModelosTarea(carpetaId) {
@@ -5349,6 +5497,7 @@ function abrirModalTareaNueva(estadoInicial) {
   // asegurarTareaGuardada() la crea en silencio sin cerrar el modal.
   tareaModalNotaActual = null;
   tareaModalNotasArray = null;
+  tareaModalSnapshot = null;
   document.getElementById("tarea-adjuntos-comentarios").style.display = "flex";
   renderAdjuntosTarea();
   renderDocumentosTarea();
@@ -5370,6 +5519,7 @@ async function abrirModalTareaEditar(t) {
   hojaTarea.style.position = ""; hojaTarea.style.left = ""; hojaTarea.style.top = ""; hojaTarea.style.margin = ""; hojaTarea.style.width = "";
   tareaModalEditando = { id: t.id, carpetaId: t.carpetaId, archivoDriveId: t.archivoDriveId };
   tareaModalNotasArray = null; // fuerza a recargarNotaTareaActual a pedir de nuevo, no reusar la de una tarea anterior
+  tareaModalSnapshot = null;
   document.getElementById("tarea-modal-titulo").textContent = t.modeloNombre ? `${t.obraNombre} / ${t.modeloNombre}` : `${t.obraNombre} (tarea general)`;
   document.getElementById("tarea-campo-obra").style.display = "none";
   document.getElementById("tareaTextoInput").value = t.texto || "";
@@ -5411,7 +5561,13 @@ async function cargarArrayNotasTarea() {
 async function guardarArrayNotasTarea(arr) {
   const { carpeta, archivo } = await resolverContextoTarea();
   if (!carpeta) throw new Error("No se encontró la obra de esta tarea");
-  return archivo ? guardarNotasDeModelo(carpeta, archivo, arr) : guardarTareasCarpeta(carpeta, arr);
+  await (archivo ? guardarNotasDeModelo(carpeta, archivo, arr) : guardarTareasCarpeta(carpeta, arr));
+  // Todo lo que pasa por acá termina escribiendo el array final en
+  // Drive — actualizar la "foto" acá cubre a todos los que llaman a
+  // esta función (adjuntar, comentar, guardar campos, eliminar, etc.)
+  // sin tener que repetirlo en cada uno.
+  tareaModalNotasArray = arr;
+  tareaModalSnapshot = JSON.stringify(arr);
 }
 
 // Trae de nuevo la nota completa desde Drive (con sus adjuntos/
@@ -5430,14 +5586,25 @@ async function guardarArrayNotasTarea(arr) {
 // creada + adjuntar un archivo al toque.
 let tareaModalNotaActual = null;
 let tareaModalNotasArray = null;
+// "Foto" del array tal como estaba la última vez que se leyó/escribió
+// con éxito — sirve para detectar si alguien más (el visor 3D, otra
+// pestaña) tocó esta misma tarea mientras el modal seguía abierto acá.
+// No es una lectura extra en el camino caliente de cada micro-acción
+// (eso fue lo que causaba la carrera que ya se arregló) — se compara
+// solo antes de Guardar/Eliminar, y ahí sí conviene chequear porque es
+// la acción que definitivamente pisa lo que haya en Drive.
+let tareaModalSnapshot = null;
+
 async function recargarNotaTareaActual() {
   if (!tareaModalEditando) return;
   try {
     const notas = await cargarArrayNotasTarea();
     tareaModalNotasArray = notas;
+    tareaModalSnapshot = JSON.stringify(notas);
     tareaModalNotaActual = notas.find(x => x.id === tareaModalEditando.id) || null;
   } catch (e) {
     tareaModalNotasArray = null;
+    tareaModalSnapshot = null;
     tareaModalNotaActual = null;
   }
   renderAdjuntosTarea();
@@ -5453,7 +5620,25 @@ async function recargarNotaTareaActual() {
 async function obtenerNotasTareaEnMemoria() {
   if (tareaModalNotasArray) return tareaModalNotasArray;
   tareaModalNotasArray = await cargarArrayNotasTarea();
+  tareaModalSnapshot = JSON.stringify(tareaModalNotasArray);
   return tareaModalNotasArray;
+}
+
+// Antes de pisar Drive con Guardar/Eliminar: trae una copia fresca y la
+// compara contra la "foto" de cuando se cargó por última vez. Si son
+// distintas, alguien más escribió esta misma tarea mientras el modal
+// estaba abierto — se avisa en vez de pisarlo en silencio. Falla
+// "abierto" (no bloquea el guardado) si el chequeo mismo da error de
+// red, para no trabar al usuario por un problema de conectividad
+// ajeno a lo que está guardando.
+async function hayConflictoConcurrenciaTarea() {
+  if (!tareaModalSnapshot || !tareaModalEditando) return false;
+  try {
+    const fresco = await cargarArrayNotasTarea();
+    return JSON.stringify(fresco) !== tareaModalSnapshot;
+  } catch (e) {
+    return false;
+  }
 }
 
 function urlAdjuntoDriveExterno(fileId) {
@@ -5799,7 +5984,9 @@ async function agregarAdjuntoTarea(file) {
     // que abra la obra en Drive, sea la tarea general o de un modelo.
     const ext = (file.name.match(/\.[a-zA-Z0-9]+$/) || [""])[0];
     const nombreDrive = `plantview-adjunto-tarea-${tareaModalEditando.id}-${Date.now()}${ext}`;
-    const driveId = await subirArchivoADrive(nombreDrive, file, carpeta.driveId);
+    const driveId = await subirArchivoADriveConProgreso(nombreDrive, file, carpeta.driveId, (pct) => {
+      btn.textContent = `Subiendo… ${pct}%`;
+    });
 
     const notas = await obtenerNotasTareaEnMemoria();
     const n = notas.find(x => x.id === tareaModalEditando.id);
@@ -5929,7 +6116,16 @@ async function guardarTareaDesdeModal(cerrarAlTerminar = true) {
         fecha: new Date().toISOString().slice(0, 10),
       });
     }
+
+    // Solo tiene sentido chequear conflictos editando una tarea que ya
+    // existía (no al crearla — ahí no hay nada previo con qué chocar).
+    if (tareaModalEditando && await hayConflictoConcurrenciaTarea()) {
+      const seguir = confirm("Esta tarea cambió en otro lado (por ejemplo desde el visor 3D) mientras la tenías abierta acá. Si continuás, tu versión va a pisar esos cambios.\n\n¿Guardar igual?");
+      if (!seguir) { showToast("Guardado cancelado"); return false; }
+    }
     await guardar(notas);
+    tareaModalNotasArray = notas;
+    tareaModalSnapshot = JSON.stringify(notas);
 
     if (creando) {
       tareaModalEditando = { id: nuevoId, carpetaId: carpeta.id, archivoDriveId: archivo ? archivo.driveId : null };
@@ -5978,6 +6174,10 @@ async function eliminarTareaDesdeModal() {
     // pegar el mismo "no se encontró la tarea original" por la carrera
     // de lectura-justo-después-de-escritura contra Drive.
     const notas = await obtenerNotasTareaEnMemoria();
+    if (await hayConflictoConcurrenciaTarea()) {
+      const seguir = confirm("Esta tarea cambió en otro lado mientras la tenías abierta acá. Si continuás, se elimina igual (perdiendo esos cambios).\n\n¿Eliminar igual?");
+      if (!seguir) { showToast("Eliminación cancelada"); return; }
+    }
     const restantes = notas.filter(x => x.id !== tareaModalEditando.id);
     await guardarArrayNotasTarea(restantes);
     document.getElementById("modal-tarea").classList.remove("visible");
