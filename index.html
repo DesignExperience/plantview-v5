@@ -701,7 +701,8 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
      más abajo (Guardar, Conectar con Google) quedaba inalcanzable ni
      scrolleando. top/bottom explícitos hacen que el navegador calcule
      el alto real disponible en cada momento, sin ese problema. */
-  #modal-tarea .modal-sheet-flotante {
+  #modal-tarea .modal-sheet-flotante,
+  #modal-tarea-explorador .modal-sheet-flotante {
     position: fixed;
     top: calc(52px + var(--safe-t)); bottom: calc(54px + var(--safe-b));
     left: 0; right: 0;
@@ -709,8 +710,9 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
     border-radius: 0; box-shadow: none; margin: 0;
     overflow-y: auto; -webkit-overflow-scrolling: touch;
   }
-  #modal-tarea .sheet-drag-handle { cursor: default; }
-  #modal-tarea .sheet-handle { display: none; }
+  #modal-tarea .sheet-drag-handle, #modal-tarea-explorador .sheet-drag-handle { cursor: default; }
+  #modal-tarea .sheet-handle, #modal-tarea-explorador .sheet-handle { display: none; }
+  .tarea-exp-area.vista-grilla { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); }
 }
 
 /* Accesibilidad: navegación por teclado visible en todos los interactivos */
@@ -931,17 +933,59 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 .tarea-doc-nombre { flex: 1; min-width: 0; font-size: 11.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tarea-doc-quitar { flex-shrink: 0; background: none; border: none; color: var(--muted); font-size: 15px; cursor: pointer; padding: 4px; }
 .tarea-doc-quitar:active { color: #e0455a; }
-/* Explorador de archivos de la obra (modal-tarea-explorador) */
-.tarea-exp-crumb { background: none; border: none; color: var(--accent); cursor: pointer; font-family: inherit; padding: 2px 0; }
-.tarea-exp-crumb:last-child { color: var(--muted); pointer-events: none; }
-.tarea-exp-fila {
-  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
-  background: none; border: none; border-radius: 8px; padding: 9px 8px; cursor: pointer; font-family: inherit;
+/* Explorador de archivos de la obra (modal-tarea-explorador) — a
+   diferencia del resto de los modales chicos (sheets), este necesita
+   espacio real para navegar carpetas como un explorador de Windows,
+   así que se agranda: diálogo grande centrado, con su propio toggle
+   Lista/Grilla (mismo patrón visual .tareas-vista-btn que ya usa la
+   vista Tareas) en vez del bottom-sheet angosto que tenía antes. */
+.modal-sheet-explorador {
+  width: min(920px, 94vw); max-width: none;
+  height: min(680px, 86vh); max-height: none;
+  padding: 20px 22px calc(20px + var(--safe-b));
 }
-.tarea-exp-fila:active { background: var(--surface-2); }
-.tarea-exp-icono { width: 22px; text-align: center; flex-shrink: 0; font-size: 15px; }
-.tarea-exp-nombre { flex: 1; min-width: 0; font-size: 12.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tarea-exp-check { width: 18px; height: 18px; flex-shrink: 0; accent-color: var(--accent); }
+.tarea-exp-header { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 10px; }
+.tareas-vista-btn-group { display: flex; gap: 2px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 3px; flex-shrink: 0; }
+.tarea-exp-breadcrumb { width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-family: "IBM Plex Mono", monospace; font-size: 10.5px; color: var(--muted); }
+.tarea-exp-crumb { background: none; border: none; color: var(--accent); cursor: pointer; font-family: inherit; font-size: inherit; padding: 2px 0; }
+.tarea-exp-crumb:last-child { color: var(--muted); pointer-events: none; }
+.tarea-exp-area {
+  width: 100%; flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2);
+  display: flex; flex-direction: column; gap: 1px; padding: 6px;
+}
+.tarea-exp-area.vista-grilla {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; align-content: start;
+}
+/* Fila (vista Lista) */
+.tarea-exp-fila {
+  display: grid; grid-template-columns: 22px 22px 1fr 68px 56px; align-items: center; gap: 10px;
+  width: 100%; text-align: left; background: none; border: none; border-radius: 8px;
+  padding: 8px; cursor: pointer; font-family: inherit;
+}
+.tarea-exp-fila:hover { background: rgba(255,255,255,.03); }
+.tarea-exp-fila:active { background: var(--surface); }
+.tarea-exp-fila.sel { background: rgba(58,107,232,.1); }
+.tarea-exp-icono { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.tarea-exp-nombre { min-width: 0; font-size: 12.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tarea-exp-meta { font-size: 10px; color: var(--muted); font-family: "IBM Plex Mono", monospace; text-align: right; white-space: nowrap; }
+.tarea-exp-check { width: 16px; height: 16px; flex-shrink: 0; accent-color: var(--accent); }
+/* Tarjeta (vista Grilla) */
+.tarea-exp-card {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  padding: 14px 8px 10px; cursor: pointer; font-family: inherit; text-align: center;
+}
+.tarea-exp-card:hover { border-color: var(--accent); }
+.tarea-exp-card.sel { border-color: var(--accent); background: rgba(58,107,232,.08); }
+.tarea-exp-card .tarea-exp-check { position: absolute; top: 8px; left: 8px; }
+.tarea-exp-card-icono { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; }
+.tarea-exp-card-thumb { width: 100%; height: 64px; object-fit: cover; border-radius: 6px; }
+.tarea-exp-card-nombre {
+  font-size: 10.5px; color: var(--text); line-height: 1.3; width: 100%;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.tarea-exp-footer { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 10px; }
 .tareas-vacio-chico { font-size: 10.5px; color: var(--muted); }
 .tarea-modal-divider { width: 100%; height: 1px; background: var(--line); margin: 2px 0; }
 /* Antes el aviso de "conectate con Google" solo aparecía al pie del
@@ -1811,15 +1855,21 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
      existente en Drive como "Documentación asociada" en vez de tener
      que ir a buscar y copiar el link a mano. Solo lectura (API Key),
      reusa listarHijosDrive() que ya usa el resto de la app. -->
-<div class="modal-overlay" id="modal-tarea-explorador">
-  <div class="modal-sheet" style="max-height:80vh">
+<div class="modal-overlay modal-overlay-flotante" id="modal-tarea-explorador">
+  <div class="modal-sheet modal-sheet-flotante modal-sheet-explorador">
     <button class="sheet-x" id="btn-tarea-explorador-x" aria-label="Cerrar">×</button>
-    <div class="sheet-handle"></div>
-    <p class="sheet-title">Elegir archivo de la obra</p>
-    <div id="tarea-explorador-breadcrumb" style="width:100%;display:flex;flex-wrap:wrap;gap:4px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted)"></div>
-    <div id="tarea-explorador-lista" style="width:100%;flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:2px;min-height:200px"></div>
-    <div class="sheet-actions" style="width:100%">
-      <button class="btn-sheet btn-sheet-primary" id="btn-tarea-explorador-agregar" style="width:100%">Agregar seleccionados</button>
+    <div class="tarea-exp-header">
+      <p class="sheet-title" style="margin:0">Elegir archivo de la obra</p>
+      <div class="tareas-vista-btn-group" id="tarea-explorador-vista-tabs">
+        <button type="button" class="tareas-vista-btn activa" data-vista="lista">Lista</button>
+        <button type="button" class="tareas-vista-btn" data-vista="grilla">Grilla</button>
+      </div>
+    </div>
+    <div id="tarea-explorador-breadcrumb" class="tarea-exp-breadcrumb"></div>
+    <div id="tarea-explorador-lista" class="tarea-exp-area"></div>
+    <div class="tarea-exp-footer">
+      <span id="tarea-explorador-contador" class="tareas-vacio-chico">Nada seleccionado</span>
+      <button class="btn-sheet btn-sheet-primary" id="btn-tarea-explorador-agregar" style="width:220px">Agregar seleccionados</button>
     </div>
   </div>
 </div>
@@ -5473,6 +5523,8 @@ function renderDocumentosTarea() {
    confirmar la selección. */
 let tareaExploradorStack = [];               // [{id, nombre}, ...] — breadcrumb
 let tareaExploradorSeleccion = new Map();     // driveId -> {id, name, mimeType}
+let tareaExploradorVista = "lista";           // "lista" | "grilla"
+let tareaExploradorFolderIcon = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#d9a300" stroke-width="1.8"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>`;
 
 async function abrirExploradorTarea() {
   if (!(await asegurarTareaGuardada())) return;
@@ -5481,13 +5533,39 @@ async function abrirExploradorTarea() {
   tareaExploradorStack = [{ id: carpeta.driveId, nombre: carpeta.nombre }];
   tareaExploradorSeleccion = new Map();
   document.getElementById("modal-tarea-explorador").classList.add("visible");
+  actualizarContadorExplorador();
   await cargarListaExplorador();
 }
 
-function iconoExplorador(item) {
-  if (item.mimeType === "application/vnd.google-apps.folder") return "📁";
-  if ((item.mimeType || "").startsWith("image/")) return "🖼️";
-  return iconoDocTarea(item.mimeType, item.name) || "📎";
+// Mismo iconoTipo() SVG que ya usa el explorador de archivos principal
+// de la app — mantiene la misma identidad visual (colores/formas por
+// tipo) en vez de reinventar un set de íconos nuevo para este modal.
+function tipoDeNombreExplorador(nombre) {
+  const ext = (nombre.match(/\.([a-zA-Z0-9]+)$/) || [, ""])[1].toLowerCase();
+  if (ext === "pdf") return "pdf";
+  if (ext === "glb" || ext === "gltf" || ext === "stl") return "glb";
+  if (ext === "dxf" || ext === "dwg") return "dxf";
+  if (ext === "xlsx" || ext === "xls" || ext === "docx" || ext === "doc") return "xlsx";
+  return "otro";
+}
+function iconoExplorador(item, size) {
+  if (item.mimeType === "application/vnd.google-apps.folder") return tareaExploradorFolderIcon;
+  return iconoTipo(tipoDeNombreExplorador(item.name), size);
+}
+
+function actualizarContadorExplorador() {
+  const n = tareaExploradorSeleccion.size;
+  document.getElementById("tarea-explorador-contador").textContent = n ? `${n} seleccionado${n > 1 ? "s" : ""}` : "Nada seleccionado";
+}
+
+function alternarSeleccionExplorador(item, el) {
+  if (tareaExploradorSeleccion.has(item.id)) tareaExploradorSeleccion.delete(item.id);
+  else tareaExploradorSeleccion.set(item.id, item);
+  const marcado = tareaExploradorSeleccion.has(item.id);
+  el.classList.toggle("sel", marcado);
+  const check = el.querySelector(".tarea-exp-check");
+  if (check) check.checked = marcado;
+  actualizarContadorExplorador();
 }
 
 async function cargarListaExplorador() {
@@ -5506,7 +5584,8 @@ async function cargarListaExplorador() {
     });
   });
 
-  cont.innerHTML = `<div style="padding:24px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div>`;
+  cont.classList.toggle("vista-grilla", tareaExploradorVista === "grilla");
+  cont.innerHTML = `<div style="grid-column:1/-1;padding:24px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div>`;
   const actual = tareaExploradorStack[tareaExploradorStack.length - 1];
   let items;
   try {
@@ -5517,15 +5596,30 @@ async function cargarListaExplorador() {
   }
   if (!items.length) { cont.innerHTML = `<span class="tareas-vacio-chico">Carpeta vacía</span>`; return; }
 
-  cont.innerHTML = items.map(it => {
-    const esCarpeta = it.mimeType === "application/vnd.google-apps.folder";
-    const seleccionado = tareaExploradorSeleccion.has(it.id);
-    return `<button type="button" class="tarea-exp-fila" data-item-id="${esc(it.id)}" data-es-carpeta="${esCarpeta}">
-      ${esCarpeta ? "" : `<input type="checkbox" class="tarea-exp-check" ${seleccionado ? "checked" : ""} tabindex="-1">`}
-      <span class="tarea-exp-icono">${iconoExplorador(it)}</span>
-      <span class="tarea-exp-nombre">${esc(it.name)}</span>
-    </button>`;
-  }).join("");
+  cont.innerHTML = tareaExploradorVista === "grilla"
+    ? items.map(it => {
+      const esCarpeta = it.mimeType === "application/vnd.google-apps.folder";
+      const esImagen = !esCarpeta && (it.mimeType || "").startsWith("image/");
+      const seleccionado = tareaExploradorSeleccion.has(it.id);
+      return `<button type="button" class="tarea-exp-card${seleccionado ? " sel" : ""}" data-item-id="${esc(it.id)}" data-es-carpeta="${esCarpeta}" title="${esc(it.name)}">
+        ${esCarpeta ? "" : `<input type="checkbox" class="tarea-exp-check" ${seleccionado ? "checked" : ""} tabindex="-1">`}
+        ${esImagen
+          ? `<img class="tarea-exp-card-thumb" src="${esc(urlAdjuntoDriveExterno(it.id))}" alt="" loading="lazy">`
+          : `<span class="tarea-exp-card-icono">${iconoExplorador(it, 32)}</span>`}
+        <span class="tarea-exp-card-nombre">${esc(it.name)}</span>
+      </button>`;
+    }).join("")
+    : items.map(it => {
+      const esCarpeta = it.mimeType === "application/vnd.google-apps.folder";
+      const seleccionado = tareaExploradorSeleccion.has(it.id);
+      return `<button type="button" class="tarea-exp-fila${seleccionado ? " sel" : ""}" data-item-id="${esc(it.id)}" data-es-carpeta="${esCarpeta}">
+        ${esCarpeta ? "<span></span>" : `<input type="checkbox" class="tarea-exp-check" ${seleccionado ? "checked" : ""} tabindex="-1">`}
+        <span class="tarea-exp-icono">${iconoExplorador(it, 18)}</span>
+        <span class="tarea-exp-nombre">${esc(it.name)}</span>
+        <span class="tarea-exp-meta">${esCarpeta || !it.size ? "" : formatBytes(Number(it.size))}</span>
+        <span class="tarea-exp-meta">${it.modifiedTime ? formatTs(new Date(it.modifiedTime).getTime()) : ""}</span>
+      </button>`;
+    }).join("");
 
   cont.querySelectorAll("[data-item-id]").forEach(el => {
     const item = items.find(i => i.id === el.dataset.itemId);
@@ -5534,9 +5628,7 @@ async function cargarListaExplorador() {
         tareaExploradorStack.push({ id: item.id, nombre: item.name });
         cargarListaExplorador();
       } else {
-        if (tareaExploradorSeleccion.has(item.id)) tareaExploradorSeleccion.delete(item.id);
-        else tareaExploradorSeleccion.set(item.id, item);
-        el.querySelector(".tarea-exp-check").checked = tareaExploradorSeleccion.has(item.id);
+        alternarSeleccionExplorador(item, el);
       }
     });
   });
@@ -5857,6 +5949,13 @@ document.getElementById("btn-tarea-documento").addEventListener("click", agregar
 document.getElementById("btn-tarea-explorar").addEventListener("click", abrirExploradorTarea);
 document.getElementById("btn-tarea-explorador-x").addEventListener("click", () => document.getElementById("modal-tarea-explorador").classList.remove("visible"));
 document.getElementById("btn-tarea-explorador-agregar").addEventListener("click", confirmarSeleccionExplorador);
+document.querySelectorAll("#tarea-explorador-vista-tabs .tareas-vista-btn").forEach(b => {
+  b.addEventListener("click", () => {
+    tareaExploradorVista = b.dataset.vista;
+    document.querySelectorAll("#tarea-explorador-vista-tabs .tareas-vista-btn").forEach(x => x.classList.toggle("activa", x === b));
+    cargarListaExplorador();
+  });
+});
 document.getElementById("tareaDocumentoInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter") { e.preventDefault(); agregarDocumentoTarea(); }
 });
