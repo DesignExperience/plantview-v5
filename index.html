@@ -888,6 +888,15 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
   animation: apareceModalFlotante .18s cubic-bezier(.2,.8,.2,1);
   box-shadow: 0 12px 40px rgba(0,0,0,.35);
 }
+/* .modal-sheet es flex-column; con altura acotada (esto, o el
+   position:fixed con top/bottom que se usa en mobile) los hijos por
+   default (flex-shrink:1) se COMPRIMEN para entrar en vez de dejar
+   que este contenedor scrollee con el contenido a tamaño real — el
+   textarea de Descripción es el que más se notaba (achicado a una
+   sola línea recortada), pero afectaba a todos los campos por igual.
+   flex-shrink:0 en los hijos hace que mantengan su tamaño natural y
+   el overflow-y:auto de arriba scrollee de verdad. */
+.modal-sheet-flotante > * { flex-shrink: 0; }
 @keyframes apareceModalFlotante { from { opacity: 0; transform: scale(.96); } }
 .sheet-drag-handle { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; cursor: grab; touch-action: none; padding-bottom: 2px; }
 .sheet-drag-handle:active { cursor: grabbing; }
