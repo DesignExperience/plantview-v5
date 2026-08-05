@@ -7418,6 +7418,14 @@ function actualizarVisorSegunModo(modo) {
 }
 
 function aplicarModo(modo, save = true) {
+  // Si había un modal abierto (crear/editar tarea, su explorador de
+  // archivos, el visor de imagen, etc.) al tocar un tab de la bottom
+  // nav, esta función SÍ cambiaba la pantalla de atrás, pero el modal
+  // seguía tapándola — visualmente no pasaba nada y parecía que la nav
+  // "no respondía". Navegar con la nav cierra cualquier modal abierto,
+  // mismo criterio que tocar la X.
+  document.querySelectorAll(".modal-overlay.visible").forEach(m => m.classList.remove("visible"));
+
   modoActual = modo;
   if (save) localStorage.setItem("pv_modo", modo);
 
