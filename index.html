@@ -931,6 +931,17 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 .tarea-doc-nombre { flex: 1; min-width: 0; font-size: 11.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tarea-doc-quitar { flex-shrink: 0; background: none; border: none; color: var(--muted); font-size: 15px; cursor: pointer; padding: 4px; }
 .tarea-doc-quitar:active { color: #e0455a; }
+/* Explorador de archivos de la obra (modal-tarea-explorador) */
+.tarea-exp-crumb { background: none; border: none; color: var(--accent); cursor: pointer; font-family: inherit; padding: 2px 0; }
+.tarea-exp-crumb:last-child { color: var(--muted); pointer-events: none; }
+.tarea-exp-fila {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  background: none; border: none; border-radius: 8px; padding: 9px 8px; cursor: pointer; font-family: inherit;
+}
+.tarea-exp-fila:active { background: var(--surface-2); }
+.tarea-exp-icono { width: 22px; text-align: center; flex-shrink: 0; font-size: 15px; }
+.tarea-exp-nombre { flex: 1; min-width: 0; font-size: 12.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tarea-exp-check { width: 18px; height: 18px; flex-shrink: 0; accent-color: var(--accent); }
 .tareas-vacio-chico { font-size: 10.5px; color: var(--muted); }
 .tarea-modal-divider { width: 100%; height: 1px; background: var(--line); margin: 2px 0; }
 /* Antes el aviso de "conectate con Google" solo aparecía al pie del
@@ -1772,6 +1783,7 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
           <input type="text" id="tareaDocumentoInput" placeholder="Pegá un link de Drive (plano, PDF, modelo 3D)…" style="flex:1;min-width:0;height:36px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);font-family:inherit;padding:0 8px">
           <button type="button" id="btn-tarea-documento" class="btn-sheet btn-sheet-secondary" style="width:76px;height:36px;font-size:11px">Agregar</button>
         </div>
+        <button type="button" id="btn-tarea-explorar" class="btn-sheet btn-sheet-secondary" style="width:100%;height:34px;margin-top:8px;font-size:11px">📁 Explorar archivos de la obra</button>
       </div>
       <div style="width:100%">
         <label style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Comentarios</label>
@@ -1791,6 +1803,24 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
     </div>
     <button class="btn-sheet btn-sheet-secondary" id="btn-tarea-abrir3d" style="width:100%;display:none">Abrir en el modelo 3D</button>
     <button class="btn-sheet btn-sheet-secondary" id="btn-tarea-eliminar" style="width:100%;display:none;color:#e0455a;border-color:#e0455a55">Eliminar tarea</button>
+  </div>
+</div>
+
+<!-- Explorador de archivos de la obra — mini navegador estilo Windows
+     (carpetas primero, breadcrumb arriba) para elegir un archivo ya
+     existente en Drive como "Documentación asociada" en vez de tener
+     que ir a buscar y copiar el link a mano. Solo lectura (API Key),
+     reusa listarHijosDrive() que ya usa el resto de la app. -->
+<div class="modal-overlay" id="modal-tarea-explorador">
+  <div class="modal-sheet" style="max-height:80vh">
+    <button class="sheet-x" id="btn-tarea-explorador-x" aria-label="Cerrar">×</button>
+    <div class="sheet-handle"></div>
+    <p class="sheet-title">Elegir archivo de la obra</p>
+    <div id="tarea-explorador-breadcrumb" style="width:100%;display:flex;flex-wrap:wrap;gap:4px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted)"></div>
+    <div id="tarea-explorador-lista" style="width:100%;flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:2px;min-height:200px"></div>
+    <div class="sheet-actions" style="width:100%">
+      <button class="btn-sheet btn-sheet-primary" id="btn-tarea-explorador-agregar" style="width:100%">Agregar seleccionados</button>
+    </div>
   </div>
 </div>
 
@@ -5433,6 +5463,113 @@ function renderDocumentosTarea() {
   });
 }
 
+/* ── Explorador de archivos de la obra ──────────────────────────────
+   Alternativa a pegar un link a mano: navega la misma carpeta de Drive
+   conectada de la obra (subcarpetas incluidas, estilo Windows Explorer)
+   y deja elegir uno o varios archivos para sumar como "Documentación
+   asociada" — mismo destino final que agregarDocumentoTarea(), solo
+   cambia cómo se elige el archivo. Solo lectura (listarHijosDrive, ya
+   usado por el resto de la app), no hace falta escritura hasta
+   confirmar la selección. */
+let tareaExploradorStack = [];               // [{id, nombre}, ...] — breadcrumb
+let tareaExploradorSeleccion = new Map();     // driveId -> {id, name, mimeType}
+
+async function abrirExploradorTarea() {
+  if (!(await asegurarTareaGuardada())) return;
+  const { carpeta } = await resolverContextoTarea();
+  if (!carpeta || !carpeta.driveId) { showToast("No se encontró la carpeta de Drive de esta obra"); return; }
+  tareaExploradorStack = [{ id: carpeta.driveId, nombre: carpeta.nombre }];
+  tareaExploradorSeleccion = new Map();
+  document.getElementById("modal-tarea-explorador").classList.add("visible");
+  await cargarListaExplorador();
+}
+
+function iconoExplorador(item) {
+  if (item.mimeType === "application/vnd.google-apps.folder") return "📁";
+  if ((item.mimeType || "").startsWith("image/")) return "🖼️";
+  return iconoDocTarea(item.mimeType, item.name) || "📎";
+}
+
+async function cargarListaExplorador() {
+  const cont = document.getElementById("tarea-explorador-lista");
+  const crumbs = document.getElementById("tarea-explorador-breadcrumb");
+  crumbs.innerHTML = tareaExploradorStack.map((c, i) => {
+    const esUltimo = i === tareaExploradorStack.length - 1;
+    return `<button type="button" class="tarea-exp-crumb" data-crumb="${i}">${esc(c.nombre)}</button>${esUltimo ? "" : "<span>/</span>"}`;
+  }).join("");
+  crumbs.querySelectorAll("[data-crumb]").forEach(b => {
+    b.addEventListener("click", () => {
+      const i = Number(b.dataset.crumb);
+      if (i === tareaExploradorStack.length - 1) return;
+      tareaExploradorStack = tareaExploradorStack.slice(0, i + 1);
+      cargarListaExplorador();
+    });
+  });
+
+  cont.innerHTML = `<div style="padding:24px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div>`;
+  const actual = tareaExploradorStack[tareaExploradorStack.length - 1];
+  let items;
+  try {
+    items = await listarHijosDrive(actual.id, driveConfig.apiKey);
+  } catch (e) {
+    cont.innerHTML = `<span class="tareas-vacio-chico">No se pudo leer esta carpeta</span>`;
+    return;
+  }
+  if (!items.length) { cont.innerHTML = `<span class="tareas-vacio-chico">Carpeta vacía</span>`; return; }
+
+  cont.innerHTML = items.map(it => {
+    const esCarpeta = it.mimeType === "application/vnd.google-apps.folder";
+    const seleccionado = tareaExploradorSeleccion.has(it.id);
+    return `<button type="button" class="tarea-exp-fila" data-item-id="${esc(it.id)}" data-es-carpeta="${esCarpeta}">
+      ${esCarpeta ? "" : `<input type="checkbox" class="tarea-exp-check" ${seleccionado ? "checked" : ""} tabindex="-1">`}
+      <span class="tarea-exp-icono">${iconoExplorador(it)}</span>
+      <span class="tarea-exp-nombre">${esc(it.name)}</span>
+    </button>`;
+  }).join("");
+
+  cont.querySelectorAll("[data-item-id]").forEach(el => {
+    const item = items.find(i => i.id === el.dataset.itemId);
+    el.addEventListener("click", () => {
+      if (el.dataset.esCarpeta === "true") {
+        tareaExploradorStack.push({ id: item.id, nombre: item.name });
+        cargarListaExplorador();
+      } else {
+        if (tareaExploradorSeleccion.has(item.id)) tareaExploradorSeleccion.delete(item.id);
+        else tareaExploradorSeleccion.set(item.id, item);
+        el.querySelector(".tarea-exp-check").checked = tareaExploradorSeleccion.has(item.id);
+      }
+    });
+  });
+}
+
+async function confirmarSeleccionExplorador() {
+  if (!tareaExploradorSeleccion.size) {
+    document.getElementById("modal-tarea-explorador").classList.remove("visible");
+    return;
+  }
+  if (!driveEscrituraConectada()) { showToast("Conectá la edición de Drive primero"); return; }
+  try {
+    const notas = await obtenerNotasTareaEnMemoria();
+    const n = notas.find(x => x.id === tareaModalEditando.id);
+    if (!n) throw new Error("No se encontró la tarea original");
+    if (!Array.isArray(n.documentos)) n.documentos = [];
+    let agregados = 0;
+    tareaExploradorSeleccion.forEach(item => {
+      if (!n.documentos.some(d => d.driveId === item.id)) {
+        n.documentos.push({ nombre: item.name, driveId: item.id, mime: item.mimeType || "" });
+        agregados++;
+      }
+    });
+    await guardarArrayNotasTarea(notas);
+    tareaModalNotaActual = n;
+    renderDocumentosTarea();
+    document.getElementById("modal-tarea-explorador").classList.remove("visible");
+    showToast(agregados ? `✅ ${agregados} archivo(s) agregado(s)` : "Ya estaban agregados");
+  } catch (err) {
+    showToast("❌ " + (err.message || "No se pudo agregar la selección"));
+  }
+}
+
 async function agregarDocumentoTarea() {
   const input = document.getElementById("tareaDocumentoInput");
   const valor = input.value.trim();
@@ -5717,6 +5854,9 @@ document.getElementById("tareaAdjuntoInput").addEventListener("change", (e) => {
   if (file) agregarAdjuntoTarea(file);
 });
 document.getElementById("btn-tarea-documento").addEventListener("click", agregarDocumentoTarea);
+document.getElementById("btn-tarea-explorar").addEventListener("click", abrirExploradorTarea);
+document.getElementById("btn-tarea-explorador-x").addEventListener("click", () => document.getElementById("modal-tarea-explorador").classList.remove("visible"));
+document.getElementById("btn-tarea-explorador-agregar").addEventListener("click", confirmarSeleccionExplorador);
 document.getElementById("tareaDocumentoInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter") { e.preventDefault(); agregarDocumentoTarea(); }
 });
