@@ -2,7 +2,13 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<!-- maximum-scale=1/user-scalable=no: sin esto, un pellizco o doble-tap
+     sin querer deja la app pellizcada-zoom con scroll horizontal — la
+     bottom nav queda corrida/recortada por el zoom y parece que "no
+     responde" (en realidad el tap cae en otro punto de la pantalla).
+     El visor 3D (documento aparte, adentro del iframe) ya tenía esto
+     mismo — acá faltaba en el documento externo. -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
