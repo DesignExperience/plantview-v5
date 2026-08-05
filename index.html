@@ -7525,6 +7525,16 @@ document.querySelectorAll(".mode-tab, .bnav-tab").forEach(tab => {
   tab.addEventListener("click", () => {
     if (modoActual === "3d" && tab.dataset.mode !== "3d") app.style.display = "";
     aplicarModo(tab.dataset.mode);
+    // Tocar el tab de Files siempre vuelve a Inicio (la lista de obras),
+    // aunque se estuviera navegando adentro de una carpeta — es la acción
+    // de "ir a Files" desde cero, no un "volver un paso". Ojo: esto es
+    // aparte de aplicarModo("planos") en sí, que también la usan el botón
+    // "atrás" y la tecla Escape del visor 3D para volver a la carpeta de
+    // la que se entró — ahí SÍ hace falta no resetear, por eso el reset
+    // vive acá (solo en el click del tab) y no adentro de aplicarModo().
+    if (tab.dataset.mode === "planos" && P.home && P.archivos && P.archivos.classList.contains("activa")) {
+      irAExp(P.home, P.archivos);
+    }
   });
 });
 
