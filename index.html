@@ -710,7 +710,8 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
      scrolleando. top/bottom explícitos hacen que el navegador calcule
      el alto real disponible en cada momento, sin ese problema. */
   #modal-tarea .modal-sheet-flotante,
-  #modal-tarea-explorador .modal-sheet-flotante {
+  #modal-tarea-explorador .modal-sheet-flotante,
+  #modal-imagen-lightbox .modal-sheet-flotante {
     position: fixed;
     top: calc(52px + var(--safe-t)); bottom: calc(54px + var(--safe-b));
     left: 0; right: 0;
@@ -1897,8 +1898,8 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
      la app cargada ahí: sin header, sin bottom nav, sin forma de
      volver salvo el botón atrás del navegador). Este modal muestra la
      imagen adentro de la app en vez de salir de ella. -->
-<div class="modal-overlay" id="modal-imagen-lightbox">
-  <div class="modal-sheet" style="align-items:center;padding:16px">
+<div class="modal-overlay modal-overlay-flotante" id="modal-imagen-lightbox">
+  <div class="modal-sheet modal-sheet-flotante" style="align-items:center;padding:16px">
     <button class="sheet-x" id="btn-lightbox-x" aria-label="Cerrar">×</button>
     <img id="lightbox-img" alt="" style="width:100%;max-height:78vh;object-fit:contain;border-radius:8px;margin-top:6px">
   </div>
