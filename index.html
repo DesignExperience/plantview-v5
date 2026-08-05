@@ -2024,6 +2024,29 @@ let driveTokenExpira = 0;
 let subidasDrivePendientes = []; // cola de subidas (notas 3D, adjuntos) en espera de login OAuth
 let callbackTrasLoginDrive = null; // acción de la app externa en espera de login OAuth (ej. "Subir a Drive")
 
+// driveConfig (config de lectura: API key + carpetas) vivía mucho más
+// abajo en el script — funcionaba mientras nada la tocara temprano,
+// pero el modo equipo (arriba, unas líneas más abajo en este mismo
+// bloque) conecta la carpeta de Drive apenas carga la página, de forma
+// asíncrona (conectarCarpetaDrive → fetch a la API de Drive). Según
+// qué tan rápido responda esa llamada en cada red/navegador, el resto
+// del script puede no haber terminado de ejecutarse todavía cuando la
+// promesa resuelve y algo intenta leer driveConfig — eso es lo que
+// tira "Cannot access 'driveConfig' before initialization" (se vio en
+// Chrome, no en Safari, en la misma sesión: es una carrera de timing,
+// no algo específico de un navegador — en otra red/momento podría
+// pasar al revés). Declarada acá arriba, junto al resto del estado de
+// Drive, para que ya esté lista pase lo que pase.
+const DRIVE_CFG_KEY = "dd_drive_cfg";
+function cargarConfigDrive() {
+  try {
+    const cfg = JSON.parse(localStorage.getItem(DRIVE_CFG_KEY) || "null");
+    if (cfg && typeof cfg === "object") return { apiKey: cfg.apiKey || "", folders: cfg.folders || [] };
+  } catch(e) {}
+  return { apiKey: "", folders: [] };
+}
+let driveConfig = cargarConfigDrive();
+
 /* ============================================================
    DEMO DATA
    ============================================================ */
@@ -6384,20 +6407,14 @@ async function manejarDropEnObras(dataTransferItems) {
 /* ============================================================
    GOOGLE DRIVE — conectar carpeta pública vía API Key
    (solo lectura: la API Key no permite operaciones de escritura)
+   DRIVE_CFG_KEY / cargarConfigDrive() / driveConfig se declaran mucho
+   más arriba en el script junto al resto del estado de Drive — ver el
+   comentario ahí sobre la carrera de timing que causaba "Cannot
+   access 'driveConfig' before initialization".
    ============================================================ */
-const DRIVE_CFG_KEY = "dd_drive_cfg";
-
-function cargarConfigDrive() {
-  try {
-    const cfg = JSON.parse(localStorage.getItem(DRIVE_CFG_KEY) || "null");
-    if (cfg && typeof cfg === "object") return { apiKey: cfg.apiKey || "", folders: cfg.folders || [] };
-  } catch(e) {}
-  return { apiKey: "", folders: [] };
-}
 function guardarConfigDrive() {
   localStorage.setItem(DRIVE_CFG_KEY, JSON.stringify(driveConfig));
 }
-let driveConfig = cargarConfigDrive();
 
 function extractDriveFolderId(input) {
   input = (input || "").trim();
