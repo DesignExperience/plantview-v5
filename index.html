@@ -868,6 +868,21 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 .sheet-drag-handle { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; cursor: grab; touch-action: none; padding-bottom: 2px; }
 .sheet-drag-handle:active { cursor: grabbing; }
 .modal-sheet-flotante.arrastrando { animation: none; user-select: none; }
+
+/* Adjuntos y comentarios dentro del detalle de tarea — estilo ClickUp:
+   miniaturas de imagen con botón para quitar, e hilo de comentarios de
+   texto con fecha. Ver renderAdjuntosTarea/renderComentariosTarea. */
+.tarea-adjunto-item { position: relative; width: 56px; height: 56px; flex-shrink: 0; }
+.tarea-adjunto-thumb { width: 56px; height: 56px; border-radius: 8px; object-fit: cover; border: 1px solid var(--line); cursor: pointer; display: block; }
+.tarea-adjunto-quitar {
+  position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%;
+  background: #e0455a; color: #fff; font-size: 11px; line-height: 18px; text-align: center;
+  cursor: pointer; border: 2px solid var(--surface); padding: 0;
+}
+.tarea-comentario { background: var(--surf); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.tarea-comentario-texto { font-size: 12px; color: var(--text); white-space: pre-wrap; word-break: break-word; }
+.tarea-comentario-fecha { font-size: 9px; color: var(--muted); font-family: "IBM Plex Mono", monospace; margin-top: 4px; display: block; }
+.tareas-vacio-chico { font-size: 10.5px; color: var(--muted); }
 .sheet-sub { font-family: "IBM Plex Mono", monospace; font-size: 10px; color: var(--muted); align-self: flex-start; word-break: break-all; line-height: 1.5; }
 #qr-canvas { background: #fff; padding: 12px; border-radius: 8px; }
 .sheet-actions { display: flex; gap: 10px; width: 100%; }
@@ -1679,6 +1694,22 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
       <div style="flex:1;display:flex;flex-direction:column;gap:6px">
         <label style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Fecha límite</label>
         <input type="date" id="tareaFechaInput" style="width:100%;height:36px;border-radius:8px;border:1px solid var(--border);background:var(--surf);color:var(--text);font-family:inherit;padding:0 8px">
+      </div>
+    </div>
+    <div id="tarea-adjuntos-comentarios" style="display:none;width:100%;flex-direction:column;gap:16px">
+      <div style="width:100%">
+        <label style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Adjuntos</label>
+        <div id="tareaAdjuntosList" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"></div>
+        <input type="file" id="tareaAdjuntoInput" accept="image/*" style="display:none">
+        <button type="button" id="btn-tarea-adjuntar" class="btn-sheet btn-sheet-secondary" style="width:100%;height:34px;margin-top:8px;font-size:11px">+ Agregar imagen</button>
+      </div>
+      <div style="width:100%">
+        <label style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">Comentarios</label>
+        <div id="tareaComentariosList" style="display:flex;flex-direction:column;gap:8px;margin-top:8px;max-height:180px;overflow-y:auto"></div>
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <input type="text" id="tareaComentarioInput" placeholder="Escribí un comentario…" style="flex:1;height:36px;border-radius:8px;border:1px solid var(--border);background:var(--surf);color:var(--text);font-family:inherit;padding:0 8px">
+          <button type="button" id="btn-tarea-comentar" class="btn-sheet btn-sheet-primary" style="width:72px;height:36px">Enviar</button>
+        </div>
       </div>
     </div>
     <div id="tarea-login-banner" style="display:none;width:100%;flex-direction:column;gap:8px;align-items:center;padding:10px;border:1px dashed var(--line);border-radius:8px">
@@ -5136,6 +5167,9 @@ function abrirModalTareaNueva(estadoInicial) {
   crearSelectorPrioridadTarea(document.getElementById("tareaPrioridades"), "normal");
   document.getElementById("btn-tarea-abrir3d").style.display = "none";
   document.getElementById("btn-tarea-eliminar").style.display = "none";
+  // Adjuntos/comentarios cuelgan de una nota que todavía no existe en
+  // Drive — hay que guardar la tarea una vez primero para tener un id.
+  document.getElementById("tarea-adjuntos-comentarios").style.display = "none";
 
   const selObra = document.getElementById("tareaObraSel");
   const conectadas = carpetasOrden.filter(c => c.driveId);
@@ -5164,6 +5198,159 @@ async function abrirModalTareaEditar(t) {
   document.getElementById("btn-tarea-eliminar").style.display = "";
   document.getElementById("modal-tarea").classList.add("visible");
   actualizarLoginTarea();
+
+  document.getElementById("tarea-adjuntos-comentarios").style.display = "flex";
+  document.getElementById("tareaAdjuntosList").innerHTML = `<span class="tareas-vacio-chico">Cargando…</span>`;
+  document.getElementById("tareaComentariosList").innerHTML = "";
+  await recargarNotaTareaActual();
+}
+
+// Contexto de Drive (carpeta + archivo del modelo, si tiene) de la
+// tarea que está abierta en el modal — lo resuelven guardar/eliminar/
+// adjuntar/comentar por igual, ver tareaModalEditando.
+async function resolverContextoTarea() {
+  if (!tareaModalEditando) return {};
+  const carpeta = carpetasOrden.find(c => c.id === tareaModalEditando.carpetaId);
+  if (!carpeta) return {};
+  let archivo = null;
+  if (tareaModalEditando.archivoDriveId) {
+    const archivos = await asegurarArchivosCargados(carpeta);
+    archivo = archivos.find(a => a.driveId === tareaModalEditando.archivoDriveId) || null;
+  }
+  return { carpeta, archivo };
+}
+async function cargarArrayNotasTarea() {
+  const { carpeta, archivo } = await resolverContextoTarea();
+  if (!carpeta) return [];
+  return archivo ? cargarNotasDeModelo(carpeta, archivo) : cargarTareasCarpeta(carpeta);
+}
+async function guardarArrayNotasTarea(arr) {
+  const { carpeta, archivo } = await resolverContextoTarea();
+  if (!carpeta) throw new Error("No se encontró la obra de esta tarea");
+  return archivo ? guardarNotasDeModelo(carpeta, archivo, arr) : guardarTareasCarpeta(carpeta, arr);
+}
+
+// Trae de nuevo la nota completa desde Drive (con sus adjuntos/
+// comentarios, que no viajan en tareasCache porque esa lista es la
+// versión "resumida" para la grilla) y la vuelve a pintar.
+let tareaModalNotaActual = null;
+async function recargarNotaTareaActual() {
+  if (!tareaModalEditando) return;
+  try {
+    const notas = await cargarArrayNotasTarea();
+    tareaModalNotaActual = notas.find(x => x.id === tareaModalEditando.id) || null;
+  } catch (e) {
+    tareaModalNotaActual = null;
+  }
+  renderAdjuntosTarea();
+  renderComentariosTarea();
+}
+
+function urlAdjuntoDriveExterno(fileId) {
+  return `/api/drive-proxy?fileId=${encodeURIComponent(fileId)}&key=${encodeURIComponent(driveConfig.apiKey)}`;
+}
+
+function renderAdjuntosTarea() {
+  const cont = document.getElementById("tareaAdjuntosList");
+  const adjuntos = tareaModalNotaActual?.adjuntos || [];
+  if (!adjuntos.length) { cont.innerHTML = `<span class="tareas-vacio-chico">Sin adjuntos</span>`; return; }
+  cont.innerHTML = adjuntos.map(a => `<div class="tarea-adjunto-item" data-adjunto-id="${esc(a.driveId)}">
+    <img class="tarea-adjunto-thumb" src="${esc(urlAdjuntoDriveExterno(a.driveId))}" alt="${esc(a.nombre || "adjunto")}" loading="lazy">
+    <button type="button" class="tarea-adjunto-quitar" data-quitar-adjunto="${esc(a.driveId)}" title="Quitar">×</button>
+  </div>`).join("");
+  cont.querySelectorAll("[data-quitar-adjunto]").forEach(btn => {
+    btn.addEventListener("click", () => quitarAdjuntoTarea(btn.dataset.quitarAdjunto));
+  });
+  cont.querySelectorAll(".tarea-adjunto-thumb").forEach(img => {
+    img.addEventListener("click", () => window.open(img.src, "_blank"));
+  });
+}
+
+function renderComentariosTarea() {
+  const cont = document.getElementById("tareaComentariosList");
+  const comentarios = tareaModalNotaActual?.comentarios || [];
+  if (!comentarios.length) { cont.innerHTML = `<span class="tareas-vacio-chico">Sin comentarios todavía</span>`; return; }
+  cont.innerHTML = comentarios.map(c => `<div class="tarea-comentario">
+    <span class="tarea-comentario-texto">${esc(c.texto)}</span>
+    <span class="tarea-comentario-fecha">${esc(c.fecha ? new Date(c.fecha).toLocaleString() : "")}</span>
+  </div>`).join("");
+  cont.scrollTop = cont.scrollHeight;
+}
+
+async function agregarAdjuntoTarea(file) {
+  if (!tareaModalEditando) return;
+  if (!driveEscrituraConectada()) { showToast("Conectá la edición de Drive primero"); return; }
+  const btn = document.getElementById("btn-tarea-adjuntar");
+  btn.disabled = true; btn.textContent = "Subiendo…";
+  try {
+    const { carpeta, archivo } = await resolverContextoTarea();
+    if (!carpeta) throw new Error("No se encontró la obra de esta tarea");
+    const carpetaDestinoId = archivo
+      ? await obtenerOCrearCarpetaDrive(`${archivo.nombre.replace(/\.[a-zA-Z0-9]+$/, "")} - notas`, carpeta.driveId)
+      : carpeta.driveId;
+    const ext = (file.name.match(/\.[a-zA-Z0-9]+$/) || [""])[0];
+    const nombreDrive = `plantview-adjunto-tarea-${tareaModalEditando.id}-${Date.now()}${ext}`;
+    const driveId = await subirArchivoADrive(nombreDrive, file, carpetaDestinoId);
+
+    const notas = await cargarArrayNotasTarea();
+    const n = notas.find(x => x.id === tareaModalEditando.id);
+    if (!n) throw new Error("No se encontró la tarea original");
+    if (!Array.isArray(n.adjuntos)) n.adjuntos = [];
+    n.adjuntos.push({ nombre: file.name, driveId, mime: file.type || "" });
+    await guardarArrayNotasTarea(notas);
+    tareaModalNotaActual = n;
+    renderAdjuntosTarea();
+    cargarTareas(true);
+  } catch (err) {
+    showToast("❌ " + (err.message || "No se pudo subir el adjunto"));
+  } finally {
+    btn.disabled = false; btn.textContent = "+ Agregar imagen";
+    document.getElementById("tareaAdjuntoInput").value = "";
+  }
+}
+
+async function quitarAdjuntoTarea(driveId) {
+  if (!tareaModalEditando) return;
+  if (!driveEscrituraConectada()) { showToast("Conectá la edición de Drive primero"); return; }
+  try {
+    const notas = await cargarArrayNotasTarea();
+    const n = notas.find(x => x.id === tareaModalEditando.id);
+    if (!n) throw new Error("No se encontró la tarea original");
+    n.adjuntos = (n.adjuntos || []).filter(a => a.driveId !== driveId);
+    await guardarArrayNotasTarea(notas);
+    tareaModalNotaActual = n;
+    renderAdjuntosTarea();
+    // El archivo subido a Drive queda huérfano ahí (no se borra) — es
+    // el mismo trade-off que ya acepta el resto de la app por simpleza:
+    // desvincular es inmediato, borrar el binario es una operación aparte.
+  } catch (err) {
+    showToast("❌ " + (err.message || "No se pudo quitar el adjunto"));
+  }
+}
+
+async function agregarComentarioTarea() {
+  if (!tareaModalEditando) return;
+  const input = document.getElementById("tareaComentarioInput");
+  const texto = input.value.trim();
+  if (!texto) return;
+  if (!driveEscrituraConectada()) { showToast("Conectá la edición de Drive primero"); return; }
+  const btn = document.getElementById("btn-tarea-comentar");
+  btn.disabled = true;
+  try {
+    const notas = await cargarArrayNotasTarea();
+    const n = notas.find(x => x.id === tareaModalEditando.id);
+    if (!n) throw new Error("No se encontró la tarea original");
+    if (!Array.isArray(n.comentarios)) n.comentarios = [];
+    n.comentarios.push({ id: "c" + Date.now() + Math.random().toString(36).slice(2, 7), texto, fecha: new Date().toISOString() });
+    await guardarArrayNotasTarea(notas);
+    tareaModalNotaActual = n;
+    input.value = "";
+    renderComentariosTarea();
+  } catch (err) {
+    showToast("❌ " + (err.message || "No se pudo agregar el comentario"));
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 async function guardarTareaDesdeModal() {
@@ -5272,6 +5459,15 @@ document.getElementById("btn-tarea-abrir3d").addEventListener("click", () => {
   document.getElementById("modal-tarea").classList.remove("visible");
   const t = (tareasCache || []).find(x => x.id === tareaModalEditando.id);
   if (t) abrirTareaEnModelo(t);
+});
+document.getElementById("btn-tarea-adjuntar").addEventListener("click", () => document.getElementById("tareaAdjuntoInput").click());
+document.getElementById("tareaAdjuntoInput").addEventListener("change", (e) => {
+  const file = e.target.files?.[0];
+  if (file) agregarAdjuntoTarea(file);
+});
+document.getElementById("btn-tarea-comentar").addEventListener("click", agregarComentarioTarea);
+document.getElementById("tareaComentarioInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); agregarComentarioTarea(); }
 });
 
 document.getElementById("btn-tareas-refrescar").addEventListener("click", () => cargarTareas(true));
