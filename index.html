@@ -922,7 +922,11 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 }
 .tarea-comentario { background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
 .tarea-comentario-texto { font-size: 12px; color: var(--text); white-space: pre-wrap; word-break: break-word; }
-.tarea-comentario-fecha { font-size: 9px; color: var(--muted); font-family: "IBM Plex Mono", monospace; margin-top: 4px; display: block; }
+.tarea-comentario-fecha { font-size: 9px; color: var(--muted); font-family: "IBM Plex Mono", monospace; }
+.tarea-comentario-pie { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; }
+.tarea-comentario-acciones { display: flex; gap: 6px; }
+.tarea-comentario-accion { background: none; border: none; color: var(--muted); font-size: 11px; cursor: pointer; padding: 2px 4px; }
+.tarea-comentario-accion:active { color: var(--accent); }
 /* Tarjeta de preview para un link de Drive pegado como "Documentación
    asociada" — mismo patrón visual en fila que usa el resto de la app
    para filas de archivo (icono + nombre + acción), sin reinventar. */
@@ -5596,7 +5600,9 @@ async function cargarListaExplorador() {
   try {
     items = await listarHijosDrive(actual.id, driveConfig.apiKey);
   } catch (e) {
-    cont.innerHTML = `<span class="tareas-vacio-chico">No se pudo leer esta carpeta</span>`;
+    // Mismo criterio que agregarDocumentoTarea: mostrar el motivo real
+    // (no compartida, sin red, etc.) en vez de un genérico fijo.
+    cont.innerHTML = `<span class="tareas-vacio-chico">${esc(e.message || "No se pudo leer esta carpeta")}</span>`;
     return;
   }
   if (!items.length) { cont.innerHTML = `<span class="tareas-vacio-chico">Carpeta vacía</span>`; return; }
@@ -5690,7 +5696,11 @@ async function agregarDocumentoTarea() {
     renderDocumentosTarea();
     input.value = "";
   } catch (err) {
-    showToast("❌ No se pudo resolver ese link — ¿está compartido como \"Cualquiera con el link\"?");
+    // fetchDriveJSON ya tira un mensaje específico (403/404/sin red/etc,
+    // ver mensajeErrorDrive) — usarlo en vez de un genérico fijo que lo
+    // tapaba, así se sabe si es "no está compartido" vs. "sin conexión"
+    // vs. otra cosa.
+    showToast("❌ " + (err.message || "No se pudo resolver ese link"));
   } finally {
     btn.disabled = false; btn.textContent = "Agregar";
   }
@@ -5716,11 +5726,64 @@ function renderComentariosTarea() {
   const cont = document.getElementById("tareaComentariosList");
   const comentarios = tareaModalNotaActual?.comentarios || [];
   if (!comentarios.length) { cont.innerHTML = `<span class="tareas-vacio-chico">Sin comentarios todavía</span>`; return; }
-  cont.innerHTML = comentarios.map(c => `<div class="tarea-comentario">
+  cont.innerHTML = comentarios.map(c => `<div class="tarea-comentario" data-comentario-id="${esc(c.id || "")}">
     <span class="tarea-comentario-texto">${esc(c.texto)}</span>
-    <span class="tarea-comentario-fecha">${esc(c.fecha ? new Date(c.fecha).toLocaleString() : "")}</span>
+    <div class="tarea-comentario-pie">
+      <span class="tarea-comentario-fecha">${esc(c.fecha ? new Date(c.fecha).toLocaleString() : "")}</span>
+      ${c.id ? `<span class="tarea-comentario-acciones">
+        <button type="button" class="tarea-comentario-accion" data-editar-comentario="${esc(c.id)}" title="Editar">✎</button>
+        <button type="button" class="tarea-comentario-accion" data-borrar-comentario="${esc(c.id)}" title="Eliminar">×</button>
+      </span>` : ""}
+    </div>
   </div>`).join("");
+  cont.querySelectorAll("[data-editar-comentario]").forEach(b => {
+    b.addEventListener("click", () => editarComentarioTarea(b.dataset.editarComentario));
+  });
+  cont.querySelectorAll("[data-borrar-comentario]").forEach(b => {
+    b.addEventListener("click", () => eliminarComentarioTarea(b.dataset.borrarComentario));
+  });
   cont.scrollTop = cont.scrollHeight;
+}
+
+// Comentarios viejos (creados antes de este cambio) no tienen id — se
+// dejan sin botones de editar/borrar en vez de romper, ver el ternario
+// de arriba; los nuevos sí lo tienen porque agregarComentarioTarea()
+// ya les genera uno.
+async function editarComentarioTarea(id) {
+  const c = (tareaModalNotaActual?.comentarios || []).find(x => x.id === id);
+  if (!c) return;
+  const nuevoTexto = prompt("Editar comentario:", c.texto);
+  if (nuevoTexto === null || !nuevoTexto.trim() || nuevoTexto.trim() === c.texto) return;
+  if (!driveEscrituraConectada()) { showToast("Conectá la edición de Drive primero"); return; }
+  try {
+    const notas = await obtenerNotasTareaEnMemoria();
+    const n = notas.find(x => x.id === tareaModalEditando.id);
+    if (!n) throw new Error("No se encontró la tarea original");
+    const com = (n.comentarios || []).find(x => x.id === id);
+    if (!com) throw new Error("No se encontró el comentario");
+    com.texto = nuevoTexto.trim();
+    await guardarArrayNotasTarea(notas);
+    tareaModalNotaActual = n;
+    renderComentariosTarea();
+  } catch (err) {
+    showToast("❌ " + (err.message || "No se pudo editar el comentario"));
+  }
+}
+
+async function eliminarComentarioTarea(id) {
+  if (!confirm("¿Eliminar este comentario?")) return;
+  if (!driveEscrituraConectada()) { showToast("Conectá la edición de Drive primero"); return; }
+  try {
+    const notas = await obtenerNotasTareaEnMemoria();
+    const n = notas.find(x => x.id === tareaModalEditando.id);
+    if (!n) throw new Error("No se encontró la tarea original");
+    n.comentarios = (n.comentarios || []).filter(x => x.id !== id);
+    await guardarArrayNotasTarea(notas);
+    tareaModalNotaActual = n;
+    renderComentariosTarea();
+  } catch (err) {
+    showToast("❌ " + (err.message || "No se pudo eliminar el comentario"));
+  }
 }
 
 async function agregarAdjuntoTarea(file) {
@@ -5910,21 +5973,13 @@ async function eliminarTareaDesdeModal() {
   if (!confirm("¿Eliminar esta tarea? No se puede deshacer.")) return;
   if (!driveEscrituraConectada()) { showToast("Conectá la edición de Drive primero"); return; }
   try {
-    const carpeta = carpetasOrden.find(c => c.id === tareaModalEditando.carpetaId);
-    if (!carpeta) throw new Error("No se encontró la obra de esta tarea");
-    let notas, guardar;
-    if (tareaModalEditando.archivoDriveId) {
-      const archivos = await asegurarArchivosCargados(carpeta);
-      const archivo = archivos.find(a => a.driveId === tareaModalEditando.archivoDriveId);
-      if (!archivo) throw new Error("No se encontró el modelo de esta tarea");
-      notas = await cargarNotasDeModelo(carpeta, archivo);
-      guardar = (arr) => guardarNotasDeModelo(carpeta, archivo, arr);
-    } else {
-      notas = await cargarTareasCarpeta(carpeta);
-      guardar = (arr) => guardarTareasCarpeta(carpeta, arr);
-    }
+    // Reusa el array ya cacheado en memoria (mismo motivo que guardar/
+    // adjuntar/comentar) — crear una tarea y borrarla enseguida podía
+    // pegar el mismo "no se encontró la tarea original" por la carrera
+    // de lectura-justo-después-de-escritura contra Drive.
+    const notas = await obtenerNotasTareaEnMemoria();
     const restantes = notas.filter(x => x.id !== tareaModalEditando.id);
-    await guardar(restantes);
+    await guardarArrayNotasTarea(restantes);
     document.getElementById("modal-tarea").classList.remove("visible");
     showToast("🗑️ Tarea eliminada");
     cargarTareas(true);
