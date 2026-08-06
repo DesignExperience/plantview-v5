@@ -881,10 +881,17 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
    4 columnas (1fr + 3 fijas) estira la columna de nombre al punto de que
    Asignado/Fecha/Prioridad quedan pegadas al borde derecho, muy lejos del
    texto — se limita el ancho de la tabla en vez de dejarla full-bleed. */
-/* 1080 en vez de los 900 originales: el drawer de obras ya le resta
-   ~168px al viewport, así que el mismo techo de antes dejaba de nuevo
-   demasiado aire suelto a la derecha del contenido. */
-.tareas-tabla { padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 14px; max-width: 1080px; margin: 0 auto; }
+/* El max-width centrado (900 → 1080px, ver commits anteriores) resolvía
+   que Asignado/Fecha/Prioridad quedaran pegadas al borde derecho, pero
+   a costa de un colchón de aire IGUAL a los dos lados — con el drawer
+   ya angostando el contenido de por sí, ese colchón doble se sentía
+   como espacio desperdiciado en vez de balance. Ahora la tabla usa el
+   ancho real disponible (pegada a la izquierda, sin centrar) y es la
+   columna Nombre la que tiene techo propio (ver .tareas-fila) — así el
+   espacio de más queda como aire a la derecha de las 3 columnas fijas,
+   no como márgenes simétricos que no aportan nada.
+*/
+.tareas-tabla { padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 14px; }
 /* Estado vacío total (0 tareas): #tareas-contenido ES el .exp-scroll
    (flex:1 dentro de .tareas-main), así que estirarlo a flex column
    centrado ocupa el alto real disponible en vez de dejar el cartel
@@ -920,13 +927,18 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
   margin-top: 6px; background: var(--surface); border: 1px solid var(--line);
   border-radius: var(--radius); overflow: hidden;
 }
+/* minmax(0,640px) en vez de 1fr sin techo: la columna Nombre para de
+   crecer a los 640px y el resto del ancho sobrante queda como aire a
+   la derecha de la fila (columnas fijas más cerca del texto), en vez
+   de estirar Nombre hasta el borde y arrastrar Asignado/Fecha/
+   Prioridad con ella. */
 .tareas-fila {
-  display: grid; grid-template-columns: 1fr 60px 64px 74px; align-items: center; gap: 10px;
+  display: grid; grid-template-columns: minmax(0,640px) 90px 100px 90px; align-items: center; gap: 10px;
   width: 100%; text-align: left; background: none; border: none; border-bottom: 1px solid var(--line);
   padding: 11px 12px; cursor: pointer; font-family: inherit; transition: background .1s;
 }
 .tareas-fila-header {
-  grid-template-columns: 1fr 60px 64px 74px; padding: 8px 12px; cursor: default;
+  grid-template-columns: minmax(0,640px) 90px 100px 90px; padding: 8px 12px; cursor: default;
   font-family: "IBM Plex Mono", monospace; font-size: 9px; color: var(--muted); text-transform: uppercase;
   background: rgba(255,255,255,.02);
 }
