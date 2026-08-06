@@ -784,7 +784,11 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 /* Vista Lista estilo ClickUp: secciones colapsables por estado, cada
    una con una "tabla" de filas (Nombre / Asignado / Fecha límite /
    Prioridad). Ver renderTareas(). */
-.tareas-tabla { padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 14px; }
+/* max-width + centrado: en pantallas anchas (desktop grande) el grid de
+   4 columnas (1fr + 3 fijas) estira la columna de nombre al punto de que
+   Asignado/Fecha/Prioridad quedan pegadas al borde derecho, muy lejos del
+   texto — se limita el ancho de la tabla en vez de dejarla full-bleed. */
+.tareas-tabla { padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 14px; max-width: 900px; margin: 0 auto; }
 .tareas-seccion-header {
   display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: none;
   padding: 4px 0; cursor: pointer; font-family: inherit;
