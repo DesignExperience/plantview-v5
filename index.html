@@ -672,32 +672,14 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 @media (max-width: 767px), (max-height: 500px) {
   #mode-switcher { display: none !important; }
   /* En mobile un drawer vertical se come demasiado ancho — pasa a ser
-     una fila de chips horizontal arriba, con scroll lateral. */
+     una fila de chips horizontal arriba, con scroll lateral. Las reglas
+     .tareas-drawer* de este breakpoint viven en un @media aparte MÁS
+     ABAJO (después de sus bases sin media query) — puestas acá arriba
+     perdían el empate de especificidad contra esas bases, que en el
+     archivo aparecen más tarde y ganan por orden de aparición aunque
+     el media query siguiera cumpliéndose. Ver el bloque junto a
+     .tareas-main. */
   .tareas-layout { flex-direction: column; }
-  .tareas-drawer {
-    width: 100%; flex-direction: row; flex-wrap: wrap; align-items: center; overflow-x: auto; overflow-y: hidden;
-    border-right: none; border-bottom: 1px solid var(--line); flex-shrink: 0;
-  }
-  .tareas-drawer-header { display: none; }
-  .tareas-drawer-header-row { padding: 0; flex-shrink: 0; }
-  /* El input de nueva obra ocupa la fila entera arriba de los chips en
-     vez de sumarse como otro ítem apretado en la misma fila horizontal. */
-  .tareas-drawer-nueva-row { flex: 1 1 100%; order: -1; padding: 8px 8px 0; }
-  .tareas-drawer-list { flex-direction: row; flex: 0 0 auto; }
-  .tareas-drawer-item {
-    flex-shrink: 0; width: auto; white-space: nowrap; border: 1px solid var(--line);
-    border-left-width: 1px; border-radius: 999px; margin: 7px 0 7px 8px; padding: 6px 12px;
-  }
-  .tareas-drawer-item.sel { border-color: var(--accent); }
-  .tareas-drawer-skeleton { flex-shrink: 0; width: 70px !important; margin: 7px 0 7px 8px; }
-  /* En mobile la lista de obras es horizontal, así que "+ nueva obra"
-     entra como el último chip de esa misma fila en vez de vivir en un
-     header que acá está oculto. */
-  .tareas-drawer-add {
-    flex-shrink: 0; width: auto; height: auto; white-space: nowrap; border: 1px dashed var(--line);
-    border-radius: 999px; margin: 7px 8px 7px 4px; padding: 6px 12px; font-size: 11px;
-  }
-  .tareas-drawer-add::after { content: " Nueva obra"; }
   #bottom-nav {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 210;
     display: flex; align-items: stretch;
@@ -873,6 +855,39 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 }
 @keyframes tareas-drawer-pulse { 0%,100% { opacity: .5; } 50% { opacity: 1; } }
 .tareas-main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+/* Mobile: drawer vertical -> fila de chips horizontal con scroll lateral.
+   Puesto ACÁ (después de las reglas base de arriba, no en el @media de
+   arriba del archivo) a propósito: con igual especificidad, CSS
+   desempata por orden de aparición — un override puesto ANTES que su
+   base pierde el empate aunque el @media siga cumpliéndose, que es
+   justo el bug que tenía esto (el drawer se veía vertical en el
+   celular pese al media query "correcto"). */
+@media (max-width: 767px), (max-height: 500px) {
+  .tareas-drawer {
+    width: 100%; flex-direction: row; flex-wrap: wrap; align-items: center; overflow-x: auto; overflow-y: hidden;
+    border-right: none; border-bottom: 1px solid var(--line); flex-shrink: 0;
+  }
+  .tareas-drawer-header { display: none; }
+  .tareas-drawer-header-row { padding: 0; flex-shrink: 0; }
+  /* El input de nueva obra ocupa la fila entera arriba de los chips en
+     vez de sumarse como otro ítem apretado en la misma fila horizontal. */
+  .tareas-drawer-nueva-row { flex: 1 1 100%; order: -1; padding: 8px 8px 0; }
+  .tareas-drawer-list { flex-direction: row; flex: 0 0 auto; }
+  .tareas-drawer-item {
+    flex-shrink: 0; width: auto; white-space: nowrap; border: 1px solid var(--line);
+    border-left-width: 1px; border-radius: 999px; margin: 7px 0 7px 8px; padding: 6px 12px;
+  }
+  .tareas-drawer-item.sel { border-color: var(--accent); }
+  .tareas-drawer-skeleton { flex-shrink: 0; width: 70px !important; margin: 7px 0 7px 8px; }
+  /* En mobile la lista de obras es horizontal, así que "+ nueva obra"
+     entra como el último chip de esa misma fila en vez de vivir en un
+     header que acá está oculto. */
+  .tareas-drawer-add {
+    flex-shrink: 0; width: auto; height: auto; white-space: nowrap; border: 1px dashed var(--line);
+    border-radius: 999px; margin: 7px 8px 7px 4px; padding: 6px 12px; font-size: 11px;
+  }
+  .tareas-drawer-add::after { content: " Nueva obra"; }
+}
 
 /* Vista Lista estilo ClickUp: secciones colapsables por estado, cada
    una con una "tabla" de filas (Nombre / Asignado / Fecha límite /
