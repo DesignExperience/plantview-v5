@@ -679,16 +679,22 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
     border-right: none; border-bottom: 1px solid var(--line); flex-shrink: 0;
   }
   .tareas-drawer-header { display: none; }
+  .tareas-drawer-header-row { padding: 0; flex-shrink: 0; }
   .tareas-drawer-list { flex-direction: row; flex: 0 0 auto; }
   .tareas-drawer-item {
     flex-shrink: 0; width: auto; white-space: nowrap; border: 1px solid var(--line);
-    border-radius: 999px; margin: 7px 0 7px 8px; padding: 6px 12px;
+    border-left-width: 1px; border-radius: 999px; margin: 7px 0 7px 8px; padding: 6px 12px;
   }
   .tareas-drawer-item.sel { border-color: var(--accent); }
+  .tareas-drawer-skeleton { flex-shrink: 0; width: 70px !important; margin: 7px 0 7px 8px; }
+  /* En mobile la lista de obras es horizontal, así que "+ nueva obra"
+     entra como el último chip de esa misma fila en vez de vivir en un
+     header que acá está oculto. */
   .tareas-drawer-add {
-    flex-shrink: 0; width: auto; white-space: nowrap; border: 1px dashed var(--line);
-    border-top: 1px dashed var(--line); border-radius: 999px; margin: 7px 8px 7px 0; padding: 6px 12px;
+    flex-shrink: 0; width: auto; height: auto; white-space: nowrap; border: 1px dashed var(--line);
+    border-radius: 999px; margin: 7px 8px 7px 4px; padding: 6px 12px; font-size: 11px;
   }
+  .tareas-drawer-add::after { content: " Nueva obra"; }
   #bottom-nav {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 210;
     display: flex; align-items: stretch;
@@ -807,28 +813,45 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
   width: 168px; flex-shrink: 0; display: flex; flex-direction: column;
   border-right: 1px solid var(--line); background: var(--surface); overflow-y: auto;
 }
+/* El header vive en una fila junto con "+ Nueva obra" (en vez de quedar
+   pegado abajo del todo, lejos de la lista que crea) — mismo patrón que
+   Notion/Linear: la acción de crear cuelga del título de la sección. */
+.tareas-drawer-header-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  padding: 12px 8px 6px 12px;
+}
 .tareas-drawer-header {
   font-family: "IBM Plex Mono", monospace; font-size: 9px; color: var(--muted);
-  text-transform: uppercase; letter-spacing: .06em; padding: 12px 12px 6px;
-}
-.tareas-drawer-list { display: flex; flex-direction: column; flex: 1; }
-.tareas-drawer-item {
-  display: flex; align-items: center; gap: 7px; width: 100%; text-align: left;
-  background: none; border: none; padding: 8px 12px; cursor: pointer;
-  font-family: inherit; font-size: 12px; color: var(--text); transition: background .1s;
-}
-.tareas-drawer-item:hover { background: rgba(255,255,255,.03); }
-.tareas-drawer-item.sel { background: var(--accent); color: #14161A; font-weight: 600; }
-.tareas-drawer-item-nombre { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tareas-drawer-count {
-  margin-left: auto; font-family: "IBM Plex Mono", monospace; font-size: 10px; opacity: .7; flex-shrink: 0;
+  text-transform: uppercase; letter-spacing: .06em;
 }
 .tareas-drawer-add {
-  width: 100%; text-align: left; background: none; border: none; border-top: 1px solid var(--line);
-  padding: 10px 12px; color: var(--muted); font-size: 11px; font-family: inherit; cursor: pointer;
-  transition: background .1s, color .1s;
+  display: flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; flex-shrink: 0; border-radius: 5px;
+  background: none; border: 1px solid var(--line); color: var(--muted);
+  font-size: 13px; line-height: 1; font-family: inherit; cursor: pointer;
+  transition: background .1s, color .1s, border-color .1s;
 }
-.tareas-drawer-add:hover { background: rgba(255,255,255,.03); color: var(--text); }
+.tareas-drawer-add:hover { background: rgba(255,255,255,.05); color: var(--text); border-color: var(--muted); }
+.tareas-drawer-list { display: flex; flex-direction: column; flex: 1; padding-bottom: 8px; }
+.tareas-drawer-item {
+  display: flex; align-items: center; gap: 7px; width: 100%; text-align: left;
+  background: none; border: none; border-left: 2px solid transparent; padding: 7px 12px;
+  cursor: pointer; font-family: inherit; font-size: 11.5px; color: var(--muted); transition: background .1s, color .1s;
+}
+.tareas-drawer-item:hover { background: rgba(255,255,255,.03); color: var(--text); }
+/* Antes: fill sólido de acento — pesaba más que el header "Tareas" de
+   arriba. Ahora solo un borde lateral + texto en color de acento, mismo
+   lenguaje que usan las secciones de estado (tareas-seccion-pill). */
+.tareas-drawer-item.sel { background: rgba(255,122,41,.08); border-left-color: var(--accent); color: var(--accent); font-weight: 600; }
+.tareas-drawer-item-nombre { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tareas-drawer-count {
+  margin-left: auto; font-family: "IBM Plex Mono", monospace; font-size: 9.5px; opacity: .7; flex-shrink: 0;
+}
+.tareas-drawer-skeleton {
+  height: 13px; margin: 8px 12px; border-radius: 4px; background: rgba(255,255,255,.05);
+  animation: tareas-drawer-pulse 1.1s ease-in-out infinite;
+}
+@keyframes tareas-drawer-pulse { 0%,100% { opacity: .5; } 50% { opacity: 1; } }
 .tareas-main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 
 /* Vista Lista estilo ClickUp: secciones colapsables por estado, cada
@@ -838,7 +861,10 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
    4 columnas (1fr + 3 fijas) estira la columna de nombre al punto de que
    Asignado/Fecha/Prioridad quedan pegadas al borde derecho, muy lejos del
    texto — se limita el ancho de la tabla en vez de dejarla full-bleed. */
-.tareas-tabla { padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 14px; max-width: 900px; margin: 0 auto; }
+/* 1080 en vez de los 900 originales: el drawer de obras ya le resta
+   ~168px al viewport, así que el mismo techo de antes dejaba de nuevo
+   demasiado aire suelto a la derecha del contenido. */
+.tareas-tabla { padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 14px; max-width: 1080px; margin: 0 auto; }
 .tareas-seccion-header {
   display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: none;
   padding: 4px 0; cursor: pointer; font-family: inherit;
@@ -1685,9 +1711,14 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
                  carpeta que Files, ver carpetasOrden) y permite crear una obra
                  nueva (carpeta real en Drive) sin salir de esta pantalla. -->
             <div class="tareas-drawer" id="tareas-drawer">
-              <div class="tareas-drawer-header">Obras</div>
-              <div class="tareas-drawer-list" id="tareas-drawer-list"></div>
-              <button type="button" class="tareas-drawer-add" id="btn-tareas-nueva-obra">+ Nueva obra</button>
+              <div class="tareas-drawer-header-row">
+                <span class="tareas-drawer-header">Obras</span>
+                <button type="button" class="tareas-drawer-add" id="btn-tareas-nueva-obra" title="Nueva obra" aria-label="Nueva obra">+</button>
+              </div>
+              <div class="tareas-drawer-list" id="tareas-drawer-list">
+                <div class="tareas-drawer-skeleton" style="width:70%"></div>
+                <div class="tareas-drawer-skeleton" style="width:50%"></div>
+              </div>
             </div>
             <div class="tareas-main">
               <div id="tareas-vista-tabs" style="display:flex;gap:2px;margin:10px 14px 0;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius);padding:3px;width:fit-content">
@@ -5254,7 +5285,13 @@ let tareasObraFiltro = null;
 async function cargarTareas(forzar) {
   const cont = document.getElementById("tareas-contenido");
   await cargarOpcionesCustomTarea();
-  if (tareasCache && !forzar) { renderTareas(); return; }
+  // Antes esta salida temprana (cache ya cargada, ej. al volver a la
+  // pestaña Tareas) nunca reconstruía el drawer — quedaba con los
+  // contadores/obras de la última vez que sí hubo un fetch completo,
+  // o vacío/en skeleton si nunca llegó a correr. El drawer depende de
+  // los mismos datos (tareasCache + carpetasOrden), así que tiene que
+  // refrescarse en los dos caminos, no solo en el fetch completo.
+  if (tareasCache && !forzar) { renderTareasDrawer(); renderTareas(); return; }
   cont.innerHTML = `<div style="padding:32px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div>`;
 
   const tareas = [];
@@ -5512,7 +5549,7 @@ function renderTareas() {
         <div class="tareas-seccion-body" style="display:${colapsada ? "none" : "block"}">
           ${delEstado.length ? `<div class="tareas-fila tareas-fila-header">
             <span>Nombre</span><span>Asignado</span><span>Fecha límite</span><span>Prioridad</span>
-          </div>` : ""}
+          </div>` : `<p class="tareas-fila-vacio" style="padding:11px 12px;margin:0">Sin tareas</p>`}
           ${delEstado.map(t => {
             const p = prioridadTarea(t.prioridad);
             return `<button type="button" class="tareas-fila" data-id="${esc(t.id)}">
