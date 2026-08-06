@@ -865,6 +865,21 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
    ~168px al viewport, así que el mismo techo de antes dejaba de nuevo
    demasiado aire suelto a la derecha del contenido. */
 .tareas-tabla { padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 14px; max-width: 1080px; margin: 0 auto; }
+/* Estado vacío total (0 tareas): #tareas-contenido ES el .exp-scroll
+   (flex:1 dentro de .tareas-main), así que estirarlo a flex column
+   centrado ocupa el alto real disponible en vez de dejar el cartel
+   pegado arriba y el resto de la pantalla en negro. */
+#tareas-contenido.tareas-contenido-vacio { display: flex; }
+.tareas-vacio-total {
+  flex: 1; min-height: 100%; width: 100%; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 12px; padding: 40px 20px;
+  color: var(--muted); text-align: center;
+}
+.tareas-vacio-total svg { opacity: .4; }
+.tareas-vacio-total p { margin: 0; font-size: 13px; }
+/* .btn-sheet es flex:1 por defecto (pensado para filas de acciones de
+   modal) — acá es un botón suelto centrado, no debe estirarse a lo alto. */
+.tareas-vacio-total .btn-sheet { flex: 0 0 auto; width: auto; padding: 0 22px; margin-top: 4px; }
 .tareas-seccion-header {
   display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: none;
   padding: 4px 0; cursor: pointer; font-family: inherit;
@@ -5513,10 +5528,21 @@ const tareasSeccionesColapsadas = new Set();
 function renderTareas() {
   const cont = document.getElementById("tareas-contenido");
   const tareas = (tareasCache || []).filter(t => !tareasObraFiltro || t.carpetaId === tareasObraFiltro);
-  // Antes, con 0 tareas en TODA la app, se mostraba un único cartel
-  // genérico en vez de los grupos por estado — pero cada grupo ya sabe
-  // mostrarse vacío (con su "+ Añadir Tarea" propio), así que siempre
-  // conviene ver la estructura de estados, no un cartel que la tapa.
+  cont.classList.remove("tareas-contenido-vacio");
+  // Con 0 tareas en total (en toda la app, o en la obra filtrada) mostrar
+  // los 3 grupos de estado vacíos en fila deja un cartel finito arriba y
+  // una franja enorme de nada abajo — un único estado vacío centrado,
+  // que ocupa el espacio real disponible, se ve mucho menos roto.
+  if (!tareas.length) {
+    cont.classList.add("tareas-contenido-vacio");
+    cont.innerHTML = `<div class="tareas-vacio-total">
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      <p>${tareasObraFiltro ? "Esta obra todavía no tiene tareas" : "Todavía no hay tareas"}</p>
+      <button type="button" class="btn-sheet btn-sheet-primary" id="btn-tareas-vacio-nueva">+ Nueva tarea</button>
+    </div>`;
+    document.getElementById("btn-tareas-vacio-nueva").addEventListener("click", () => abrirModalTareaNueva());
+    return;
+  }
   if (tareasVistaActual === "tablero") {
     cont.innerHTML = `<div class="tareas-tablero">` + TAREAS_ESTADOS.map(e => {
       const delEstado = tareas.filter(t => t.estado === e.key);
