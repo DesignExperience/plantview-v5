@@ -671,6 +671,24 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
    sigue siendo chico — sin esto el bottom-nav desaparecía justo al rotar. */
 @media (max-width: 767px), (max-height: 500px) {
   #mode-switcher { display: none !important; }
+  /* En mobile un drawer vertical se come demasiado ancho — pasa a ser
+     una fila de chips horizontal arriba, con scroll lateral. */
+  .tareas-layout { flex-direction: column; }
+  .tareas-drawer {
+    width: 100%; flex-direction: row; align-items: center; overflow-x: auto; overflow-y: hidden;
+    border-right: none; border-bottom: 1px solid var(--line); flex-shrink: 0;
+  }
+  .tareas-drawer-header { display: none; }
+  .tareas-drawer-list { flex-direction: row; flex: 0 0 auto; }
+  .tareas-drawer-item {
+    flex-shrink: 0; width: auto; white-space: nowrap; border: 1px solid var(--line);
+    border-radius: 999px; margin: 7px 0 7px 8px; padding: 6px 12px;
+  }
+  .tareas-drawer-item.sel { border-color: var(--accent); }
+  .tareas-drawer-add {
+    flex-shrink: 0; width: auto; white-space: nowrap; border: 1px dashed var(--line);
+    border-top: 1px dashed var(--line); border-radius: 999px; margin: 7px 8px 7px 0; padding: 6px 12px;
+  }
   #bottom-nav {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 210;
     display: flex; align-items: stretch;
@@ -780,6 +798,38 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
   display: flex; align-items: center; justify-content: center;
   font-size: 8.5px; font-weight: 700; color: #fff; font-family: "Chakra Petch", sans-serif;
 }
+
+/* Drawer de obras de la pantalla Tareas — lista lateral (mismas carpetas
+   que Files, ver carpetasOrden) para filtrar la vista por obra y crear
+   una obra nueva (carpeta real en Drive). Ver renderTareasDrawer(). */
+.tareas-layout { display: flex; flex: 1; min-height: 0; }
+.tareas-drawer {
+  width: 168px; flex-shrink: 0; display: flex; flex-direction: column;
+  border-right: 1px solid var(--line); background: var(--surface); overflow-y: auto;
+}
+.tareas-drawer-header {
+  font-family: "IBM Plex Mono", monospace; font-size: 9px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .06em; padding: 12px 12px 6px;
+}
+.tareas-drawer-list { display: flex; flex-direction: column; flex: 1; }
+.tareas-drawer-item {
+  display: flex; align-items: center; gap: 7px; width: 100%; text-align: left;
+  background: none; border: none; padding: 8px 12px; cursor: pointer;
+  font-family: inherit; font-size: 12px; color: var(--text); transition: background .1s;
+}
+.tareas-drawer-item:hover { background: rgba(255,255,255,.03); }
+.tareas-drawer-item.sel { background: var(--accent); color: #14161A; font-weight: 600; }
+.tareas-drawer-item-nombre { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tareas-drawer-count {
+  margin-left: auto; font-family: "IBM Plex Mono", monospace; font-size: 10px; opacity: .7; flex-shrink: 0;
+}
+.tareas-drawer-add {
+  width: 100%; text-align: left; background: none; border: none; border-top: 1px solid var(--line);
+  padding: 10px 12px; color: var(--muted); font-size: 11px; font-family: inherit; cursor: pointer;
+  transition: background .1s, color .1s;
+}
+.tareas-drawer-add:hover { background: rgba(255,255,255,.03); color: var(--text); }
+.tareas-main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 
 /* Vista Lista estilo ClickUp: secciones colapsables por estado, cada
    una con una "tabla" de filas (Nombre / Asignado / Fecha límite /
@@ -1630,11 +1680,23 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
               Actualizar
             </button>
           </div>
-          <div id="tareas-vista-tabs" style="display:flex;gap:2px;margin:10px 14px 0;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius);padding:3px;width:fit-content">
-            <button type="button" class="tareas-vista-btn activa" data-vista="lista">Lista</button>
-            <button type="button" class="tareas-vista-btn" data-vista="tablero">Tablero</button>
+          <div class="tareas-layout">
+            <!-- Drawer de obras: filtra la vista de Tareas por carpetaId (misma
+                 carpeta que Files, ver carpetasOrden) y permite crear una obra
+                 nueva (carpeta real en Drive) sin salir de esta pantalla. -->
+            <div class="tareas-drawer" id="tareas-drawer">
+              <div class="tareas-drawer-header">Obras</div>
+              <div class="tareas-drawer-list" id="tareas-drawer-list"></div>
+              <button type="button" class="tareas-drawer-add" id="btn-tareas-nueva-obra">+ Nueva obra</button>
+            </div>
+            <div class="tareas-main">
+              <div id="tareas-vista-tabs" style="display:flex;gap:2px;margin:10px 14px 0;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius);padding:3px;width:fit-content">
+                <button type="button" class="tareas-vista-btn activa" data-vista="lista">Lista</button>
+                <button type="button" class="tareas-vista-btn" data-vista="tablero">Tablero</button>
+              </div>
+              <div class="exp-scroll" id="tareas-contenido"></div>
+            </div>
           </div>
-          <div class="exp-scroll" id="tareas-contenido"></div>
         </div>
 
       </div><!-- /explorer-stack -->
@@ -5186,6 +5248,8 @@ async function guardarTareasCarpeta(carpeta, tareas) {
 
 let tareasCache = null;
 let tareasVistaActual = "lista";
+// carpetaId de la obra elegida en el drawer, o null = "Todas".
+let tareasObraFiltro = null;
 
 async function cargarTareas(forzar) {
   const cont = document.getElementById("tareas-contenido");
@@ -5236,8 +5300,67 @@ async function cargarTareas(forzar) {
     });
   }
   tareasCache = tareas;
+  renderTareasDrawer();
   renderTareas();
 }
+
+// Drawer de obras: mismas carpetas que ve Files (carpetasOrden), con la
+// cantidad de tareas de cada una. "Todas" no filtra nada. Click reasigna
+// tareasObraFiltro y vuelve a pintar solo la tabla/tablero, no el drawer
+// entero (evita perder el scroll de la lista de obras).
+function renderTareasDrawer() {
+  const cont = document.getElementById("tareas-drawer-list");
+  if (!cont) return;
+  const tareas = tareasCache || [];
+  const obras = carpetasOrden.filter(c => c.driveId);
+  if (tareasObraFiltro && !obras.some(c => c.id === tareasObraFiltro)) tareasObraFiltro = null;
+  const filaTodas = `<button type="button" class="tareas-drawer-item${!tareasObraFiltro ? " sel" : ""}" data-obra="">
+    <span class="tareas-drawer-item-nombre">Todas</span>
+    <span class="tareas-drawer-count">${tareas.length}</span>
+  </button>`;
+  const filasObras = obras.map(c => {
+    const count = tareas.filter(t => t.carpetaId === c.id).length;
+    return `<button type="button" class="tareas-drawer-item${tareasObraFiltro === c.id ? " sel" : ""}" data-obra="${esc(c.id)}" title="${esc(c.nombre)}">
+      <span class="tareas-drawer-item-nombre">${esc(c.nombre)}</span>
+      <span class="tareas-drawer-count">${count}</span>
+    </button>`;
+  }).join("");
+  cont.innerHTML = filaTodas + filasObras;
+  cont.querySelectorAll("[data-obra]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      tareasObraFiltro = btn.dataset.obra || null;
+      renderTareasDrawer();
+      renderTareas();
+    });
+  });
+}
+
+// Crea una obra nueva de verdad: pide nombre, crea la carpeta en Drive
+// (misma raíz que las demás obras conectadas) y la registra en
+// carpetasOrden — el mismo array que usa Files, así que aparece ahí
+// también sin nada especial. Queda seleccionada en el drawer y como
+// default al abrir "Nueva tarea".
+async function crearObraNuevaDesdeTareas() {
+  if (!driveEscrituraConectada()) { showToast("Conectá la edición de Drive primero"); return; }
+  const raizId = raizDriveIdActual();
+  if (!raizId) { showToast("Conectá primero una carpeta de Google Drive"); return; }
+  const nombre = (prompt("Nombre de la obra nueva:") || "").trim();
+  if (!nombre) return;
+  try {
+    const folderId = await obtenerOCrearCarpetaDrive(nombre, raizId);
+    const carpeta = { id: "drive:" + folderId, nombre, archivos: 0, nuevos: 0, driveId: folderId, origenDrive: true, raizDriveId: raizId };
+    const idx = carpetasOrden.findIndex(c => c.id === carpeta.id);
+    if (idx >= 0) carpetasOrden[idx] = carpeta; else carpetasOrden.push(carpeta);
+    guardarOrden();
+    renderCarpetas();
+    tareasObraFiltro = carpeta.id;
+    await cargarTareas(true);
+    showToast(`✅ Obra "${nombre}" creada`);
+  } catch (err) {
+    showToast("❌ " + (err.message || "No se pudo crear la obra"));
+  }
+}
+document.getElementById("btn-tareas-nueva-obra").addEventListener("click", crearObraNuevaDesdeTareas);
 
 // Los 3 estados y 4 prioridades de acá son los que trae la app de
 // fábrica — quedan fijos como base y no se pueden borrar. TAREAS_ESTADOS
@@ -5352,7 +5475,7 @@ const tareasSeccionesColapsadas = new Set();
 
 function renderTareas() {
   const cont = document.getElementById("tareas-contenido");
-  const tareas = tareasCache || [];
+  const tareas = (tareasCache || []).filter(t => !tareasObraFiltro || t.carpetaId === tareasObraFiltro);
   // Antes, con 0 tareas en TODA la app, se mostraba un único cartel
   // genérico en vez de los grupos por estado — pero cada grupo ya sabe
   // mostrarse vacío (con su "+ Añadir Tarea" propio), así que siempre
@@ -5583,7 +5706,11 @@ function abrirModalTareaNueva(estadoInicial) {
   const conectadas = carpetasOrden.filter(c => c.driveId);
   selObra.innerHTML = conectadas.map(c => `<option value="${esc(c.id)}">${esc(c.nombre)}</option>`).join("");
   selObra.onchange = () => poblarSelectModelosTarea(selObra.value);
-  if (conectadas.length) poblarSelectModelosTarea(conectadas[0].id);
+  // Si hay una obra elegida en el drawer de Tareas, se precarga acá —
+  // menos un click para el caso común de "crear tarea de la obra que
+  // ya estoy mirando".
+  const obraDefault = conectadas.find(c => c.id === tareasObraFiltro) || conectadas[0];
+  if (obraDefault) { selObra.value = obraDefault.id; poblarSelectModelosTarea(obraDefault.id); }
   else document.getElementById("tareaModeloSel").innerHTML = "";
 
   document.getElementById("modal-tarea").classList.add("visible");
