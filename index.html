@@ -675,11 +675,14 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
      una fila de chips horizontal arriba, con scroll lateral. */
   .tareas-layout { flex-direction: column; }
   .tareas-drawer {
-    width: 100%; flex-direction: row; align-items: center; overflow-x: auto; overflow-y: hidden;
+    width: 100%; flex-direction: row; flex-wrap: wrap; align-items: center; overflow-x: auto; overflow-y: hidden;
     border-right: none; border-bottom: 1px solid var(--line); flex-shrink: 0;
   }
   .tareas-drawer-header { display: none; }
   .tareas-drawer-header-row { padding: 0; flex-shrink: 0; }
+  /* El input de nueva obra ocupa la fila entera arriba de los chips en
+     vez de sumarse como otro ítem apretado en la misma fila horizontal. */
+  .tareas-drawer-nueva-row { flex: 1 1 100%; order: -1; padding: 8px 8px 0; }
   .tareas-drawer-list { flex-direction: row; flex: 0 0 auto; }
   .tareas-drawer-item {
     flex-shrink: 0; width: auto; white-space: nowrap; border: 1px solid var(--line);
@@ -832,6 +835,23 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
   transition: background .1s, color .1s, border-color .1s;
 }
 .tareas-drawer-add:hover { background: rgba(255,255,255,.05); color: var(--text); border-color: var(--muted); }
+/* Fila inline para nombrar la obra nueva — reemplaza el prompt() nativo
+   del navegador (rompía el flujo, se veía ajeno a la app) por un input
+   dentro del propio drawer, mismo lugar donde después aparece la obra. */
+.tareas-drawer-nueva-row { display: flex; align-items: center; gap: 4px; padding: 0 8px 8px 12px; }
+.tareas-drawer-nueva-row input {
+  flex: 1; min-width: 0; height: 26px; border-radius: 6px; border: 1px solid var(--accent);
+  background: var(--surface-2); color: var(--text); font-family: inherit; font-size: 11.5px; padding: 0 8px;
+}
+.tareas-drawer-nueva-row input:focus { outline: none; }
+.tareas-drawer-nueva-row button {
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  width: 22px; height: 22px; border-radius: 5px; border: 1px solid var(--line);
+  background: none; color: var(--muted); cursor: pointer; transition: background .1s, color .1s;
+}
+.tareas-drawer-nueva-row button:hover { background: rgba(255,255,255,.05); color: var(--text); }
+#btn-tareas-nueva-obra-ok:hover { color: #4CAF7D; border-color: #4CAF7D; }
+#btn-tareas-nueva-obra-cancel:hover { color: #e0455a; border-color: #e0455a; }
 .tareas-drawer-list { display: flex; flex-direction: column; flex: 1; padding-bottom: 8px; }
 .tareas-drawer-item {
   display: flex; align-items: center; gap: 7px; width: 100%; text-align: left;
@@ -1729,6 +1749,15 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
               <div class="tareas-drawer-header-row">
                 <span class="tareas-drawer-header">Obras</span>
                 <button type="button" class="tareas-drawer-add" id="btn-tareas-nueva-obra" title="Nueva obra" aria-label="Nueva obra">+</button>
+              </div>
+              <div class="tareas-drawer-nueva-row" id="tareas-drawer-nueva-row" style="display:none">
+                <input type="text" id="tareas-drawer-nueva-input" placeholder="Nombre de la obra…" maxlength="120">
+                <button type="button" id="btn-tareas-nueva-obra-ok" title="Crear" aria-label="Crear">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg>
+                </button>
+                <button type="button" id="btn-tareas-nueva-obra-cancel" title="Cancelar" aria-label="Cancelar">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                </button>
               </div>
               <div class="tareas-drawer-list" id="tareas-drawer-list">
                 <div class="tareas-drawer-skeleton" style="width:70%"></div>
@@ -5387,17 +5416,35 @@ function renderTareasDrawer() {
   });
 }
 
-// Crea una obra nueva de verdad: pide nombre, crea la carpeta en Drive
-// (misma raíz que las demás obras conectadas) y la registra en
-// carpetasOrden — el mismo array que usa Files, así que aparece ahí
-// también sin nada especial. Queda seleccionada en el drawer y como
-// default al abrir "Nueva tarea".
-async function crearObraNuevaDesdeTareas() {
+// Fila inline "Nombre de la obra nueva" adentro del drawer, en vez de
+// prompt() nativo del navegador — mismo lugar donde la obra va a
+// aparecer una vez creada, sin sacar al usuario del flujo de la app.
+const tareasDrawerNuevaRow = document.getElementById("tareas-drawer-nueva-row");
+const tareasDrawerNuevaInput = document.getElementById("tareas-drawer-nueva-input");
+
+function abrirFormNuevaObraDrawer() {
   if (!driveEscrituraConectada()) { showToast("Conectá la edición de Drive primero"); return; }
+  if (!raizDriveIdActual()) { showToast("Conectá primero una carpeta de Google Drive"); return; }
+  tareasDrawerNuevaRow.style.display = "flex";
+  tareasDrawerNuevaInput.value = "";
+  tareasDrawerNuevaInput.focus();
+}
+function cerrarFormNuevaObraDrawer() {
+  tareasDrawerNuevaRow.style.display = "none";
+  tareasDrawerNuevaInput.value = "";
+}
+
+// Crea una obra nueva de verdad: crea la carpeta en Drive (misma raíz
+// que las demás obras conectadas) y la registra en carpetasOrden — el
+// mismo array que usa Files, así que aparece ahí también sin nada
+// especial. Queda seleccionada en el drawer y como default al abrir
+// "Nueva tarea".
+async function crearObraNuevaDesdeTareas() {
+  const nombre = tareasDrawerNuevaInput.value.trim();
+  if (!nombre) { tareasDrawerNuevaInput.focus(); return; }
   const raizId = raizDriveIdActual();
   if (!raizId) { showToast("Conectá primero una carpeta de Google Drive"); return; }
-  const nombre = (prompt("Nombre de la obra nueva:") || "").trim();
-  if (!nombre) return;
+  tareasDrawerNuevaInput.disabled = true;
   try {
     const folderId = await obtenerOCrearCarpetaDrive(nombre, raizId);
     const carpeta = { id: "drive:" + folderId, nombre, archivos: 0, nuevos: 0, driveId: folderId, origenDrive: true, raizDriveId: raizId };
@@ -5406,13 +5453,22 @@ async function crearObraNuevaDesdeTareas() {
     guardarOrden();
     renderCarpetas();
     tareasObraFiltro = carpeta.id;
+    cerrarFormNuevaObraDrawer();
     await cargarTareas(true);
     showToast(`✅ Obra "${nombre}" creada`);
   } catch (err) {
     showToast("❌ " + (err.message || "No se pudo crear la obra"));
+  } finally {
+    tareasDrawerNuevaInput.disabled = false;
   }
 }
-document.getElementById("btn-tareas-nueva-obra").addEventListener("click", crearObraNuevaDesdeTareas);
+document.getElementById("btn-tareas-nueva-obra").addEventListener("click", abrirFormNuevaObraDrawer);
+document.getElementById("btn-tareas-nueva-obra-ok").addEventListener("click", crearObraNuevaDesdeTareas);
+document.getElementById("btn-tareas-nueva-obra-cancel").addEventListener("click", cerrarFormNuevaObraDrawer);
+tareasDrawerNuevaInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") crearObraNuevaDesdeTareas();
+  else if (e.key === "Escape") cerrarFormNuevaObraDrawer();
+});
 
 // Los 3 estados y 4 prioridades de acá son los que trae la app de
 // fábrica — quedan fijos como base y no se pueden borrar. TAREAS_ESTADOS
