@@ -970,6 +970,7 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
   flex-shrink: 0; display: inline-flex; align-items: center; gap: 3px;
   font-size: 9.5px; line-height: 1; color: var(--muted);
 }
+.tareas-adjuntos-chip svg { flex-shrink: 0; }
 .tareas-adjuntos-chip b { font-family: "IBM Plex Mono", monospace; font-weight: 600; font-size: 9px; }
 .tareas-fila-fecha-txt { font-size: 10.5px; color: var(--text); font-family: "IBM Plex Mono", monospace; }
 .tareas-fila-prioridad { font-size: 9.5px; font-family: "IBM Plex Mono", monospace; }
@@ -5618,28 +5619,30 @@ function fechaCorta(iso) {
 }
 
 // Íconos de "qué tipo de archivos tiene esta tarea adjuntos", para verlo
-// de un vistazo en la fila/card sin tener que abrir el modal. Categorías
-// (no una por archivo, para no saturar la fila si hay varios del mismo
-// tipo) en el mismo orden que iconoDocTarea()/iconoTipo() del resto de
-// la app: imagen, PDF, 3D, plano, genérico.
+// de un vistazo en la fila/card sin tener que abrir el modal. Se
+// reutiliza iconoTipo() — los mismos SVG de color que ya usa Files para
+// PDF/GLB/DXF/imagen — en vez de emojis aparte, para que un adjunto se
+// vea igual acá que en el resto de la app. Categorías (no una por
+// archivo, para no saturar la fila si hay varios del mismo tipo).
 function tiposAdjuntosTarea(adjuntos) {
   if (!adjuntos || !adjuntos.length) return [];
   const set = new Set();
   adjuntos.forEach(a => {
     const n = (a.nombre || "").toLowerCase();
     const m = a.mime || "";
-    if (m.startsWith("image/") || /\.(png|jpe?g|gif|webp)$/.test(n)) set.add("🖼️");
-    else if (m === "application/pdf" || n.endsWith(".pdf")) set.add("📄");
-    else if (n.endsWith(".glb") || n.endsWith(".gltf") || n.endsWith(".stl")) set.add("🧊");
-    else if (n.endsWith(".dwg") || n.endsWith(".dxf")) set.add("📐");
-    else set.add("📎");
+    if (m.startsWith("image/") || /\.(png|jpe?g|gif|webp)$/.test(n)) set.add("imagen");
+    else if (m === "application/pdf" || n.endsWith(".pdf")) set.add("pdf");
+    else if (n.endsWith(".glb") || n.endsWith(".gltf") || n.endsWith(".stl")) set.add("glb");
+    else if (n.endsWith(".dwg") || n.endsWith(".dxf")) set.add("dxf");
+    else set.add("otro");
   });
   return [...set];
 }
 function chipsAdjuntosTarea(adjuntos) {
   const tipos = tiposAdjuntosTarea(adjuntos);
   if (!tipos.length) return "";
-  return `<span class="tareas-adjuntos-chip" title="${adjuntos.length} adjunto${adjuntos.length === 1 ? "" : "s"}">${tipos.join("")}${adjuntos.length > 1 ? ` <b>${adjuntos.length}</b>` : ""}</span>`;
+  const iconos = tipos.map(t => iconoTipo(t, 12)).join("");
+  return `<span class="tareas-adjuntos-chip" title="${adjuntos.length} adjunto${adjuntos.length === 1 ? "" : "s"}">${iconos}${adjuntos.length > 1 ? ` <b>${adjuntos.length}</b>` : ""}</span>`;
 }
 
 const tareasSeccionesColapsadas = new Set();
