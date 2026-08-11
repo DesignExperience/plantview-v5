@@ -1070,36 +1070,6 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 .sheet-drag-handle:active { cursor: grabbing; }
 .modal-sheet-flotante.arrastrando { animation: none; user-select: none; }
 
-/* Página completa de tarea (desktop, al abrir una tarea existente) —
-   estilo ClickUp: en vez del sheet flotante chico, el modal pasa a
-   cubrir toda la pantalla con breadcrumb "Obra / Tarea" + Volver
-   arriba. Ver abrirModalTareaEditar()/cerrarModalTarea(). */
-#modal-tarea.pagina-completa {
-  position: fixed; inset: 0; align-items: stretch; justify-content: stretch;
-  background: var(--bg); backdrop-filter: none; pointer-events: auto;
-}
-#modal-tarea.pagina-completa .modal-sheet-flotante {
-  width: 100%; max-width: 760px; height: 100%; max-height: 100%;
-  margin: 0 auto; border-radius: 0; border-left: 1px solid var(--line); border-right: 1px solid var(--line);
-  box-shadow: none; animation: none;
-}
-#modal-tarea.pagina-completa .sheet-x,
-#modal-tarea.pagina-completa .sheet-drag-handle { display: none; }
-.tarea-breadcrumb-bar {
-  display: flex; align-items: center; gap: 8px; width: 100%; padding-bottom: 10px;
-  border-bottom: 1px solid var(--line); margin-bottom: 4px;
-  font-family: "IBM Plex Mono", monospace; font-size: 11.5px;
-}
-.tarea-breadcrumb-back {
-  display: flex; align-items: center; gap: 4px; background: none; border: 1px solid var(--line);
-  border-radius: 7px; color: var(--text); font-family: inherit; font-size: 11px; font-weight: 600;
-  padding: 5px 10px 5px 7px; cursor: pointer; transition: background .1s;
-}
-.tarea-breadcrumb-back:hover { background: rgba(255,255,255,.05); }
-.tarea-breadcrumb-sep { color: var(--muted); opacity: .5; }
-.tarea-breadcrumb-obra { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
-.tarea-breadcrumb-nombre { color: var(--text); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
-
 /* Adjuntos y comentarios dentro del detalle de tarea — estilo ClickUp:
    miniaturas de imagen con botón para quitar, e hilo de comentarios de
    texto con fecha. Ver renderAdjuntosTarea/renderComentariosTarea. */
@@ -2008,21 +1978,6 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 <div class="modal-overlay modal-overlay-flotante" id="modal-tarea">
   <div class="modal-sheet modal-sheet-flotante">
     <button class="sheet-x" id="btn-tarea-x" aria-label="Cerrar">×</button>
-    <!-- Breadcrumb estilo ClickUp — solo se muestra al editar una tarea
-         existente en desktop (ver abrirModalTareaEditar), cuando el
-         modal pasa a ser página completa en vez de sheet flotante.
-         En mobile y al crear una tarea nueva sigue el drag-handle de
-         siempre. -->
-    <div class="tarea-breadcrumb-bar" id="tarea-breadcrumb-bar" style="display:none">
-      <button type="button" id="btn-tarea-volver" class="tarea-breadcrumb-back">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M15 18l-6-6 6-6"/></svg>
-        Volver
-      </button>
-      <span class="tarea-breadcrumb-sep">/</span>
-      <span class="tarea-breadcrumb-obra" id="tarea-breadcrumb-obra"></span>
-      <span class="tarea-breadcrumb-sep">/</span>
-      <span class="tarea-breadcrumb-nombre" id="tarea-breadcrumb-nombre"></span>
-    </div>
     <div class="sheet-drag-handle" id="tarea-drag-handle">
       <div class="sheet-handle"></div>
       <p class="sheet-title" id="tarea-modal-titulo">Nueva tarea</p>
@@ -5881,7 +5836,6 @@ function habilitarModalFlotante(overlayId, handleId) {
 
   handle.addEventListener("pointerdown", (e) => {
     if (esMobileUI()) return; // en mobile es pantalla completa fija, no flota ni se arrastra
-    if (overlay.classList.contains("pagina-completa")) return; // desktop en modo página completa: tampoco flota
     if (e.target.closest("button, input, select, textarea, a")) return;
     const rect = sheet.getBoundingClientRect();
     offsetX = e.clientX - rect.left;
@@ -5914,10 +5868,6 @@ function abrirModalTareaNueva(estadoInicial) {
   // fuera de la pantalla si cambió el tamaño de ventana).
   const hojaTarea = document.querySelector("#modal-tarea .modal-sheet");
   hojaTarea.style.position = ""; hojaTarea.style.left = ""; hojaTarea.style.top = ""; hojaTarea.style.margin = ""; hojaTarea.style.width = "";
-  // "Nueva tarea" siempre es el sheet flotante chico de siempre, aunque
-  // la última tarea abierta haya quedado en página completa (editar).
-  document.getElementById("modal-tarea").classList.remove("pagina-completa");
-  document.getElementById("tarea-breadcrumb-bar").style.display = "none";
   tareaModalEditando = null;
   document.getElementById("tarea-modal-titulo").textContent = "Nueva tarea";
   document.getElementById("tarea-campo-obra").style.display = "flex";
@@ -5970,17 +5920,6 @@ async function abrirModalTareaEditar(t) {
   crearSelectorPrioridadTarea(document.getElementById("tareaPrioridades"), t.prioridad);
   document.getElementById("btn-tarea-abrir3d").style.display = t.archivoDriveId ? "" : "none";
   document.getElementById("btn-tarea-eliminar").style.display = "";
-  // En desktop, abrir una tarea existente pasa a ser una página completa
-  // (estilo ClickUp) en vez del sheet flotante chico — con breadcrumb
-  // "Obra / Tarea" y un botón Volver arriba. En mobile sigue siendo el
-  // sheet de siempre (ahí ya se abre a pantalla completa por su cuenta,
-  // ver esMobileUI() en habilitarModalFlotante).
-  const modalTareaEl = document.getElementById("modal-tarea");
-  modalTareaEl.classList.toggle("pagina-completa", isDesktop());
-  const breadcrumbBar = document.getElementById("tarea-breadcrumb-bar");
-  breadcrumbBar.style.display = isDesktop() ? "flex" : "none";
-  document.getElementById("tarea-breadcrumb-obra").textContent = t.modeloNombre ? `${t.obraNombre} / ${t.modeloNombre}` : t.obraNombre;
-  document.getElementById("tarea-breadcrumb-nombre").textContent = t.texto || "(sin texto)";
   document.getElementById("modal-tarea").classList.add("visible");
   actualizarLoginTarea();
 
@@ -6655,11 +6594,7 @@ async function eliminarTareaDesdeModal() {
 }
 
 document.getElementById("btn-tareas-nueva").addEventListener("click", () => abrirModalTareaNueva());
-function cerrarModalTarea() {
-  document.getElementById("modal-tarea").classList.remove("visible");
-}
-document.getElementById("btn-tarea-x").addEventListener("click", cerrarModalTarea);
-document.getElementById("btn-tarea-volver").addEventListener("click", cerrarModalTarea);
+document.getElementById("btn-tarea-x").addEventListener("click", () => document.getElementById("modal-tarea").classList.remove("visible"));
 document.getElementById("btn-tarea-conectar-drive").addEventListener("click", conectarEscrituraDrive);
 document.getElementById("tarea-login-banner-top").addEventListener("click", conectarEscrituraDrive);
 document.getElementById("btn-tarea-guardar").addEventListener("click", () => guardarTareaDesdeModal(true));
