@@ -961,7 +961,16 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 .tareas-fila:active { background: var(--surface); }
 .tareas-fila-nombre { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .tareas-fila-texto { font-size: 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tareas-fila-origen { font-size: 9.5px; color: var(--muted); font-family: "IBM Plex Mono", monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tareas-fila-origen { font-size: 9.5px; color: var(--muted); font-family: "IBM Plex Mono", monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* Fila (obra/modelo + chip de adjuntos) en flex propio para que el chip
+   nunca se corte con la elipsis del texto de origen, sin importar cuán
+   largo sea el nombre de la obra. */
+.tareas-fila-origen-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.tareas-adjuntos-chip {
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 3px;
+  font-size: 9.5px; line-height: 1; color: var(--muted);
+}
+.tareas-adjuntos-chip b { font-family: "IBM Plex Mono", monospace; font-weight: 600; font-size: 9px; }
 .tareas-fila-fecha-txt { font-size: 10.5px; color: var(--text); font-family: "IBM Plex Mono", monospace; }
 .tareas-fila-prioridad { font-size: 9.5px; font-family: "IBM Plex Mono", monospace; }
 .tareas-fila-vacio { color: var(--muted); font-size: 11px; }
@@ -5386,6 +5395,7 @@ async function cargarTareas(forzar) {
           obraNombre: carpeta.nombre,
           carpetaId: carpeta.id,
           archivoDriveId: modelo.driveId,
+          adjuntos: n.adjuntos || [],
         });
       });
     }
@@ -5404,6 +5414,7 @@ async function cargarTareas(forzar) {
         obraNombre: carpeta.nombre,
         carpetaId: carpeta.id,
         archivoDriveId: null,
+        adjuntos: n.adjuntos || [],
       });
     });
   }
@@ -5606,6 +5617,31 @@ function fechaCorta(iso) {
   return `${d}/${m}`;
 }
 
+// Íconos de "qué tipo de archivos tiene esta tarea adjuntos", para verlo
+// de un vistazo en la fila/card sin tener que abrir el modal. Categorías
+// (no una por archivo, para no saturar la fila si hay varios del mismo
+// tipo) en el mismo orden que iconoDocTarea()/iconoTipo() del resto de
+// la app: imagen, PDF, 3D, plano, genérico.
+function tiposAdjuntosTarea(adjuntos) {
+  if (!adjuntos || !adjuntos.length) return [];
+  const set = new Set();
+  adjuntos.forEach(a => {
+    const n = (a.nombre || "").toLowerCase();
+    const m = a.mime || "";
+    if (m.startsWith("image/") || /\.(png|jpe?g|gif|webp)$/.test(n)) set.add("🖼️");
+    else if (m === "application/pdf" || n.endsWith(".pdf")) set.add("📄");
+    else if (n.endsWith(".glb") || n.endsWith(".gltf") || n.endsWith(".stl")) set.add("🧊");
+    else if (n.endsWith(".dwg") || n.endsWith(".dxf")) set.add("📐");
+    else set.add("📎");
+  });
+  return [...set];
+}
+function chipsAdjuntosTarea(adjuntos) {
+  const tipos = tiposAdjuntosTarea(adjuntos);
+  if (!tipos.length) return "";
+  return `<span class="tareas-adjuntos-chip" title="${adjuntos.length} adjunto${adjuntos.length === 1 ? "" : "s"}">${tipos.join("")}${adjuntos.length > 1 ? ` <b>${adjuntos.length}</b>` : ""}</span>`;
+}
+
 const tareasSeccionesColapsadas = new Set();
 
 function renderTareas() {
@@ -5635,7 +5671,7 @@ function renderTareas() {
           const p = prioridadTarea(t.prioridad);
           return `<button type="button" class="tarea-card" data-id="${esc(t.id)}">
           <span class="tarea-card-texto">${esc(t.texto)}</span>
-          <span class="tarea-card-meta">${esc(t.pieza || "—")} · ${esc(t.obraNombre)}</span>
+          <span class="tarea-card-meta">${esc(t.pieza || "—")} · ${esc(t.obraNombre)}${chipsAdjuntosTarea(t.adjuntos)}</span>
           <span class="tarea-card-footer">
             <span class="tarea-card-prioridad" style="color:${p.color}">🚩 ${esc(p.label)}</span>
             ${t.fechaLimite ? `<span class="tarea-card-fecha">${esc(fechaCorta(t.fechaLimite))}</span>` : ""}
@@ -5665,7 +5701,10 @@ function renderTareas() {
             <span class="tareas-fila-nombre">
               ${t.pieza ? `<span class="tarea-item-pieza">${esc(t.pieza)}</span>` : ""}
               <span class="tareas-fila-texto">${esc(t.texto)}</span>
-              <span class="tareas-fila-origen">${esc(t.obraNombre)}${t.modeloNombre ? " / " + esc(t.modeloNombre) : " (general)"}</span>
+              <span class="tareas-fila-origen-row">
+                <span class="tareas-fila-origen">${esc(t.obraNombre)}${t.modeloNombre ? " / " + esc(t.modeloNombre) : " (general)"}</span>
+                ${chipsAdjuntosTarea(t.adjuntos)}
+              </span>
             </span>
             <span>${t.asignado ? `<span class="tarea-avatar" style="background:${colorDeTexto(t.asignado)}" title="${esc(t.asignado)}">${esc(inicialesAsignado(t.asignado))}</span>` : `<span class="tareas-fila-vacio">—</span>`}</span>
             <span class="tareas-fila-fecha-txt">${t.fechaLimite ? esc(fechaCorta(t.fechaLimite)) : `<span class="tareas-fila-vacio">—</span>`}</span>
