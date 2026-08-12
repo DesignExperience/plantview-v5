@@ -2101,10 +2101,15 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
       <p style="font-size:11px;color:var(--muted);margin-top:10px">Leyendo el rótulo del plano…</p>
     </div>
     <div id="editor-plano-form" style="display:none;width:100%;flex-direction:column;gap:12px">
+      <p style="margin:0;font-size:10.5px;color:var(--muted);line-height:1.5">
+        Esta plantilla no se modifica. Al guardar se genera un plano nuevo y se sube a
+        <b style="color:var(--text)">Obra / Estandar</b> — el campo "Obra" de abajo tiene que
+        coincidir con el código o nombre de una obra ya conectada (ej. "4299").
+      </p>
       <div id="editor-plano-aviso" style="display:none;font-size:10.5px;color:var(--muted);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px"></div>
       <div id="editor-plano-campos" style="display:flex;flex-direction:column;gap:10px"></div>
       <div class="sheet-actions" style="width:100%">
-        <button class="btn-sheet btn-sheet-primary" id="btn-editor-plano-guardar" style="width:100%">Guardar y subir a Drive</button>
+        <button class="btn-sheet btn-sheet-primary" id="btn-editor-plano-guardar" style="width:100%">Generar plano y subir a Drive</button>
       </div>
     </div>
   </div>
@@ -7012,14 +7017,12 @@ function detectarCamposPlano(items) {
   return campos;
 }
 
-let editorPlanoArchivo = null;   // {nombre, driveId, ...} — el archivo que se está editando
-let editorPlanoCarpeta = null;   // carpeta de destino al re-subir (misma de origen)
-let editorPlanoBytes = null;     // ArrayBuffer del PDF original
+let editorPlanoArchivo = null;   // {nombre, driveId, ...} — el archivo (plantilla) que se está leyendo
+let editorPlanoBytes = null;     // ArrayBuffer del PDF original — nunca se vuelve a subir tal cual
 let editorPlanoCampos = [];      // detectarCamposPlano(...)
 
 async function abrirEditorPlano(archivo) {
   editorPlanoArchivo = archivo;
-  editorPlanoCarpeta = state.carpetaActual;
   document.getElementById("editor-plano-titulo").textContent = archivo.nombre;
   document.getElementById("editor-plano-cargando").style.display = "block";
   document.getElementById("editor-plano-form").style.display = "none";
@@ -7072,11 +7075,42 @@ function renderEditorPlanoForm() {
   `).join("");
 }
 
+// Busca, entre las obras ya conectadas (mismas que ve Files/el drawer de
+// Tareas), la que coincide con lo que se escribió en el campo "Obra:"
+// del rótulo — ej. tipeás "4299" y matchea la carpeta "4299 - SALTA".
+// Comparación laxa a propósito: el rótulo suele traer solo el código
+// (4299), mientras que el nombre de la carpeta trae código + nombre.
+function buscarObraPorValorObra(valor) {
+  const v = (valor || "").trim().toLowerCase();
+  if (!v) return null;
+  const candidatas = carpetasOrden.filter(c => c.driveId && !esCarpetaPlanosEstandar(c));
+  return candidatas.find(c => c.nombre.toLowerCase() === v)
+      || candidatas.find(c => c.nombre.toLowerCase().includes(v))
+      || candidatas.find(c => v.includes(c.nombre.toLowerCase()))
+      || null;
+}
+
 async function guardarEdicionPlano() {
   const btn = document.getElementById("btn-editor-plano-guardar");
   btn.disabled = true;
   btn.textContent = "Guardando…";
   try {
+    // La plantilla original (acá, editorPlanoBytes) nunca se vuelve a
+    // subir a "Planos Estándar" — se genera un plano NUEVO a partir de
+    // ella y se manda a Obra/Estandar/, la plantilla queda intacta.
+    const camposObra = editorPlanoCampos
+      .map((c, i) => ({ campo: c, input: document.querySelector(`#editor-plano-campos input[data-campo-idx="${i}"]`) }))
+      .filter(x => x.campo.etiqueta === "Obra:" && x.input);
+    let obraDestino = null;
+    for (const { input } of camposObra) {
+      obraDestino = buscarObraPorValorObra(input.value);
+      if (obraDestino) break;
+    }
+    if (!obraDestino) {
+      showToast("❌ No se encontró ninguna obra que coincida con el campo Obra — revisá el valor (ej. el código de obra) e intentá de nuevo.");
+      return;
+    }
+
     const { PDFDocument, rgb, StandardFonts } = PDFLib;
     const pdfDoc = await PDFDocument.load(editorPlanoBytes);
     const page = pdfDoc.getPage(0);
@@ -7104,20 +7138,16 @@ async function guardarEdicionPlano() {
 
     const bytes = await pdfDoc.save();
     const blob = new Blob([bytes], { type: "application/pdf" });
-    // Mismo nombre, misma carpeta -> subirArchivoADriveConProgreso ya
-    // sabe pisar el archivo existente en vez de duplicarlo (ver su
-    // propia lógica de "buscar por nombre, PATCH si existe").
-    await subirArchivoADriveConProgreso(editorPlanoArchivo.nombre, blob, editorPlanoCarpeta.driveId, () => {});
+    const carpetaEstandarDeObra = await obtenerOCrearCarpetaDrive("Estandar", obraDestino.driveId);
+    await subirArchivoADriveConProgreso(editorPlanoArchivo.nombre, blob, carpetaEstandarDeObra, () => {});
 
-    showToast(`✅ "${editorPlanoArchivo.nombre}" actualizado`);
+    showToast(`✅ Plano generado en "${obraDestino.nombre} / Estandar"`);
     document.getElementById("modal-editor-plano").classList.remove("visible");
-    if (state.archivosFS[editorPlanoCarpeta.id]) delete state.archivosFS[editorPlanoCarpeta.id];
-    if (state.carpetaActual?.id === editorPlanoCarpeta.id) cargarArchivosDrive(editorPlanoCarpeta);
   } catch (e) {
     showToast("❌ " + (e.message || "No se pudo guardar el plano"));
   } finally {
     btn.disabled = false;
-    btn.textContent = "Guardar y subir a Drive";
+    btn.textContent = "Generar plano y subir a Drive";
   }
 }
 
