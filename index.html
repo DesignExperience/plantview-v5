@@ -4247,19 +4247,34 @@ async function renderizarPDF() {
   // se dibuja cuando la página está visible o a punto de estarlo — como
   // hace cualquier visor real (Chrome, Adobe, Preview) con documentos
   // largos, en vez de congelar la UI renderizando las 80 páginas de una.
+  // Techo de tamaño del BUFFER interno del canvas (no del tamaño visual
+  // en pantalla, que sigue el zoom pedido tal cual) — los navegadores
+  // tienen un límite de área/lado para canvas (varía según navegador y
+  // dispositivo, en mobile puede ser bastante más bajo). Con zoom alto
+  // sobre un plano grande (A2/A1), viewport*dpr lo supera fácil y el
+  // canvas queda en blanco SIN ningún error visible ni en consola — el
+  // bug real detrás de "hago más zoom y pierdo el PDF". 8192px es
+  // conservador (entra cómodo en cualquier navegador/dispositivo común).
+  const MAX_CANVAS_DIM = 8192;
+
   const paginas = [];
   for (let n = 1; n <= total; n++) {
     const page = await pdfDoc.getPage(n);
     const viewport = page.getViewport({ scale: pdfZoom });
+    // Si el buffer a dpr completo se pasaría del techo, se baja la
+    // resolución interna (puede terminar bajo 1x en planos muy grandes
+    // a zoom muy alto) — el canvas se ve un poco menos nítido en ese
+    // caso extremo, pero nunca queda en blanco.
+    const dprEfectivo = Math.max(0.2, Math.min(dpr, MAX_CANVAS_DIM / viewport.width, MAX_CANVAS_DIM / viewport.height));
     const canvas = document.createElement("canvas");
     canvas.className = "pdf-page-canvas";
-    canvas.width = Math.floor(viewport.width * dpr);
-    canvas.height = Math.floor(viewport.height * dpr);
+    canvas.width = Math.floor(viewport.width * dprEfectivo);
+    canvas.height = Math.floor(viewport.height * dprEfectivo);
     canvas.style.width = viewport.width + "px";
     canvas.style.height = viewport.height + "px";
     canvas.dataset.pagina = n;
     wrap.appendChild(canvas);
-    paginas.push({ n, page, viewport, canvas, renderizada: false });
+    paginas.push({ n, page, viewport, canvas, renderizada: false, dprEfectivo });
   }
 
   async function renderPagina(item) {
@@ -4269,7 +4284,7 @@ async function renderizarPDF() {
     await item.page.render({
       canvasContext: ctx,
       viewport: item.viewport,
-      transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : undefined,
+      transform: item.dprEfectivo !== 1 ? [item.dprEfectivo, 0, 0, item.dprEfectivo, 0, 0] : undefined,
     }).promise;
   }
 
