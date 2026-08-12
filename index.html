@@ -3349,11 +3349,13 @@ let pdfZoom = 1.0;
 // Antes 3.0 estaba repetido como número mágico en 4 lugares (botón +,
 // pellizco táctil, rueda con Ctrl/Cmd) — quedaba "trabado" en 300% ahí.
 // Una sola constante: subir el techo es cambiar un solo número, no
-// buscar los 4 lugares. 8x alcanza para leer el detalle de un rótulo
-// sin generar canvases desmesurados (buffer = viewport*dpr*zoom, un
-// techo demasiado alto en un plano grande puede quedarse sin memoria).
+// buscar los 4 lugares. 20x da bastante más margen que el visor nativo
+// de Chrome (tope ~500%) — se puede subir así de tranquilo porque
+// renderizarPDF() ya separa "zoom pedido" de "resolución del buffer"
+// (MAX_CANVAS_DIM): a este nivel de zoom en un plano grande se va a
+// ver menos nítido, pero nunca se rompe ni queda en blanco.
 const PDF_ZOOM_MIN = 0.4;
-const PDF_ZOOM_MAX = 8.0;
+const PDF_ZOOM_MAX = 20.0;
 // La pestaña "PDF / Images" puede tener cargado un PDF O una imagen (nunca
 // los dos a la vez) — esta bandera dice cuál de los dos hay que mostrar
 // cuando se vuelve a esa pestaña sin reabrir nada.
