@@ -8998,6 +8998,9 @@ window.onerror=function(msg,src,line){
   <button class="topbar-btn" id="bZones" title="Zonas">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
   </button>
+  <button class="topbar-btn" id="bEdges" title="Aristas">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l9-5 9 5-9 5-9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg>
+  </button>
 </div>
 
 <div class="mode-pill" id="modePill">Órbita libre</div>
@@ -9731,6 +9734,7 @@ async function buildSceneFromGLB(glbData, selectedIndices){
   });
   scene.add(gridHelper);scene.add(floor);
   zoneGroups={};allMeshes=[];ZONES=[];
+  limpiarAristas(); // las líneas viejas ya se fueron con sus meshes (eran hijas), pero hay que soltar las referencias/geometrías
   Object.keys(notaMeshCache).forEach(id=>delete notaMeshCache[id]); // modelo nuevo: las piezas cacheadas del anterior ya no existen
   BADGE_ANCHORS.length=0;
   badgesSvg.innerHTML='';
@@ -9829,6 +9833,12 @@ async function buildSceneFromGLB(glbData, selectedIndices){
         dbg(` Fusión falló (${fusionErr.message||fusionErr}) — sigo con meshes individuales`);
       }
     }
+
+    // Si el toggle de Aristas ya estaba activado (de un modelo anterior),
+    // se reconstruyen para este modelo nuevo — después de la fusión de
+    // arriba, no antes, para no calcular aristas sobre meshes que la
+    // fusión va a descartar.
+    if(edgesVisible){ construirAristas(); edgeLines.forEach(l=>l.visible=true); }
 
     await new Promise(r=>setTimeout(r,100));
     renderer.render(scene,camera);
@@ -10219,6 +10229,37 @@ function placeSTLInScene(stlGroup,zoneId){
   const stlCenter=new THREE.Box3().setFromObject(stlGroup).getCenter(new THREE.Vector3());
   target.copy(stlCenter);
   camera.lookAt(target);
+}
+
+// ── ARISTAS (edges, estilo eDrawings) ───────────────────────────────
+// Se arman una sola vez por modelo (lazy, recién al activar el toggle
+// por primera vez — no en cada carga, para no sumar draw calls de
+// entrada en ensambles pesados) y se cuelgan como HIJAS de cada mesh
+// en vez de posicionarse a mano con matrixWorld: así siguen a la pieza
+// sola aunque se mueva (ej. vista de Explosión), sin tener que
+// resincronizar nada. Un solo material compartido (mismo criterio que
+// getCachedMat: no crear N materiales idénticos en GPU).
+let edgesVisible=false;
+let edgesConstruidas=false;
+let edgeLines=[];
+const ARISTA_MAT=new THREE.LineBasicMaterial({color:0x1a1a1a});
+function construirAristas(){
+  if(edgesConstruidas) return;
+  allMeshes.forEach(mesh=>{
+    if(!mesh.geometry) return;
+    const geo=new THREE.EdgesGeometry(mesh.geometry, 15); // 15° = solo aristas "duras", no marca cada faceta de una superficie curva
+    const line=new THREE.LineSegments(geo, ARISTA_MAT);
+    line.visible=edgesVisible;
+    line.userData.esArista=true;
+    mesh.add(line);
+    edgeLines.push(line);
+  });
+  edgesConstruidas=true;
+}
+function limpiarAristas(){
+  edgeLines.forEach(l=>{ l.parent?.remove(l); l.geometry.dispose(); });
+  edgeLines=[];
+  edgesConstruidas=false;
 }
 
 // ── BADGE SYSTEM ─────────────────────────────────────────────────────
@@ -12891,6 +12932,7 @@ function renderImportLibrary(){
     </div></div>`;
   document.getElementById('libClearBtn').onclick=()=>{
     currentGlbData=null;ZONES=[];zoneGroups={};allMeshes=[];
+    limpiarAristas();
     [...scene.children].forEach(o=>{if(o!==gridHelper&&o!==floor&&!(o instanceof THREE.Light))scene.remove(o);});
     scene.add(gridHelper);scene.add(floor);
     buildZonesPanel();renderImportLibrary();
@@ -12909,6 +12951,15 @@ document.getElementById('bBadges').onclick=()=>{
     Object.keys(badgeMarkerEls).forEach(k=>delete badgeMarkerEls[k]); // si no, al reactivar quedarían apuntando a nodos ya sacados del DOM
   }
   toast(badgesVisible?'Globos activados':'Globos desactivados');
+};
+
+// ── ARISTAS TOGGLE ───────────────────────────────────────────────────
+document.getElementById('bEdges').onclick=()=>{
+  edgesVisible=!edgesVisible;
+  document.getElementById('bEdges').classList.toggle('on',edgesVisible);
+  if(edgesVisible) construirAristas(); // primera vez que se activa: las arma
+  edgeLines.forEach(l=>l.visible=edgesVisible);
+  toast(edgesVisible?'Aristas activadas':'Aristas desactivadas');
 };
 
 
