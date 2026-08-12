@@ -4457,8 +4457,16 @@ async function renderizarPDF() {
     canvas.className = "pdf-page-canvas";
     canvas.width = Math.floor(viewport.width * dprEfectivo);
     canvas.height = Math.floor(viewport.height * dprEfectivo);
+    // Solo se fija el ancho por JS — el alto se deja que lo resuelva
+    // height:auto del CSS a partir de la proporción real del canvas
+    // (sus atributos width/height en px, seteados arriba). Fijar EL
+    // ALTO también acá por JS (como estaba antes) es un estilo inline,
+    // y un estilo inline le gana SIEMPRE a cualquier regla del
+    // <style>, sin importar la especificidad — el height:auto de
+    // .pdf-page-canvas quedaba pisado en silencio, así que al achicar
+    // el panel (max-width:100% sí aplica, es otra propiedad) el ancho
+    // se achicaba pero el alto se quedaba fijo: la distorsión.
     canvas.style.width = viewport.width + "px";
-    canvas.style.height = viewport.height + "px";
     canvas.dataset.pagina = n;
     wrap.appendChild(canvas);
     paginas.push({ n, page, viewport, canvas, renderizada: false, dprEfectivo });
