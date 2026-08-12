@@ -35,6 +35,11 @@
      solo puede usar las 14 fuentes "standard" de PDF (Helvetica, etc),
      ninguna de las cuales es DIN. -->
 <script src="https://cdn.jsdelivr.net/npm/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js"></script>
+<!-- JSZip: descarga múltiple de Files como un solo .zip (ver
+     btn-descargar-seleccion) en vez de disparar N descargas sueltas,
+     que la mayoría de los navegadores bloquea/pregunta a partir de la
+     segunda. -->
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <!-- QR "calado" (para cortar/perforar en chapa con láser) — qrcode-generator
      expone la matriz cruda de módulos (qrcodejs de arriba no la expone, solo
      renderiza), y jsQR decodifica de vuelta el resultado para verificar que
@@ -761,15 +766,25 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
   border-radius: 50%; flex: none; animation: blink 1.4s ease infinite;
 }
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
-.file-actions { flex: none; }
-.btn-qr {
-  width: 30px; height: 30px;
+.file-actions { flex: none; display: flex; align-items: center; gap: 6px; }
+.btn-qr, .btn-editar-campos, .btn-descargar {
+  width: 30px; height: 30px; flex: none;
   display: flex; align-items: center; justify-content: center;
   border: 1px solid var(--line); border-radius: var(--radius);
   background: var(--surface-2); color: var(--muted);
   transition: border-color .15s, color .15s;
 }
 .btn-qr:active { border-color: var(--accent); color: var(--accent); }
+.btn-editar-campos:active { border-color: var(--accent); color: var(--accent); }
+.btn-descargar:active { border-color: var(--accent2); color: var(--accent2); }
+
+/* Selección múltiple de Files (ver btn-seleccionar-archivos): checkbox
+   oculto hasta que el modo esté activo, mismo lenguaje visual (borde +
+   fondo tenue de acento) que ya usan las filas seleccionadas del
+   explorador de "Documentación asociada" de Tareas. */
+.file-item-check { display: none; flex: none; width: 16px; height: 16px; accent-color: var(--accent); }
+#file-list.modo-seleccion .file-item-check { display: block; }
+.file-item.sel { border-color: var(--accent); background: rgba(255,122,41,.07); }
 
 /* Pantalla Tareas — lista/tablero de notas marcadas como tarea/OT,
    juntadas de todos los modelos de todas las obras conectadas. */
@@ -1628,6 +1643,9 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
           <button class="btn-pdf-nav" id="imagen-zoom-in" title="Acercar">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
           </button>
+          <button class="btn-pdf-nav" id="imagen-print" title="Imprimir">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6,9 6,2 18,2 18,9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+          </button>
         </div>
         <div id="visor-imagen-wrap">
           <img id="visor-imagen" alt="">
@@ -1660,6 +1678,9 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
             </button>
           </div>
+          <button class="btn-pdf-nav" id="pdf-print" title="Imprimir">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6,9 6,2 18,2 18,9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+          </button>
         </div>
 
         <!-- PDF.js canvas area -->
@@ -1761,7 +1782,7 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
             </div>
           </div>
           <div class="exp-scroll">
-            <div class="upload-bar">
+            <div class="upload-bar" id="file-upload-bar">
               <button class="btn-upload-sm" id="btn-upload-sm" type="button">
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0-12 4 4m-4-4-4 4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
                 Subir
@@ -1770,7 +1791,21 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="10.6" x2="15.4" y2="6.4"/><line x1="8.6" y1="13.4" x2="15.4" y2="17.6"/></svg>
                 Compartir
               </button>
+              <button class="btn-upload-sm" id="btn-seleccionar-archivos" type="button">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                Seleccionar
+              </button>
               <div class="drop-zone-active" id="drop-active">Soltá acá</div>
+            </div>
+            <!-- Barra de selección múltiple — reemplaza la de arriba mientras
+                 modoSeleccionArchivos está activo (ver renderArchivos()). -->
+            <div class="upload-bar" id="file-seleccion-bar" style="display:none">
+              <span id="file-seleccion-contador" class="tareas-vacio-chico">0 seleccionados</span>
+              <button class="btn-upload-sm" id="btn-descargar-seleccion" type="button" disabled>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Descargar
+              </button>
+              <button class="btn-upload-sm" id="btn-cancelar-seleccion" type="button">Cancelar</button>
             </div>
             <div class="file-list" id="file-list"></div>
           </div>
@@ -3246,8 +3281,10 @@ function renderArchivos(filtro) {
     const esPDF    = f.tipo === "pdf";
     const esEditable = esPDF && esCarpetaPlanosEstandar(state.carpetaActual);
     const rev      = revisionDe(f.nombre);
+    const seleccionado = archivosSeleccionados.has(f.id);
     return `
-    <div class="file-item${esActivo?' activo-visor':''}" data-idx="${i}" id="file-${esc(f.id)}" role="button" tabindex="0" aria-label="Abrir ${esc(f.nombre)}">
+    <div class="file-item${esActivo?' activo-visor':''}${seleccionado?' sel':''}" data-idx="${i}" id="file-${esc(f.id)}" role="button" tabindex="0" aria-label="Abrir ${esc(f.nombre)}">
+      <input type="checkbox" class="file-item-check" ${seleccionado?"checked":""} tabindex="-1">
       ${iconoTipo(f.tipo)}
       <span class="file-info">
         <span class="file-name">${esc(f.nombre)}</span>
@@ -3273,6 +3310,11 @@ function renderArchivos(filtro) {
             <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
           </svg>
         </button>` : ""}
+        <button class="btn-descargar" data-descargar-idx="${i}" type="button" title="Descargar">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+        </button>
         <button class="btn-qr" data-qr-idx="${i}" type="button" title="QR" aria-label="Ver QR">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
             <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
@@ -3291,7 +3333,9 @@ function renderArchivos(filtro) {
       if (e.target.closest(".btn-qr")) return;
       if (e.target.closest(".btn-pdf-preview")) return;
       if (e.target.closest(".btn-editar-campos")) return;
+      if (e.target.closest(".btn-descargar")) return;
       const f = window._archivos_actuales[Number(el.dataset.idx)];
+      if (modoSeleccionArchivos) { alternarSeleccionArchivo(f, el); return; }
       abrirVisor(f);
     });
     // Las filas son divs con role="button" — Enter/Espacio deben abrir igual que el clic
@@ -3299,7 +3343,9 @@ function renderArchivos(filtro) {
       if (e.key !== "Enter" && e.key !== " ") return;
       if (e.target !== el) return;
       e.preventDefault();
-      abrirVisor(window._archivos_actuales[Number(el.dataset.idx)]);
+      const f = window._archivos_actuales[Number(el.dataset.idx)];
+      if (modoSeleccionArchivos) { alternarSeleccionArchivo(f, el); return; }
+      abrirVisor(f);
     });
   });
   lista.querySelectorAll(".btn-qr").forEach(btn => {
@@ -3316,6 +3362,20 @@ function renderArchivos(filtro) {
       abrirEditorPlano(f);
     });
   });
+  lista.querySelectorAll(".btn-descargar").forEach(btn => {
+    btn.addEventListener("click", async e => {
+      e.stopPropagation();
+      const f = window._archivos_actuales[Number(btn.dataset.descargarIdx)];
+      btn.disabled = true;
+      try {
+        descargarBlob(new Blob([await obtenerBytesArchivo(f)]), f.nombre);
+      } catch (err) {
+        showToast("❌ No se pudo descargar: " + (err.message || err));
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  });
   // Botón preview PDF en panel derecho
   lista.querySelectorAll(".btn-pdf-preview").forEach(btn => {
     btn.addEventListener("click", e => {
@@ -3325,6 +3385,95 @@ function renderArchivos(filtro) {
     });
   });
 }
+
+// Selección múltiple de Files, mismo patrón (Map por id + clase .sel +
+// checkbox sincronizado) que ya usa el explorador de "Documentación
+// asociada" de Tareas (tareaExploradorSeleccion) — acá para poder
+// descargar varios archivos juntos en un solo .zip.
+let modoSeleccionArchivos = false;
+let archivosSeleccionados = new Map();
+
+function alternarSeleccionArchivo(f, el) {
+  if (archivosSeleccionados.has(f.id)) archivosSeleccionados.delete(f.id);
+  else archivosSeleccionados.set(f.id, f);
+  el.classList.toggle("sel", archivosSeleccionados.has(f.id));
+  const check = el.querySelector(".file-item-check");
+  if (check) check.checked = archivosSeleccionados.has(f.id);
+  actualizarBarraSeleccionArchivos();
+}
+
+function actualizarBarraSeleccionArchivos() {
+  const n = archivosSeleccionados.size;
+  document.getElementById("file-seleccion-contador").textContent = `${n} seleccionado${n === 1 ? "" : "s"}`;
+  document.getElementById("btn-descargar-seleccion").disabled = n === 0;
+}
+
+function alternarModoSeleccionArchivos() {
+  modoSeleccionArchivos = !modoSeleccionArchivos;
+  archivosSeleccionados.clear();
+  document.getElementById("file-list").classList.toggle("modo-seleccion", modoSeleccionArchivos);
+  document.getElementById("file-upload-bar").style.display = modoSeleccionArchivos ? "none" : "flex";
+  document.getElementById("file-seleccion-bar").style.display = modoSeleccionArchivos ? "flex" : "none";
+  actualizarBarraSeleccionArchivos();
+  renderArchivos();
+}
+document.getElementById("btn-seleccionar-archivos").addEventListener("click", alternarModoSeleccionArchivos);
+document.getElementById("btn-cancelar-seleccion").addEventListener("click", alternarModoSeleccionArchivos);
+
+// Bytes de un archivo sea cual sea su origen (Drive, carpeta local
+// vía File System Access API, o el fallback de "modo servidor") — la
+// misma rama que ya usa pedirArchivo() para abrir el visor, factorizada
+// acá para poder reusarla en descarga individual y en el .zip.
+async function obtenerBytesArchivo(f) {
+  if (f.handle) {
+    const file = await f.handle.getFile();
+    return await file.arrayBuffer();
+  }
+  if (f.driveId) return await descargarBufferDrive(f.driveId);
+  const resp = await fetch(`/${state.carpetaActual.id}/${encodeURIComponent(f.nombre)}`);
+  if (!resp.ok) throw new Error(`No se pudo leer el archivo (HTTP ${resp.status})`);
+  return await resp.arrayBuffer();
+}
+
+function descargarBlob(blob, nombre) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = nombre;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+document.getElementById("btn-descargar-seleccion").addEventListener("click", async () => {
+  const btn = document.getElementById("btn-descargar-seleccion");
+  const archivos = [...archivosSeleccionados.values()];
+  if (!archivos.length) return;
+  const textoOriginal = btn.innerHTML;
+  btn.disabled = true;
+  try {
+    if (archivos.length === 1) {
+      descargarBlob(new Blob([await obtenerBytesArchivo(archivos[0])]), archivos[0].nombre);
+    } else {
+      const zip = new JSZip();
+      for (let i = 0; i < archivos.length; i++) {
+        btn.textContent = `Descargando ${i + 1}/${archivos.length}…`;
+        // Nombres repetidos (poco común, pero posible entre orígenes
+        // distintos) no deben pisarse adentro del zip.
+        const nombreZip = zip.file(archivos[i].nombre) ? `${i}-${archivos[i].nombre}` : archivos[i].nombre;
+        zip.file(nombreZip, await obtenerBytesArchivo(archivos[i]));
+      }
+      btn.textContent = "Comprimiendo…";
+      const blob = await zip.generateAsync({ type: "blob" });
+      descargarBlob(blob, `${state.carpetaActual?.nombre || "archivos"}.zip`);
+    }
+    showToast(`✅ Descarga lista (${archivos.length})`);
+    alternarModoSeleccionArchivos();
+  } catch (err) {
+    showToast("❌ " + (err.message || "No se pudo descargar"));
+    btn.innerHTML = textoOriginal;
+  } finally {
+    btn.disabled = archivosSeleccionados.size === 0;
+  }
+});
 
 document.getElementById("search-files").addEventListener("input", e => renderArchivos(e.target.value));
 document.getElementById("btn-back-home").addEventListener("click", () => {
@@ -4216,6 +4365,17 @@ async function cargarDXF(buffer) {
     zoomHaciaPunto(imagenZoom / 1.25, { x: 0, y: 0 });
     guardarEstadoImagen();
   });
+  // La imagen ya está cargada como blob: URL en el <img> del visor — se
+  // reusa esa misma URL en una pestaña nueva en vez de volver a pedir el
+  // archivo, y se imprime desde ahí (mismo patrón que el PDF).
+  document.getElementById("imagen-print").addEventListener("click", () => {
+    const src = document.getElementById("visor-imagen").src;
+    if (!src) return;
+    const w = window.open("", "_blank");
+    if (!w) { showToast("El navegador bloqueó la ventana de impresión — permití pop-ups para este sitio."); return; }
+    w.document.write(`<!DOCTYPE html><html><head><title>Imprimir</title></head><body style="margin:0"><img src="${src}" style="width:100%" onload="window.print()"></body></html>`);
+    w.document.close();
+  });
   // Tocar el porcentaje resetea a 100% — la salida rápida esperada cuando
   // te perdiste zoomeando, sin tener que golpear "-" varias veces.
   const zoomLabel = document.getElementById("imagen-zoom-label");
@@ -4390,6 +4550,27 @@ document.getElementById("pdf-zoom-out").addEventListener("click", () => aplicarZ
 document.getElementById("pdf-zoom-label").style.cursor = "pointer";
 document.getElementById("pdf-zoom-label").title = "Restablecer zoom";
 document.getElementById("pdf-zoom-label").addEventListener("click", () => aplicarZoomPDF(calcZoomFit()));
+
+// Imprimir el PDF: se abre el archivo (bytes propios, no una captura del
+// canvas — así sale con la resolución real del PDF, no la del zoom
+// actual) en una pestaña nueva y se dispara el diálogo de impresión del
+// navegador ahí, mismo patrón que ya usa el prototipo de planos.
+document.getElementById("pdf-print").addEventListener("click", async () => {
+  if (!state.archivoActual) return;
+  const btn = document.getElementById("pdf-print");
+  btn.disabled = true;
+  try {
+    const buffer = await obtenerBytesArchivo(state.archivoActual);
+    const url = URL.createObjectURL(new Blob([buffer], { type: "application/pdf" }));
+    const w = window.open(url, "_blank");
+    if (w) w.addEventListener("load", () => w.print());
+    else showToast("El navegador bloqueó la ventana de impresión — permití pop-ups para este sitio.");
+  } catch (e) {
+    showToast("❌ No se pudo preparar la impresión: " + (e.message || e));
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 /* ============================================================
    PINCH-TO-ZOOM (PDF, mobile) — dos dedos sobre el visor
