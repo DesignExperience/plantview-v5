@@ -2502,6 +2502,14 @@ function marcarSync() {
    SPLIT TOGGLE
    ============================================================ */
 function setSplit(activo) {
+  // setSplit(true) se llama desde bastantes lugares (abrir un archivo,
+  // cambiar de pestaña en mobile, mostrarSoloVisorPara, etc.) sin
+  // fijarse antes si el split YA estaba activo — con reajustarPDFAlPanel()
+  // más abajo, cada una de esas llamadas redundantes pisaba el zoom que
+  // el usuario ya había elegido a mano, volviéndolo al "ajustar a
+  // pantalla" en cualquier momento. Se guarda el estado previo para
+  // reajustar el PDF solo en la transición real inactivo -> activo.
+  const yaEstabaActivo = state.splitActivo;
   state.splitActivo = activo;
   const btn = document.getElementById("btn-split");
   const iconV = document.getElementById("split-icon-v");
@@ -2522,8 +2530,10 @@ function setSplit(activo) {
     document.querySelectorAll(".btn-toggle-sidebar").forEach(b => b.style.display = "flex");
     // El PDF ya abierto puede tener el zoom pensado para pantalla
     // completa — sin esto, entrar a Split lo dejaba mal encuadrado en
-    // el panel angosto hasta que el usuario lo reajustaba a mano.
-    reajustarPDFAlPanel();
+    // el panel angosto hasta que el usuario lo reajustaba a mano. Solo
+    // en la transición real (no en llamadas redundantes con split ya
+    // activo), para no pisar un zoom que el usuario ya haya elegido.
+    if (!yaEstabaActivo) reajustarPDFAlPanel();
   } else {
     app.classList.add("no-split");
     app.classList.remove("has-split");
