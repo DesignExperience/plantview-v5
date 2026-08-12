@@ -4359,31 +4359,37 @@ document.addEventListener("keydown", e => {
     e.preventDefault(); document.getElementById("pdf-zoom-label").click();
   }
 });
-document.getElementById("pdf-zoom-in").addEventListener("click", async () => {
+// Cambiar de zoom (botones, reset, pinch/wheel) SIEMPRE pasa por acá.
+// renderizarPDF() vacía wrap.innerHTML y arma canvases nuevos — sin
+// esto, el scroll queda en (0,0) cada vez, o sea que zoomear te tira a
+// la esquina superior izquierda del plano en vez de mantenerte mirando
+// lo mismo, más grande (que es lo que hace cualquier visor de verdad,
+// Chrome incluido). Se guarda scrollTop/scrollLeft ANTES de re-renderizar
+// y se restauran reescalados por la proporción de zoom nuevo/viejo —
+// el mismo punto del plano queda bajo el mismo punto de la pantalla.
+async function aplicarZoomPDF(nuevoZoom) {
   if (!pdfDoc) return;
-  pdfZoom = Math.min(pdfZoom + 0.2, PDF_ZOOM_MAX);
-  document.getElementById("pdf-zoom-label").textContent = Math.round(pdfZoom*100)+"%";
+  const wrap = document.getElementById("pdf-canvas-wrap");
+  const zoomViejo = pdfZoom;
+  const scrollTopViejo = wrap.scrollTop;
+  const scrollLeftViejo = wrap.scrollLeft;
+
+  pdfZoom = Math.min(Math.max(nuevoZoom, PDF_ZOOM_MIN), PDF_ZOOM_MAX);
+  document.getElementById("pdf-zoom-label").textContent = Math.round(pdfZoom * 100) + "%";
   await renderizarPDF();
+
+  const factor = pdfZoom / zoomViejo;
+  wrap.scrollTop = scrollTopViejo * factor;
+  wrap.scrollLeft = scrollLeftViejo * factor;
   guardarEstadoPDF();
-});
-document.getElementById("pdf-zoom-out").addEventListener("click", async () => {
-  if (!pdfDoc) return;
-  pdfZoom = Math.max(pdfZoom - 0.2, PDF_ZOOM_MIN);
-  document.getElementById("pdf-zoom-label").textContent = Math.round(pdfZoom*100)+"%";
-  await renderizarPDF();
-  guardarEstadoPDF();
-});
+}
+document.getElementById("pdf-zoom-in").addEventListener("click", () => aplicarZoomPDF(pdfZoom + 0.2));
+document.getElementById("pdf-zoom-out").addEventListener("click", () => aplicarZoomPDF(pdfZoom - 0.2));
 // Tocar el porcentaje resetea al zoom de ajuste a pantalla — misma idea
 // que en el visor de imágenes, para salir rápido si te perdiste zoomeando.
 document.getElementById("pdf-zoom-label").style.cursor = "pointer";
 document.getElementById("pdf-zoom-label").title = "Restablecer zoom";
-document.getElementById("pdf-zoom-label").addEventListener("click", async () => {
-  if (!pdfDoc) return;
-  pdfZoom = calcZoomFit();
-  document.getElementById("pdf-zoom-label").textContent = Math.round(pdfZoom*100)+"%";
-  await renderizarPDF();
-  guardarEstadoPDF();
-});
+document.getElementById("pdf-zoom-label").addEventListener("click", () => aplicarZoomPDF(calcZoomFit()));
 
 /* ============================================================
    PINCH-TO-ZOOM (PDF, mobile) — dos dedos sobre el visor
@@ -4438,11 +4444,7 @@ document.getElementById("pdf-zoom-label").addEventListener("click", async () => 
     if (!pinchActivo) return;
     pinchActivo = false;
     wrap.style.transform = "";
-    if (zoomPendiente && pdfDoc) {
-      pdfZoom = zoomPendiente;
-      document.getElementById("pdf-zoom-label").textContent = Math.round(pdfZoom * 100) + "%";
-      await renderizarPDF();
-    }
+    if (zoomPendiente && pdfDoc) await aplicarZoomPDF(zoomPendiente);
     zoomPendiente = null;
   });
 
@@ -4467,11 +4469,7 @@ document.getElementById("pdf-zoom-label").addEventListener("click", async () => 
     clearTimeout(wheelZoomTimeout);
     wheelZoomTimeout = setTimeout(async () => {
       wrap.style.transform = "";
-      if (zoomPendiente && pdfDoc) {
-        pdfZoom = zoomPendiente;
-        document.getElementById("pdf-zoom-label").textContent = Math.round(pdfZoom * 100) + "%";
-        await renderizarPDF();
-      }
+      if (zoomPendiente && pdfDoc) await aplicarZoomPDF(zoomPendiente);
       zoomPendiente = null;
     }, 220);
   }, { passive: false });
