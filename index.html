@@ -27,6 +27,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Archivo:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Syne:wght@700;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<!-- pdf-lib: edición/reescritura de PDFs (planos estándar — ver
+     modal-editor-plano). pdf.js de arriba solo lee/renderiza. -->
+<script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
 <!-- QR "calado" (para cortar/perforar en chapa con láser) — qrcode-generator
      expone la matriz cruda de módulos (qrcodejs de arriba no la expone, solo
      renderiza), y jsQR decodifica de vuelta el resultado para verificar que
@@ -2083,6 +2086,30 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
   </div>
 </div>
 
+<!-- Editor de campos de un plano estándar (Obra/Cantidad) — lee el
+     texto vectorial del rótulo, ubica esos dos campos y permite
+     pisarlos con un valor nuevo; el PDF resultante se sube en el
+     mismo lugar (mismo nombre, ver guardarEdicionPlano()). Solo
+     aparece para PDFs dentro de la carpeta "Planos Estándar" (ver
+     esCarpetaPlanosEstandar() / botón en renderArchivos()). -->
+<div class="modal-overlay modal-overlay-flotante" id="modal-editor-plano">
+  <div class="modal-sheet modal-sheet-flotante" style="gap:14px">
+    <button class="sheet-x" id="btn-editor-plano-x" aria-label="Cerrar">×</button>
+    <p class="sheet-title" id="editor-plano-titulo" style="align-self:flex-start">Editar campos</p>
+    <div id="editor-plano-cargando" style="width:100%;text-align:center;padding:24px 0">
+      <div class="spinner" style="margin:0 auto"></div>
+      <p style="font-size:11px;color:var(--muted);margin-top:10px">Leyendo el rótulo del plano…</p>
+    </div>
+    <div id="editor-plano-form" style="display:none;width:100%;flex-direction:column;gap:12px">
+      <div id="editor-plano-aviso" style="display:none;font-size:10.5px;color:var(--muted);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px"></div>
+      <div id="editor-plano-campos" style="display:flex;flex-direction:column;gap:10px"></div>
+      <div class="sheet-actions" style="width:100%">
+        <button class="btn-sheet btn-sheet-primary" id="btn-editor-plano-guardar" style="width:100%">Guardar y subir a Drive</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Modal Notificaciones -->
 <div class="modal-overlay" id="modal-notif">
   <div class="modal-sheet">
@@ -2256,6 +2283,14 @@ function cargarConfigDrive() {
   return { apiKey: "", folders: [] };
 }
 let driveConfig = cargarConfigDrive();
+
+// Mismo landmine de TDZ que driveConfig arriba: renderCarpetas() corre
+// muy temprano (bootstrap de modo equipo) y ya llama a
+// asegurarCarpetaPlanosEstandar()/esCarpetaPlanosEstandar(), que leen
+// estas dos — declaradas acá arriba en vez de junto al resto de esa
+// feature (más abajo) por esa misma razón.
+const PLANOS_ESTANDAR_NOMBRE = "Planos Estándar";
+let planosEstandarAsegurada = false;
 
 /* ============================================================
    DEMO DATA
@@ -2786,6 +2821,12 @@ document.getElementById("btn-edit-order").addEventListener("click", toggleEditMo
 let dragSrc = null;
 
 function renderCarpetas(filtro) {
+  // Fire-and-forget: se auto-desactiva sola (planosEstandarAsegurada) en
+  // cuanto logra crear/confirmar la carpeta, así que llamarla en cada
+  // render no genera pedidos de más — es la forma más simple de
+  // "reintentar en cuanto Files esté usable" sin tener que engancharse
+  // a cada callback de conexión de Drive que existe en la app.
+  asegurarCarpetaPlanosEstandar();
   const grid = document.getElementById("folder-grid");
   const q = (filtro||"").toLowerCase();
   const lista = carpetasOrden.filter(c => c.nombre.toLowerCase().includes(q));
@@ -3184,6 +3225,7 @@ function renderArchivos(filtro) {
     const esNuevo  = f.nuevo && !state.conocidos.has(f.id);
     const esActivo = state.archivoActual?.id === f.id;
     const esPDF    = f.tipo === "pdf";
+    const esEditable = esPDF && esCarpetaPlanosEstandar(state.carpetaActual);
     const rev      = revisionDe(f.nombre);
     return `
     <div class="file-item${esActivo?' activo-visor':''}" data-idx="${i}" id="file-${esc(f.id)}" role="button" tabindex="0" aria-label="Abrir ${esc(f.nombre)}">
@@ -3206,6 +3248,12 @@ function renderArchivos(filtro) {
             <polyline points="14,2 14,8 20,8"/>
           </svg>
         </button>` : ""}
+        ${esEditable ? `
+        <button class="btn-editar-campos" data-editar-idx="${i}" type="button" title="Editar campos (Obra/Cantidad)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8">
+            <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+          </svg>
+        </button>` : ""}
         <button class="btn-qr" data-qr-idx="${i}" type="button" title="QR" aria-label="Ver QR">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
             <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
@@ -3223,6 +3271,7 @@ function renderArchivos(filtro) {
     el.addEventListener("click", e => {
       if (e.target.closest(".btn-qr")) return;
       if (e.target.closest(".btn-pdf-preview")) return;
+      if (e.target.closest(".btn-editar-campos")) return;
       const f = window._archivos_actuales[Number(el.dataset.idx)];
       abrirVisor(f);
     });
@@ -3239,6 +3288,13 @@ function renderArchivos(filtro) {
       e.stopPropagation();
       const f = window._archivos_actuales[Number(btn.dataset.qrIdx)];
       mostrarQR(`${CONFIG.APP_URL}/?file=${f.id}`, f.nombre);
+    });
+  });
+  lista.querySelectorAll(".btn-editar-campos").forEach(btn => {
+    btn.addEventListener("click", e => {
+      e.stopPropagation();
+      const f = window._archivos_actuales[Number(btn.dataset.editarIdx)];
+      abrirEditorPlano(f);
     });
   });
   // Botón preview PDF en panel derecho
@@ -5211,6 +5267,41 @@ function raizDriveIdActual() {
   return null;
 }
 
+// Carpeta especial "Planos Estándar" — Files la trata como una obra más
+// (mismo carpetasOrden, misma grilla), pero renderArchivos() le agrega
+// un botón extra "Editar campos" a cada PDF de adentro (ver
+// modal-editor-plano). Se identifica por nombre porque es la forma más
+// simple de reconocerla incluso antes de haber podido crearla (ej. sin
+// escritura conectada todavía) — si alguien la renombra, el peor caso
+// es que deje de mostrar el botón especial, no rompe nada.
+// (PLANOS_ESTANDAR_NOMBRE / planosEstandarAsegurada quedaron declaradas
+// más arriba, junto a driveConfig — ver comentario ahí.)
+function esCarpetaPlanosEstandar(carpeta) {
+  return !!carpeta && carpeta.nombre === PLANOS_ESTANDAR_NOMBRE;
+}
+
+// La crea (si hace falta) la primera vez que Files queda usable con
+// escritura conectada — de ahí en más, al ser una subcarpeta más de la
+// raíz, conectarCarpetaDrive() ya la descubre sola en cada reconexión
+// igual que cualquier otra obra, sin lógica aparte.
+async function asegurarCarpetaPlanosEstandar() {
+  if (planosEstandarAsegurada) return;
+  if (!driveEscrituraConectada()) return; // reintenta la próxima vez que se llame (ver renderCarpetas)
+  const raizId = raizDriveIdActual();
+  if (!raizId) return;
+  planosEstandarAsegurada = true; // marcar antes del await: evita disparos duplicados en paralelo
+  try {
+    const folderId = await obtenerOCrearCarpetaDrive(PLANOS_ESTANDAR_NOMBRE, raizId);
+    const carpeta = { id: "drive:" + folderId, nombre: PLANOS_ESTANDAR_NOMBRE, archivos: 0, nuevos: 0, driveId: folderId, origenDrive: true, raizDriveId: raizId };
+    const idx = carpetasOrden.findIndex(c => c.id === carpeta.id);
+    if (idx >= 0) carpetasOrden[idx] = carpeta; else carpetasOrden.push(carpeta);
+    renderCarpetas();
+  } catch (e) {
+    console.warn("No se pudo asegurar la carpeta Planos Estándar:", e);
+    planosEstandarAsegurada = false; // no se logró — reintentar en el próximo render
+  }
+}
+
 /* ============================================================
    CÓDIGOS CORTOS — solo para el QR calado. Un link normal (?carpeta=...
    o ?file=...) tiene ~90 caracteres, lo que arma un QR de cientos de
@@ -6855,6 +6946,183 @@ async function descargarBufferDrive(driveId) {
   }
   return buffer;
 }
+
+/* ============================================================
+   EDITOR DE CAMPOS DE PLANO ESTÁNDAR (Obra / Cantidad)
+   Detección por texto vectorial del PDF (no OCR): busca las etiquetas
+   conocidas del rótulo y toma como valor el texto de al lado (o, si no
+   hay nada a la derecha, el de la línea de abajo — el rótulo estándar
+   de esta empresa tiene algún campo así, ej. "Cliente:"). Validado a
+   mano contra un plano real antes de integrarlo acá — ver prototipo
+   aparte. Solo dos etiquetas por ahora (Obra, Cantidad); si hace falta
+   editar más campos del rótulo más adelante, alcanza con sumarlas a
+   ETIQUETAS_PLANO_ESTANDAR.
+   ============================================================ */
+const ETIQUETAS_PLANO_ESTANDAR = ["Obra:", "CANTIDAD TOTAL:"];
+
+function detectarCamposPlano(items) {
+  const campos = [];
+  ETIQUETAS_PLANO_ESTANDAR.forEach(etiqueta => {
+    items.forEach(labelItem => {
+      if (!labelItem.str.includes(etiqueta)) return;
+      const yc = (labelItem.y0 + labelItem.y1) / 2;
+      const alto = labelItem.y1 - labelItem.y0;
+
+      const mismaFila = items
+        .filter(it => it !== labelItem
+          && Math.abs(((it.y0 + it.y1) / 2) - yc) < alto * 0.7
+          && it.x0 > labelItem.x1 - 2
+          && it.height > alto * 0.55
+          && !ETIQUETAS_PLANO_ESTANDAR.some(e => it.str.includes(e)))
+        .sort((a, b) => a.x0 - b.x0);
+
+      let valorItems = [];
+      let cursorX = labelItem.x1;
+      for (const it of mismaFila) {
+        if (it.x0 - cursorX > 27) break;
+        valorItems.push(it);
+        cursorX = it.x1;
+      }
+
+      let origen = "derecha";
+      if (!valorItems.length) {
+        const abajo = items
+          .filter(it => it !== labelItem
+            && it.y1 < labelItem.y0 && labelItem.y0 - it.y1 < alto * 1.8
+            && it.x0 < labelItem.x0 + 260 && it.x0 > labelItem.x0 - 20
+            && !ETIQUETAS_PLANO_ESTANDAR.some(e => it.str.includes(e)))
+          .sort((a, b) => (b.y1 - a.y1) || (a.x0 - b.x0));
+        if (abajo.length) { valorItems = [abajo[0]]; origen = "abajo"; }
+      }
+
+      const valorTexto = valorItems.map(v => v.str).join(" ").trim();
+      const valorBox = valorItems.length ? {
+        x0: Math.min(...valorItems.map(v => v.x0)), y0: Math.min(...valorItems.map(v => v.y0)),
+        x1: Math.max(...valorItems.map(v => v.x1)), y1: Math.max(...valorItems.map(v => v.y1)),
+      } : null;
+
+      campos.push({
+        etiqueta, textoEtiqueta: labelItem.str.trim(),
+        labelBox: { x0: labelItem.x0, y0: labelItem.y0, x1: labelItem.x1, y1: labelItem.y1 },
+        valorBox, valorOriginal: valorTexto, origen,
+        fontSizeAprox: Math.round(alto * 0.8),
+      });
+    });
+  });
+  return campos;
+}
+
+let editorPlanoArchivo = null;   // {nombre, driveId, ...} — el archivo que se está editando
+let editorPlanoCarpeta = null;   // carpeta de destino al re-subir (misma de origen)
+let editorPlanoBytes = null;     // ArrayBuffer del PDF original
+let editorPlanoCampos = [];      // detectarCamposPlano(...)
+
+async function abrirEditorPlano(archivo) {
+  editorPlanoArchivo = archivo;
+  editorPlanoCarpeta = state.carpetaActual;
+  document.getElementById("editor-plano-titulo").textContent = archivo.nombre;
+  document.getElementById("editor-plano-cargando").style.display = "block";
+  document.getElementById("editor-plano-form").style.display = "none";
+  document.getElementById("editor-plano-aviso").style.display = "none";
+  document.getElementById("modal-editor-plano").classList.add("visible");
+
+  try {
+    editorPlanoBytes = await descargarBufferDrive(archivo.driveId);
+    const pdf = await pdfjsLib.getDocument({ data: editorPlanoBytes.slice(0) }).promise;
+    const page = await pdf.getPage(1); // por ahora, siempre página 1 del plano
+    const textContent = await page.getTextContent();
+    const items = textContent.items.map(it => {
+      const [a, b, c, d, e, f] = it.transform;
+      const height = Math.hypot(b, d) || 10;
+      return { str: it.str, x0: e, y0: f, x1: e + (it.width || 0), y1: f + height, height };
+    }).filter(it => it.str.trim().length);
+
+    editorPlanoCampos = detectarCamposPlano(items);
+    renderEditorPlanoForm();
+  } catch (e) {
+    document.getElementById("editor-plano-cargando").innerHTML =
+      `<p style="font-size:11.5px;color:#e0455a">No se pudo leer el plano: ${esc(e.message || String(e))}</p>`;
+  }
+}
+
+function renderEditorPlanoForm() {
+  document.getElementById("editor-plano-cargando").style.display = "none";
+  const form = document.getElementById("editor-plano-form");
+  const aviso = document.getElementById("editor-plano-aviso");
+  const cont = document.getElementById("editor-plano-campos");
+  form.style.display = "flex";
+
+  if (!editorPlanoCampos.length) {
+    aviso.style.display = "block";
+    aviso.textContent = "No se encontró ningún campo conocido (Obra/Cantidad) en el rótulo de este plano — puede tener un formato distinto al estándar.";
+    cont.innerHTML = "";
+    return;
+  }
+  const sinDetectar = editorPlanoCampos.filter(c => !c.valorBox).length;
+  if (sinDetectar) {
+    aviso.style.display = "block";
+    aviso.textContent = `${sinDetectar} campo(s) no se pudo ubicar con certeza — revisá el valor antes de guardar.`;
+  }
+  cont.innerHTML = editorPlanoCampos.map((c, i) => `
+    <div style="display:flex;flex-direction:column;gap:4px">
+      <label style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">${esc(c.textoEtiqueta)}</label>
+      <input type="text" data-campo-idx="${i}" value="${esc(c.valorOriginal)}" placeholder="(vacío)"
+        style="width:100%;height:36px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);font-family:inherit;padding:0 8px">
+    </div>
+  `).join("");
+}
+
+async function guardarEdicionPlano() {
+  const btn = document.getElementById("btn-editor-plano-guardar");
+  btn.disabled = true;
+  btn.textContent = "Guardando…";
+  try {
+    const { PDFDocument, rgb, StandardFonts } = PDFLib;
+    const pdfDoc = await PDFDocument.load(editorPlanoBytes);
+    const page = pdfDoc.getPage(0);
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+    document.querySelectorAll("#editor-plano-campos input").forEach(inp => {
+      const campo = editorPlanoCampos[Number(inp.dataset.campoIdx)];
+      const nuevoValor = inp.value;
+      if (nuevoValor === campo.valorOriginal) return;
+
+      const box = campo.valorBox || {
+        x0: campo.labelBox.x1 + 4, y0: campo.labelBox.y0,
+        x1: campo.labelBox.x1 + 200, y1: campo.labelBox.y1,
+      };
+      const pad = 2;
+      page.drawRectangle({
+        x: box.x0 - pad, y: box.y0 - pad,
+        width: (box.x1 - box.x0) + pad * 2, height: (box.y1 - box.y0) + pad * 2,
+        color: rgb(1, 1, 1),
+      });
+      if (nuevoValor.trim()) {
+        page.drawText(nuevoValor, { x: box.x0, y: box.y0 + 1, size: campo.fontSizeAprox || 9, font, color: rgb(0, 0, 0) });
+      }
+    });
+
+    const bytes = await pdfDoc.save();
+    const blob = new Blob([bytes], { type: "application/pdf" });
+    // Mismo nombre, misma carpeta -> subirArchivoADriveConProgreso ya
+    // sabe pisar el archivo existente en vez de duplicarlo (ver su
+    // propia lógica de "buscar por nombre, PATCH si existe").
+    await subirArchivoADriveConProgreso(editorPlanoArchivo.nombre, blob, editorPlanoCarpeta.driveId, () => {});
+
+    showToast(`✅ "${editorPlanoArchivo.nombre}" actualizado`);
+    document.getElementById("modal-editor-plano").classList.remove("visible");
+    if (state.archivosFS[editorPlanoCarpeta.id]) delete state.archivosFS[editorPlanoCarpeta.id];
+    if (state.carpetaActual?.id === editorPlanoCarpeta.id) cargarArchivosDrive(editorPlanoCarpeta);
+  } catch (e) {
+    showToast("❌ " + (e.message || "No se pudo guardar el plano"));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Guardar y subir a Drive";
+  }
+}
+
+document.getElementById("btn-editor-plano-x").addEventListener("click", () => document.getElementById("modal-editor-plano").classList.remove("visible"));
+document.getElementById("btn-editor-plano-guardar").addEventListener("click", guardarEdicionPlano);
 
 // Conecta una carpeta de Drive: agrega sus subcarpetas (y archivos sueltos, si hay)
 // a la grilla de "carpetas" existente, mezclándose con las locales.
