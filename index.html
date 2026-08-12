@@ -30,6 +30,11 @@
 <!-- pdf-lib: edición/reescritura de PDFs (planos estándar — ver
      modal-editor-plano). pdf.js de arriba solo lee/renderiza. -->
 <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+<!-- fontkit: pdf-lib necesita esto para poder embeber una fuente TTF
+     propia (ver fuenteEditorPlano en modal-editor-plano) — sin esto
+     solo puede usar las 14 fuentes "standard" de PDF (Helvetica, etc),
+     ninguna de las cuales es DIN. -->
+<script src="https://cdn.jsdelivr.net/npm/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js"></script>
 <!-- QR "calado" (para cortar/perforar en chapa con láser) — qrcode-generator
      expone la matriz cruda de módulos (qrcodejs de arriba no la expone, solo
      renderiza), y jsQR decodifica de vuelta el resultado para verificar que
@@ -2102,9 +2107,11 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
     </div>
     <div id="editor-plano-form" style="display:none;width:100%;flex-direction:column;gap:12px">
       <p style="margin:0;font-size:10.5px;color:var(--muted);line-height:1.5">
-        Esta plantilla no se modifica. Al guardar se genera un plano nuevo y se sube a
-        <b style="color:var(--text)">Obra / Estandar</b> — el campo "Obra" de abajo tiene que
-        coincidir con el código o nombre de una obra ya conectada (ej. "4299").
+        Esta plantilla no se modifica. Al guardar se genera un plano nuevo con el
+        código de <b style="color:var(--text)">Obra</b> que completes abajo: si coincide con
+        una obra ya conectada (ej. "4299"), va a <b style="color:var(--text)">Obra / Estandar</b>;
+        si no coincide con ninguna, se crea una carpeta nueva con ese código
+        dentro de <b style="color:var(--text)">Planos Estándar</b>.
       </p>
       <div id="editor-plano-aviso" style="display:none;font-size:10.5px;color:var(--muted);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px"></div>
       <div id="editor-plano-campos" style="display:flex;flex-direction:column;gap:10px"></div>
@@ -6953,17 +6960,15 @@ async function descargarBufferDrive(driveId) {
 }
 
 /* ============================================================
-   EDITOR DE CAMPOS DE PLANO ESTÁNDAR (Obra / Cantidad)
+   EDITOR DE CAMPOS DE PLANO ESTÁNDAR (Obra / Cliente / Denominación)
    Detección por texto vectorial del PDF (no OCR): busca las etiquetas
    conocidas del rótulo y toma como valor el texto de al lado (o, si no
    hay nada a la derecha, el de la línea de abajo — el rótulo estándar
    de esta empresa tiene algún campo así, ej. "Cliente:"). Validado a
    mano contra un plano real antes de integrarlo acá — ver prototipo
-   aparte. Solo dos etiquetas por ahora (Obra, Cantidad); si hace falta
-   editar más campos del rótulo más adelante, alcanza con sumarlas a
-   ETIQUETAS_PLANO_ESTANDAR.
+   aparte.
    ============================================================ */
-const ETIQUETAS_PLANO_ESTANDAR = ["Obra:", "CANTIDAD TOTAL:"];
+const ETIQUETAS_PLANO_ESTANDAR = ["Obra:", "Cliente:", "CANTIDAD TOTAL:"];
 
 function detectarCamposPlano(items) {
   const campos = [];
@@ -7017,9 +7022,30 @@ function detectarCamposPlano(items) {
   return campos;
 }
 
-let editorPlanoArchivo = null;   // {nombre, driveId, ...} — el archivo (plantilla) que se está leyendo
-let editorPlanoBytes = null;     // ArrayBuffer del PDF original — nunca se vuelve a subir tal cual
-let editorPlanoCampos = [];      // detectarCamposPlano(...)
+// El rótulo de esta empresa repite la etiqueta "Obra:" dos veces con
+// roles bien distintos aunque el texto sea igual (ver captura que
+// mandaste): la de más a la izquierda es la "Denominación de la obra"
+// (ej. "AMPLIACIÓN TERMINAL"), la de más a la derecha es el código de
+// obra propiamente dicho (ej. "4299") — el que decide a qué carpeta va
+// el plano generado. Se distinguen por posición (x0), no por texto,
+// porque el texto de la etiqueta es idéntico en las dos.
+function armarCamposFormularioPlano(camposDetectados) {
+  const obras = camposDetectados.filter(c => c.etiqueta === "Obra:").sort((a, b) => a.labelBox.x0 - b.labelBox.x0);
+  const denominacion = obras[0] || null;
+  const obraCodigo = obras.length > 1 ? obras[obras.length - 1] : (obras[0] || null);
+  const cliente = camposDetectados.find(c => c.etiqueta === "Cliente:") || null;
+  const cantidad = camposDetectados.find(c => c.etiqueta === "CANTIDAD TOTAL:") || null;
+  return [
+    { rol: "obra", label: "Obra (código)", campo: obraCodigo },
+    { rol: "cliente", label: "Cliente", campo: cliente },
+    { rol: "denominacion", label: "Denominación de la obra", campo: denominacion },
+    { rol: "cantidad", label: "Cantidad total", campo: cantidad },
+  ];
+}
+
+let editorPlanoArchivo = null;     // {nombre, driveId, ...} — el archivo (plantilla) que se está leyendo
+let editorPlanoBytes = null;       // ArrayBuffer del PDF original — nunca se vuelve a subir tal cual
+let editorPlanoCamposForm = [];    // armarCamposFormularioPlano(...) — los 3 roles fijos del form
 
 async function abrirEditorPlano(archivo) {
   editorPlanoArchivo = archivo;
@@ -7040,7 +7066,7 @@ async function abrirEditorPlano(archivo) {
       return { str: it.str, x0: e, y0: f, x1: e + (it.width || 0), y1: f + height, height };
     }).filter(it => it.str.trim().length);
 
-    editorPlanoCampos = detectarCamposPlano(items);
+    editorPlanoCamposForm = armarCamposFormularioPlano(detectarCamposPlano(items));
     renderEditorPlanoForm();
   } catch (e) {
     document.getElementById("editor-plano-cargando").innerHTML =
@@ -7055,31 +7081,25 @@ function renderEditorPlanoForm() {
   const cont = document.getElementById("editor-plano-campos");
   form.style.display = "flex";
 
-  if (!editorPlanoCampos.length) {
-    aviso.style.display = "block";
-    aviso.textContent = "No se encontró ningún campo conocido (Obra/Cantidad) en el rótulo de este plano — puede tener un formato distinto al estándar.";
-    cont.innerHTML = "";
-    return;
-  }
-  const sinDetectar = editorPlanoCampos.filter(c => !c.valorBox).length;
+  const sinDetectar = editorPlanoCamposForm.filter(f => !f.campo).length;
   if (sinDetectar) {
     aviso.style.display = "block";
-    aviso.textContent = `${sinDetectar} campo(s) no se pudo ubicar con certeza — revisá el valor antes de guardar.`;
+    aviso.textContent = `${sinDetectar} campo(s) no se pudo ubicar en el rótulo — completalo a mano; el campo Obra es obligatorio para saber a qué carpeta va el plano.`;
   }
-  cont.innerHTML = editorPlanoCampos.map((c, i) => `
+  cont.innerHTML = editorPlanoCamposForm.map(f => `
     <div style="display:flex;flex-direction:column;gap:4px">
-      <label style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">${esc(c.textoEtiqueta)}</label>
-      <input type="text" data-campo-idx="${i}" value="${esc(c.valorOriginal)}" placeholder="(vacío)"
+      <label style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted)">${esc(f.label)}</label>
+      <input type="text" data-rol="${f.rol}" value="${esc(f.campo?.valorOriginal || "")}" placeholder="${f.campo ? "(vacío)" : "no detectado — completá a mano"}"
         style="width:100%;height:36px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);font-family:inherit;padding:0 8px">
     </div>
   `).join("");
 }
 
 // Busca, entre las obras ya conectadas (mismas que ve Files/el drawer de
-// Tareas), la que coincide con lo que se escribió en el campo "Obra:"
-// del rótulo — ej. tipeás "4299" y matchea la carpeta "4299 - SALTA".
-// Comparación laxa a propósito: el rótulo suele traer solo el código
-// (4299), mientras que el nombre de la carpeta trae código + nombre.
+// Tareas), la que coincide con el código escrito en "Obra" — ej. tipeás
+// "4299" y matchea la carpeta "4299 - SALTA". Comparación laxa a
+// propósito: el rótulo suele traer solo el código, la carpeta trae
+// código + nombre.
 function buscarObraPorValorObra(valor) {
   const v = (valor || "").trim().toLowerCase();
   if (!v) return null;
@@ -7090,36 +7110,64 @@ function buscarObraPorValorObra(valor) {
       || null;
 }
 
+function carpetaPlanosEstandar() {
+  return carpetasOrden.find(esCarpetaPlanosEstandar) || null;
+}
+
+// DIN Medium (FF DIN/DIN Next) es una fuente comercial — no se puede
+// embeber sin licencia. Se usa Titillium Web SemiBold como sustituto:
+// es de uso libre (Google Fonts) y nace explícitamente como alternativa
+// abierta a la familia DIN (mismo espíritu geométrico/industrial). Si
+// en algún momento se consigue el .ttf real de DIN Medium con licencia,
+// alcanza con cambiar la URL de acá — el resto del código no cambia.
+// Validado antes de integrar: pdf-lib + @pdf-lib/fontkit embeben este
+// .woff y el texto se ve/imprime bien (probado renderizando el PDF
+// resultante, no solo "no tira error").
+const FUENTE_PLANO_URL = "https://cdn.jsdelivr.net/npm/@fontsource/titillium-web@5.3.0/files/titillium-web-latin-600-normal.woff";
+let fuentePlanoBytesCache = null;
+
+async function cargarFuentePlano(pdfDoc) {
+  try {
+    if (!fuentePlanoBytesCache) fuentePlanoBytesCache = await (await fetch(FUENTE_PLANO_URL)).arrayBuffer();
+    pdfDoc.registerFontkit(fontkit);
+    return await pdfDoc.embedFont(fuentePlanoBytesCache);
+  } catch (e) {
+    console.warn("No se pudo cargar la fuente del plano (sustituto de DIN Medium) — se usa Helvetica:", e);
+    return null;
+  }
+}
+
 async function guardarEdicionPlano() {
   const btn = document.getElementById("btn-editor-plano-guardar");
+  const inputObra = document.querySelector('#editor-plano-campos input[data-rol="obra"]');
+  const valorObra = (inputObra?.value || "").trim();
+  if (!valorObra) { showToast("❌ Completá el campo Obra antes de guardar."); return; }
+
   btn.disabled = true;
   btn.textContent = "Guardando…";
   try {
     // La plantilla original (acá, editorPlanoBytes) nunca se vuelve a
     // subir a "Planos Estándar" — se genera un plano NUEVO a partir de
-    // ella y se manda a Obra/Estandar/, la plantilla queda intacta.
-    const camposObra = editorPlanoCampos
-      .map((c, i) => ({ campo: c, input: document.querySelector(`#editor-plano-campos input[data-campo-idx="${i}"]`) }))
-      .filter(x => x.campo.etiqueta === "Obra:" && x.input);
-    let obraDestino = null;
-    for (const { input } of camposObra) {
-      obraDestino = buscarObraPorValorObra(input.value);
-      if (obraDestino) break;
-    }
-    if (!obraDestino) {
-      showToast("❌ No se encontró ninguna obra que coincida con el campo Obra — revisá el valor (ej. el código de obra) e intentá de nuevo.");
-      return;
-    }
+    // ella. Si el código de obra coincide con una obra ya conectada, va
+    // a Obra/Estandar/; si no coincide con ninguna, se crea una carpeta
+    // con ese código DENTRO de "Planos Estándar" en vez de fallar — ver
+    // pedido: "si no encuentra un número de obra que coincida, se crea
+    // una carpeta con el número de obra".
+    const obraDestino = buscarObraPorValorObra(valorObra);
 
     const { PDFDocument, rgb, StandardFonts } = PDFLib;
     const pdfDoc = await PDFDocument.load(editorPlanoBytes);
     const page = pdfDoc.getPage(0);
-    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const font = (await cargarFuentePlano(pdfDoc)) || await pdfDoc.embedFont(StandardFonts.Helvetica);
 
     document.querySelectorAll("#editor-plano-campos input").forEach(inp => {
-      const campo = editorPlanoCampos[Number(inp.dataset.campoIdx)];
+      const f = editorPlanoCamposForm.find(x => x.rol === inp.dataset.rol);
+      const campo = f?.campo;
       const nuevoValor = inp.value;
-      if (nuevoValor === campo.valorOriginal) return;
+      // Sin campo detectado no hay coordenadas donde escribir — el valor
+      // tipeado igual se usa para decidir la carpeta destino (rol "obra"),
+      // pero no se puede dibujar sobre el PDF sin saber dónde.
+      if (!campo || nuevoValor === campo.valorOriginal) return;
 
       const box = campo.valorBox || {
         x0: campo.labelBox.x1 + 4, y0: campo.labelBox.y0,
@@ -7138,10 +7186,20 @@ async function guardarEdicionPlano() {
 
     const bytes = await pdfDoc.save();
     const blob = new Blob([bytes], { type: "application/pdf" });
-    const carpetaEstandarDeObra = await obtenerOCrearCarpetaDrive("Estandar", obraDestino.driveId);
-    await subirArchivoADriveConProgreso(editorPlanoArchivo.nombre, blob, carpetaEstandarDeObra, () => {});
 
-    showToast(`✅ Plano generado en "${obraDestino.nombre} / Estandar"`);
+    let destinoParentId, destinoLabel;
+    if (obraDestino) {
+      destinoParentId = await obtenerOCrearCarpetaDrive("Estandar", obraDestino.driveId);
+      destinoLabel = `${obraDestino.nombre} / Estandar`;
+    } else {
+      const pe = carpetaPlanosEstandar();
+      if (!pe) { showToast("❌ No se encontró la carpeta Planos Estándar."); return; }
+      destinoParentId = await obtenerOCrearCarpetaDrive(valorObra, pe.driveId);
+      destinoLabel = `Planos Estándar / ${valorObra}`;
+    }
+    await subirArchivoADriveConProgreso(editorPlanoArchivo.nombre, blob, destinoParentId, () => {});
+
+    showToast(`✅ Plano generado en "${destinoLabel}"`);
     document.getElementById("modal-editor-plano").classList.remove("visible");
   } catch (e) {
     showToast("❌ " + (e.message || "No se pudo guardar el plano"));
