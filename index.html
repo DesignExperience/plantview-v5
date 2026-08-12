@@ -1383,7 +1383,14 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 .pdf-page-canvas {
   display: block;
   box-shadow: 0 4px 20px rgba(0,0,0,.5);
+  /* max-width:100% achica el ancho cuando el contenedor no entra, pero
+     canvas.style.width/height quedan fijados en px (ver renderizarPDF)
+     — sin height:auto acá, el alto se queda pegado en ese valor viejo
+     mientras el ancho se comprime, deformando el plano. height:auto
+     hace que el alto siga al ancho según la proporción real del canvas
+     (sus atributos width/height en px, no el CSS). */
   max-width: 100%;
+  height: auto;
 }
 </style>
 </head>
@@ -3339,6 +3346,14 @@ if (typeof pdfjsLib !== "undefined") {
 // Estado PDF
 let pdfDoc  = null;
 let pdfZoom = 1.0;
+// Antes 3.0 estaba repetido como número mágico en 4 lugares (botón +,
+// pellizco táctil, rueda con Ctrl/Cmd) — quedaba "trabado" en 300% ahí.
+// Una sola constante: subir el techo es cambiar un solo número, no
+// buscar los 4 lugares. 8x alcanza para leer el detalle de un rótulo
+// sin generar canvases desmesurados (buffer = viewport*dpr*zoom, un
+// techo demasiado alto en un plano grande puede quedarse sin memoria).
+const PDF_ZOOM_MIN = 0.4;
+const PDF_ZOOM_MAX = 8.0;
 // La pestaña "PDF / Images" puede tener cargado un PDF O una imagen (nunca
 // los dos a la vez) — esta bandera dice cuál de los dos hay que mostrar
 // cuando se vuelve a esa pestaña sin reabrir nada.
@@ -4329,14 +4344,14 @@ document.addEventListener("keydown", e => {
 });
 document.getElementById("pdf-zoom-in").addEventListener("click", async () => {
   if (!pdfDoc) return;
-  pdfZoom = Math.min(pdfZoom + 0.2, 3.0);
+  pdfZoom = Math.min(pdfZoom + 0.2, PDF_ZOOM_MAX);
   document.getElementById("pdf-zoom-label").textContent = Math.round(pdfZoom*100)+"%";
   await renderizarPDF();
   guardarEstadoPDF();
 });
 document.getElementById("pdf-zoom-out").addEventListener("click", async () => {
   if (!pdfDoc) return;
-  pdfZoom = Math.max(pdfZoom - 0.2, 0.4);
+  pdfZoom = Math.max(pdfZoom - 0.2, PDF_ZOOM_MIN);
   document.getElementById("pdf-zoom-label").textContent = Math.round(pdfZoom*100)+"%";
   await renderizarPDF();
   guardarEstadoPDF();
@@ -4395,7 +4410,7 @@ document.getElementById("pdf-zoom-label").addEventListener("click", async () => 
     e.preventDefault();
     const dist = distanciaEntreDedos(e.touches);
     const factor = dist / distInicial;
-    zoomPendiente = Math.min(Math.max(zoomInicial * factor, 0.4), 3.0);
+    zoomPendiente = Math.min(Math.max(zoomInicial * factor, PDF_ZOOM_MIN), PDF_ZOOM_MAX);
     const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
     const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
     fijarOrigenTransform(midX, midY);
@@ -4429,7 +4444,7 @@ document.getElementById("pdf-zoom-label").addEventListener("click", async () => 
     if (!(e.ctrlKey || e.metaKey) || !pdfDoc) return;
     e.preventDefault();
     const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-    zoomPendiente = Math.min(Math.max((zoomPendiente ?? pdfZoom) * factor, 0.4), 3.0);
+    zoomPendiente = Math.min(Math.max((zoomPendiente ?? pdfZoom) * factor, PDF_ZOOM_MIN), PDF_ZOOM_MAX);
     fijarOrigenTransform(e.clientX, e.clientY);
     wrap.style.transform = `scale(${zoomPendiente / pdfZoom})`;
     clearTimeout(wheelZoomTimeout);
