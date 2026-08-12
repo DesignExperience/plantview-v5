@@ -2520,6 +2520,10 @@ function setSplit(activo) {
     // Tamaño inicial 50/50
     resetSplitSize();
     document.querySelectorAll(".btn-toggle-sidebar").forEach(b => b.style.display = "flex");
+    // El PDF ya abierto puede tener el zoom pensado para pantalla
+    // completa — sin esto, entrar a Split lo dejaba mal encuadrado en
+    // el panel angosto hasta que el usuario lo reajustaba a mano.
+    reajustarPDFAlPanel();
   } else {
     app.classList.add("no-split");
     app.classList.remove("has-split");
@@ -4016,7 +4020,12 @@ async function cargarPDF(buffer) {
     if (pdfDoc) { pdfDoc.destroy(); pdfDoc = null; }
     pdfDoc = await pdfjsLib.getDocument({ data: buffer }).promise;
     const memoria = pdfMemoria.get(state.archivoActual?.id);
-    pdfZoom = memoria?.zoom ?? calcZoomFit();
+    if (memoria?.zoom) {
+      pdfZoom = memoria.zoom;
+    } else {
+      const pagina1 = await pdfDoc.getPage(1);
+      pdfZoom = calcZoomFit(pagina1.getViewport({ scale: 1 }).width);
+    }
     document.getElementById("pdf-zoom-label").textContent = Math.round(pdfZoom*100)+"%";
     document.getElementById("pdf-total").textContent = pdfDoc.numPages;
     document.getElementById("pdf-page-cur").max = pdfDoc.numPages;
@@ -4388,10 +4397,26 @@ async function cargarDXF(buffer) {
   });
 })();
 
-// Calcula zoom inicial para que la página entre en el panel
-function calcZoomFit() {
+// Calcula zoom inicial para que la página entre en el panel. Antes
+// dividía siempre por 595 (ancho A4 en pt) sin importar el tamaño real
+// de la hoja — un plano A2/A1 (bastante más ancho, el caso normal acá)
+// se ajustaba con la proporción equivocada, quedando mal encuadrado la
+// primera vez que se abre en un panel angosto (ej. modo Split). Los
+// llamadores pasan el ancho real de la página cuando lo conocen.
+function calcZoomFit(anchoPaginaPt) {
   const panelW = document.getElementById("panel-visor").offsetWidth - 28;
-  return Math.min(panelW / 595, 1.5); // 595 = ancho A4 pts
+  return Math.min(panelW / (anchoPaginaPt || 595), 1.5);
+}
+
+// Re-ajusta el PDF ya abierto al ancho actual del panel — se llama al
+// activar Split (antes quedaba con el zoom pensado para pantalla
+// completa, mal encuadrado en el panel angosto de golpe). No se llama
+// en cada pixel de arrastre del divisor a propósito: eso pisaría el
+// zoom elegido a mano por el usuario cada vez que ajusta el ancho.
+async function reajustarPDFAlPanel() {
+  if (!pdfDoc || !document.getElementById("pdf-canvas-wrap").classList.contains("show")) return;
+  const pagina1 = await pdfDoc.getPage(1);
+  await aplicarZoomPDF(calcZoomFit(pagina1.getViewport({ scale: 1 }).width));
 }
 
 async function renderizarPDF() {
@@ -4549,7 +4574,11 @@ document.getElementById("pdf-zoom-out").addEventListener("click", () => aplicarZ
 // que en el visor de imágenes, para salir rápido si te perdiste zoomeando.
 document.getElementById("pdf-zoom-label").style.cursor = "pointer";
 document.getElementById("pdf-zoom-label").title = "Restablecer zoom";
-document.getElementById("pdf-zoom-label").addEventListener("click", () => aplicarZoomPDF(calcZoomFit()));
+document.getElementById("pdf-zoom-label").addEventListener("click", async () => {
+  if (!pdfDoc) return;
+  const pagina1 = await pdfDoc.getPage(1);
+  await aplicarZoomPDF(calcZoomFit(pagina1.getViewport({ scale: 1 }).width));
+});
 
 // Imprimir el PDF: se abre el archivo (bytes propios, no una captura del
 // canvas — así sale con la resolución real del PDF, no la del zoom
