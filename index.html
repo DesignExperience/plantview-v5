@@ -1390,11 +1390,26 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 /* PDF renderizado en canvas */
 #pdf-canvas-wrap {
   flex: 1; overflow: auto; background: #404040;
-  display: none; flex-direction: column; align-items: center;
-  gap: 10px; padding: 14px;
+  display: none;
   -webkit-overflow-scrolling: touch;
+  cursor: grab;
 }
-#pdf-canvas-wrap.show { display: flex; }
+#pdf-canvas-wrap.show { display: block; }
+#pdf-canvas-wrap.arrastrando { cursor: grabbing; }
+/* El transform de preview de zoom (pinch/ctrl+wheel) se aplica ACÁ, en
+   un wrapper interno al contenido — nunca directo sobre #pdf-canvas-wrap.
+   Ese div tiene overflow:auto y es el que define el viewport visible;
+   escalarlo a ÉL con CSS transform agranda su propia caja de golpe (el
+   transform no cambia el tamaño de layout pero sí lo que se pinta), y
+   como el padre no lo recorta, el contenido se sale del panel por encima
+   de la toolbar y paneles vecinos durante el gesto — el "salto raro" al
+   zoomear con la rueda o con dos dedos. Escalando este wrapper interno
+   en cambio, #pdf-canvas-wrap se queda quieto y sigue recortando bien.
+*/
+#pdf-canvas-inner {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 10px; padding: 14px; min-height: 100%;
+}
 .pdf-page-canvas {
   display: block;
   box-shadow: 0 4px 20px rgba(0,0,0,.5);
@@ -4432,6 +4447,9 @@ async function reajustarPDFAlPanel() {
 async function renderizarPDF() {
   const wrap = document.getElementById("pdf-canvas-wrap");
   wrap.innerHTML = "";
+  const inner = document.createElement("div");
+  inner.id = "pdf-canvas-inner";
+  wrap.appendChild(inner);
   const total = pdfDoc.numPages;
   // Renderizar al tamaño físico real de la pantalla (devicePixelRatio), no solo
   // al tamaño lógico en CSS — si no, en celulares con pantalla Retina el canvas
@@ -4478,7 +4496,7 @@ async function renderizarPDF() {
     // se achicaba pero el alto se quedaba fijo: la distorsión.
     canvas.style.width = viewport.width + "px";
     canvas.dataset.pagina = n;
-    wrap.appendChild(canvas);
+    inner.appendChild(canvas);
     paginas.push({ n, page, viewport, canvas, renderizada: false, dprEfectivo });
   }
 
@@ -4570,7 +4588,35 @@ document.addEventListener("keydown", e => {
 // Chrome incluido). Se guarda scrollTop/scrollLeft ANTES de re-renderizar
 // y se restauran reescalados por la proporción de zoom nuevo/viejo —
 // el mismo punto del plano queda bajo el mismo punto de la pantalla.
+// renderizarPDF() empieza borrando wrap.innerHTML y arma los canvases de
+// nuevo de forma async — si dos llamadas a aplicarZoomPDF se solapan (ej.
+// varias vueltas de rueda con Ctrl seguidas, cada una con su propio debounce
+// de 220ms venciendo antes de que la anterior termine de renderizar), la
+// segunda borra a mitad de camino lo que la primera todavía estaba
+// pintando, y como cada una lee/escribe pdfZoom por su cuenta, el zoom
+// final termina en el valor de la que TERMINÓ última en vez de la que se
+// PIDIÓ última — de ahí el "hace zoom, se traba, el PDF parpadea y vuelve
+// a un zoom anterior" al girar la rueda rápido o seguido. Se serializan:
+// si llega un pedido mientras otro está en curso, se guarda como
+// "pendiente" (pisando cualquier pendiente anterior — solo importa el
+// último) y se aplica recién cuando el actual termina, sin solaparse.
+let pdfZoomEnCurso = false;
+let pdfZoomPendiente = null;
 async function aplicarZoomPDF(nuevoZoom) {
+  pdfZoomPendiente = nuevoZoom;
+  if (pdfZoomEnCurso) return;
+  pdfZoomEnCurso = true;
+  try {
+    while (pdfZoomPendiente !== null) {
+      const z = pdfZoomPendiente;
+      pdfZoomPendiente = null;
+      await aplicarZoomPDFInterno(z);
+    }
+  } finally {
+    pdfZoomEnCurso = false;
+  }
+}
+async function aplicarZoomPDFInterno(nuevoZoom) {
   if (!pdfDoc) return;
   const wrap = document.getElementById("pdf-canvas-wrap");
   const zoomViejo = pdfZoom;
@@ -4627,6 +4673,7 @@ document.getElementById("pdf-print").addEventListener("click", async () => {
    ============================================================ */
 (function() {
   const wrap = document.getElementById("pdf-canvas-wrap");
+  const inner = () => document.getElementById("pdf-canvas-inner");
   let pinchActivo = false;
   let distInicial = 0;
   let zoomInicial = 1;
@@ -4638,14 +4685,15 @@ document.getElementById("pdf-print").addEventListener("click", async () => {
     return Math.hypot(dx, dy);
   }
 
-  // Origen del transform en % relativo al viewport visible del wrap — así
-  // el preview de zoom ancla al punto tocado/apuntado, no siempre arriba-
-  // centro (que hacía que el contenido "se escapara" al pinchar abajo).
-  function fijarOrigenTransform(clientX, clientY) {
-    const r = wrap.getBoundingClientRect();
+  // Origen del transform en % relativo al propio wrapper interno (no al
+  // viewport visible) — su getBoundingClientRect ya viene desplazado por
+  // el scroll actual, así que este cálculo ancla bien al punto tocado
+  // aunque el contenido esté scrolleado.
+  function fijarOrigenTransform(el, clientX, clientY) {
+    const r = el.getBoundingClientRect();
     const ox = ((clientX - r.left) / r.width) * 100;
     const oy = ((clientY - r.top) / r.height) * 100;
-    wrap.style.transformOrigin = `${ox}% ${oy}%`;
+    el.style.transformOrigin = `${ox}% ${oy}%`;
   }
 
   wrap.addEventListener("touchstart", e => {
@@ -4659,26 +4707,30 @@ document.getElementById("pdf-print").addEventListener("click", async () => {
   wrap.addEventListener("touchmove", e => {
     if (!pinchActivo || e.touches.length !== 2) return;
     e.preventDefault();
+    const el = inner();
+    if (!el) return;
     const dist = distanciaEntreDedos(e.touches);
     const factor = dist / distInicial;
     zoomPendiente = Math.min(Math.max(zoomInicial * factor, PDF_ZOOM_MIN), PDF_ZOOM_MAX);
     const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
     const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-    fijarOrigenTransform(midX, midY);
-    wrap.style.transform = `scale(${zoomPendiente / pdfZoom})`;
+    fijarOrigenTransform(el, midX, midY);
+    el.style.transform = `scale(${zoomPendiente / pdfZoom})`;
   }, { passive: false });
 
   wrap.addEventListener("touchend", async () => {
     if (!pinchActivo) return;
     pinchActivo = false;
-    wrap.style.transform = "";
+    const el = inner();
+    if (el) el.style.transform = "";
     if (zoomPendiente && pdfDoc) await aplicarZoomPDF(zoomPendiente);
     zoomPendiente = null;
   });
 
   wrap.addEventListener("touchcancel", () => {
     pinchActivo = false;
-    wrap.style.transform = "";
+    const el = inner();
+    if (el) el.style.transform = "";
     zoomPendiente = null;
   });
 
@@ -4690,17 +4742,59 @@ document.getElementById("pdf-print").addEventListener("click", async () => {
   wrap.addEventListener("wheel", e => {
     if (!(e.ctrlKey || e.metaKey) || !pdfDoc) return;
     e.preventDefault();
+    const el = inner();
+    if (!el) return;
     const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
     zoomPendiente = Math.min(Math.max((zoomPendiente ?? pdfZoom) * factor, PDF_ZOOM_MIN), PDF_ZOOM_MAX);
-    fijarOrigenTransform(e.clientX, e.clientY);
-    wrap.style.transform = `scale(${zoomPendiente / pdfZoom})`;
+    fijarOrigenTransform(el, e.clientX, e.clientY);
+    el.style.transform = `scale(${zoomPendiente / pdfZoom})`;
     clearTimeout(wheelZoomTimeout);
     wheelZoomTimeout = setTimeout(async () => {
-      wrap.style.transform = "";
+      el.style.transform = "";
       if (zoomPendiente && pdfDoc) await aplicarZoomPDF(zoomPendiente);
       zoomPendiente = null;
     }, 220);
   }, { passive: false });
+
+  /* ============================================================
+     PAN POR ARRASTRE (click y arrastrar para mover el plano) — mismo
+     comportamiento que el visor de PDF nativo de Chrome: al hacer click
+     y arrastrar en cualquier punto vacío del panel, se desplaza el
+     contenido (como si fuera con la mano), en vez de tener que usar
+     scrollbars. Se distingue de un click normal por un umbral mínimo de
+     movimiento, para no pisar clicks/dobleclicks (ej. el dblclick de
+     pantalla completa) ni el arrastre de selección de texto nativo.
+     ============================================================ */
+  let arrastrando = false;
+  let arrastreActivado = false;
+  let startX = 0, startY = 0, startScrollLeft = 0, startScrollTop = 0;
+  const UMBRAL_ARRASTRE = 4;
+
+  wrap.addEventListener("mousedown", e => {
+    if (!pdfDoc || e.button !== 0) return;
+    if (e.target.closest("#pdf-toolbar, #visor-mini-bar, button, a, input, select, textarea")) return;
+    arrastrando = true;
+    arrastreActivado = false;
+    startX = e.clientX; startY = e.clientY;
+    startScrollLeft = wrap.scrollLeft; startScrollTop = wrap.scrollTop;
+  });
+
+  window.addEventListener("mousemove", e => {
+    if (!arrastrando) return;
+    const dx = e.clientX - startX, dy = e.clientY - startY;
+    if (!arrastreActivado) {
+      if (Math.hypot(dx, dy) < UMBRAL_ARRASTRE) return;
+      arrastreActivado = true;
+      wrap.classList.add("arrastrando");
+    }
+    e.preventDefault();
+    wrap.scrollLeft = startScrollLeft - dx;
+    wrap.scrollTop = startScrollTop - dy;
+  });
+
+  window.addEventListener("mouseup", () => {
+    if (arrastrando) { arrastrando = false; wrap.classList.remove("arrastrando"); }
+  });
 })();
 
 // Recargar
@@ -7296,7 +7390,7 @@ function armarCamposFormularioPlano(camposDetectados) {
   return [
     { rol: "obra", label: "Obra (código)", campo: obraCodigo },
     { rol: "cliente", label: "Cliente", campo: cliente },
-    { rol: "denominacion", label: "Denominación de la obra", campo: denominacion },
+    { rol: "denominacion", label: "Nombre de obra", campo: denominacion },
     { rol: "cantidad", label: "Cantidad total", campo: cantidad },
   ];
 }
@@ -7381,7 +7475,7 @@ function carpetaPlanosEstandar() {
 // Validado antes de integrar: pdf-lib + @pdf-lib/fontkit embeben este
 // .woff y el texto se ve/imprime bien (probado renderizando el PDF
 // resultante, no solo "no tira error").
-const FUENTE_PLANO_URL = "https://cdn.jsdelivr.net/npm/@fontsource/titillium-web@5.3.0/files/titillium-web-latin-600-normal.woff";
+const FUENTE_PLANO_URL = "https://cdn.jsdelivr.net/npm/@fontsource/titillium-web@5.3.0/files/titillium-web-latin-700-normal.woff";
 let fuentePlanoBytesCache = null;
 
 async function cargarFuentePlano(pdfDoc) {
@@ -7438,7 +7532,14 @@ async function guardarEdicionPlano() {
         color: rgb(1, 1, 1),
       });
       if (nuevoValor.trim()) {
-        page.drawText(nuevoValor, { x: box.x0, y: box.y0 + 1, size: campo.fontSizeAprox || 9, font, color: rgb(0, 0, 0) });
+        // Centrado vertical real en el cuadro (no apoyado en la base):
+        // el punto de referencia de drawText es la línea de base, así
+        // que hay que compensar con el ascent/descent de la fuente en
+        // este tamaño para que el texto quede a mitad de altura del box.
+        const size = campo.fontSizeAprox || 9;
+        const centroY = (box.y0 + box.y1) / 2;
+        const baselineY = centroY - size * 0.35;
+        page.drawText(nuevoValor, { x: box.x0, y: baselineY, size, font, color: rgb(0, 0, 0) });
       }
     });
 
@@ -8610,6 +8711,16 @@ canvas{display:block;width:100%;height:100%}
 .hover-label{position:fixed;bottom:calc(104px + var(--safe-bottom));left:50%;transform:translateX(-50%);background:rgba(58,107,232,.12);border:1px solid rgba(58,107,232,.25);backdrop-filter:blur(8px);border-radius:20px;padding:6px 14px;font-size:11px;color:var(--acc);white-space:nowrap;pointer-events:none;z-index:190;opacity:0;transition:opacity .2s;max-width:220px;overflow:hidden;text-overflow:ellipsis}
 .hover-label.show{opacity:1}
 .mode-pill{position:fixed;top:calc(var(--safe-top) + 14px);left:50%;transform:translateX(-50%);background:rgba(232,234,239,.9);border:1px solid var(--border);backdrop-filter:blur(12px);border-radius:20px;padding:5px 14px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);z-index:200;pointer-events:none;white-space:nowrap}
+/* Acceso directo a la lista de notas, siempre visible arriba al medio
+   (mismo lugar/estilo que el mode-pill, pero clickeable) — en vez de
+   depender solo del botón chico de la esquina (#btnNotas3D), que muchos
+   usuarios no encontraban. Mismo componente para mobile y desktop: a
+   este ancho de pantalla no hace falta una versión distinta por tamaño. */
+.notas-pill{position:fixed;top:calc(var(--safe-top) + 46px);left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:5px;background:rgba(232,234,239,.9);border:1px solid var(--border);backdrop-filter:blur(12px);border-radius:20px;padding:5px 10px 5px 14px;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text);z-index:200;cursor:pointer;white-space:nowrap;font-family:inherit}
+.notas-pill:hover{background:rgba(232,234,239,1)}
+.notas-pill svg{width:13px;height:13px;flex-shrink:0}
+.notas-pill #pillNotasBadge{background:var(--acc);color:#fff;border-radius:8px;min-width:15px;height:15px;padding:0 4px;font-size:9px;display:none;align-items:center;justify-content:center;line-height:1;letter-spacing:0}
+.notas-pill.tiene-notas #pillNotasBadge{display:flex}
 .toast{position:fixed;top:calc(var(--safe-top) + 68px);left:50%;transform:translateX(-50%);background:rgba(58,107,232,.92);color:#fff;font-size:12px;padding:8px 18px;border-radius:20px;pointer-events:none;white-space:nowrap;z-index:300;opacity:0;transition:opacity .2s;max-width:90vw;overflow:hidden;text-overflow:ellipsis}
 .toast.show{opacity:1}
 #msr-svg{position:fixed;inset:0;pointer-events:none;z-index:80}
@@ -8797,6 +8908,23 @@ canvas{display:block;width:100%;height:100%}
    marcador, así se lee la nota sin abrir el panel. */
 .nota-burbuja{position:fixed;max-width:200px;background:var(--surf);border:1px solid rgba(58,107,232,.35);border-radius:10px;padding:7px 9px;font-size:11.5px;line-height:1.4;color:var(--text);pointer-events:none;z-index:87}
 .nota-burbuja.negrita{font-weight:700}
+/* Tarjeta de preview del adjunto — elemento PROPIO, separado de la
+   burbuja de texto (no metido adentro), colgando debajo con su propia
+   línea/ancla — mismo patrón visual que un "Frame" con título arriba y
+   el contenido abajo. Imagen real si es foto, ícono+nombre si no
+   (PDF/DWG/otro — no hay forma barata de previsualizar la primera
+   página de un PDF acá sin cargar pdf.js por cada pin visible). */
+.nota-burbuja-adj{position:fixed;width:150px;background:var(--surf);border:1px solid rgba(58,107,232,.35);border-radius:10px;overflow:hidden;pointer-events:none;z-index:86}
+.nota-burbuja-adj-titulo{font-size:9px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--text);padding:6px 8px 5px;border-bottom:1px solid rgba(58,107,232,.18)}
+.nota-burbuja-adj img{width:100%;height:90px;object-fit:cover;display:block}
+.nota-burbuja-adj-icon{display:flex;align-items:center;gap:6px;padding:8px;font-size:20px}
+.nota-burbuja-adj-icon span{font-size:9.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:"IBM Plex Mono",monospace;min-width:0}
+/* Varios adjuntos en la misma nota (caso normal en una tarea/OT con
+   documentación cargada desde el drawer de Tareas): fila de miniaturas
+   chicas en vez de una preview grande por archivo. */
+.nota-burbuja-adj-fila{display:flex;flex-wrap:wrap;gap:5px;padding:7px}
+.nota-burbuja-adj-mini{width:32px;height:32px;border-radius:6px;object-fit:cover;flex-shrink:0}
+.nota-burbuja-adj-mini-icono{background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-size:15px}
 
 /* Selector de color del texto de la nota — mismos colores disponibles
    para el toggle "negrita" y la burbuja en el modelo. */
@@ -9004,6 +9132,11 @@ window.onerror=function(msg,src,line){
 </div>
 
 <div class="mode-pill" id="modePill">Órbita libre</div>
+<button type="button" class="notas-pill" id="pillNotas" title="Notas del modelo">
+  <span>Notas</span>
+  <span id="pillNotasBadge">0</span>
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+</button>
 <div id="canvas-wrap"><canvas id="cv"></canvas></div>
 <svg id="badges-svg" style="position:fixed;inset:0;pointer-events:none;z-index:85;overflow:visible"></svg>
 <svg id="notas-svg" style="position:fixed;inset:0;pointer-events:none;z-index:86;overflow:visible"></svg>
@@ -9834,10 +9967,17 @@ async function buildSceneFromGLB(glbData, selectedIndices){
       }
     }
 
-    // Si el toggle de Aristas ya estaba activado (de un modelo anterior),
-    // se reconstruyen para este modelo nuevo — después de la fusión de
-    // arriba, no antes, para no calcular aristas sobre meshes que la
-    // fusión va a descartar.
+    // Si el usuario todavía no tocó el toggle a mano en esta sesión, se
+    // decide el estado por defecto según el tamaño del ensamble: chico
+    // (<= UMBRAL_ARISTAS_AUTO meshes) arranca CON aristas, grande arranca
+    // sin ellas (como antes). Si ya lo tocó a mano, se respeta tal cual
+    // esté (ej. lo prendió una vez y lo quiere prendido siempre).
+    if(!edgesTocadoPorUsuario){
+      edgesVisible=allMeshes.length<=UMBRAL_ARISTAS_AUTO;
+      document.getElementById('bEdges').classList.toggle('on',edgesVisible);
+    }
+    // Se reconstruyen después de la fusión de arriba, no antes, para no
+    // calcular aristas sobre meshes que la fusión va a descartar.
     if(edgesVisible){ construirAristas(); edgeLines.forEach(l=>l.visible=true); }
 
     await new Promise(r=>setTimeout(r,100));
@@ -10242,6 +10382,14 @@ function placeSTLInScene(stlGroup,zoneId){
 let edgesVisible=false;
 let edgesConstruidas=false;
 let edgeLines=[];
+let edgesTocadoPorUsuario=false; // true en cuanto el usuario clickea el toggle a mano — a partir de ahí se respeta su elección tal cual, sin que el auto-activado de ensambles chicos se la pise en el próximo modelo
+// Ensambles chicos: mostrar aristas por defecto de entrada (no hace falta
+// que el usuario las prenda a mano) — el costo de calcular EdgesGeometry
+// y dibujar las líneas es insignificante con pocos meshes, y ayuda mucho
+// a distinguir piezas pegadas del mismo color. Con ensambles grandes se
+// deja como estaba (apagado por defecto): recorrer miles de meshes con
+// EdgesGeometry sí pesa, y es la razón por la que el toggle es manual.
+const UMBRAL_ARISTAS_AUTO=400;
 const ARISTA_MAT=new THREE.LineBasicMaterial({color:0x1a1a1a});
 function construirAristas(){
   if(edgesConstruidas) return;
@@ -11135,6 +11283,11 @@ function setMode(m){
     document.getElementById('msrPanel').classList.remove('show');
     clearMeasureSVG();
   }
+  // La selección de cara (azul, estilo SolidWorks) es propia de
+  // órbita/selección — al entrar a measure/notas/pan se limpia, para no
+  // mezclarla con el sistema de 2 caras A/B de medición ni dejarla
+  // pisada visualmente por otro modo.
+  if(m!=='orbit'&&m!=='select') limpiarSeleccionCara();
   mode=m;
   ['bOrbit','bPan','bSelect','bMeasure','btnNotas3D'].forEach(id=>document.getElementById(id).classList.remove('on'));
   const map={orbit:'bOrbit',pan:'bPan',select:'bSelect',measure:'bMeasure',notas:'btnNotas3D'};
@@ -11303,6 +11456,25 @@ function setFaceHighlight(slot, mesh, faceIndex){
   faceHighlights[slot]={hlMesh, normal};
 }
 
+// ── SELECCIÓN DE CARA AL CLICK (estilo SolidWorks) ─────────────────────
+// Independiente del sistema de arriba (que es solo para medición, tope de
+// 2 caras A/B y se limpia al salir de "measure"): esto es un highlight
+// único y persistente que sigue el click normal en órbita/selección — la
+// cara clickeada queda pintada de azul hasta que se clickea otra cara o
+// se clickea en vacío, igual que seleccionar una cara en SolidWorks.
+const SELECCION_COLOR=0x2f7dff;
+let seleccionHighlight=null;
+function limpiarSeleccionCara(){
+  if(seleccionHighlight){ scene.remove(seleccionHighlight.hlMesh); seleccionHighlight=null; }
+}
+function setSeleccionCara(mesh, faceIndex){
+  limpiarSeleccionCara();
+  const {faceIndices}=getFlatFaceGroup(mesh, faceIndex);
+  const hlMesh=buildFaceHighlightMesh(mesh, faceIndices, SELECCION_COLOR);
+  scene.add(hlMesh);
+  seleccionHighlight={hlMesh};
+}
+
 // ── NOTAS 3D (compartidas por Drive, un pin por nota) ─────────────────
 // Marcadores como overlay SVG en pantalla (mismo patrón que los badges de
 // documentos — worldToScreen + línea punteada), NO sprites 3D: así el
@@ -11313,6 +11485,7 @@ const notasSvg=document.getElementById('notas-svg');
 const notasBurbujasEl=document.getElementById('notas-burbujas');
 const notaMarkerEls={};         // id -> {g,leader,anchor,handle}
 const notaBurbujaEls={};        // id -> div.nota-burbuja (solo si n.mostrarPin)
+const notaAdjBurbujaEls={};     // id -> div.nota-burbuja-adj (solo si n.mostrarPin Y tiene adjunto) — tarjeta propia, colgando debajo de la burbuja de texto
 let notaOffsets={};             // id -> {dx,dy} en px, desplazamiento manual del marcador (solo esta sesión)
 let notaAbiertaId=null;         // id de la nota que está en el panel (null = nota nueva)
 let notaHitPendiente=null;      // hit de raycast para la nota nueva sin guardar aún
@@ -11367,10 +11540,103 @@ function crearMarcadorNota(n){
   handle.appendChild(num);
   g.appendChild(handle);
 
+  // Badge de "esta nota tiene un documento adjunto" — un puntito chico en
+  // la esquina del pin, coloreado según el tipo de archivo (mismos colores
+  // que usa iconoTipo() en el resto de la app, para reconocerlo de un
+  // vistazo sin tener que abrir la nota). Arranca oculto: solo se muestra
+  // si n.adjunto existe (ver pintarAdjuntoNota()).
+  const adjBadge=document.createElementNS(svgns,'g');
+  adjBadge.style.pointerEvents='none';
+  adjBadge.style.display='none';
+  const adjBadgeCirc=document.createElementNS(svgns,'circle');
+  adjBadgeCirc.setAttribute('cx','6.5');
+  adjBadgeCirc.setAttribute('cy','-6.5');
+  adjBadgeCirc.setAttribute('r','4');
+  adjBadgeCirc.setAttribute('stroke','#fff');
+  adjBadgeCirc.setAttribute('stroke-width','1');
+  adjBadge.appendChild(adjBadgeCirc);
+  const adjBadgeIcon=document.createElementNS(svgns,'path');
+  // Clip (📎) minimalista en el mismo trazo blanco que el resto de los íconos
+  adjBadgeIcon.setAttribute('d','M4.7 -8.3l2 -2a1.1 1.1 0 0 1 1.6 1.6l-3 3a1.9 1.9 0 0 1 -2.7 -2.7l3.4 -3.4');
+  adjBadgeIcon.setAttribute('stroke','#fff');
+  adjBadgeIcon.setAttribute('stroke-width','.7');
+  adjBadgeIcon.setAttribute('fill','none');
+  adjBadgeIcon.setAttribute('stroke-linecap','round');
+  adjBadge.appendChild(adjBadgeIcon);
+  handle.appendChild(adjBadge);
+
   notasSvg.appendChild(g);
-  const refs={g,leader,anchor,handle,num,dot,halo};
+  const refs={g,leader,anchor,handle,num,dot,halo,adjBadge,adjBadgeCirc};
   notaMarkerEls[n.id]=refs;
   wireMarcadorDrag(handle,n.id);
+}
+
+// Una nota tiene DOS fuentes posibles de adjuntos, que viven en la misma
+// nota pero se cargan por caminos separados: n.adjunto (singular, el que
+// carga el botón "Adjuntar foto o PDF" DENTRO de este panel del visor 3D)
+// y n.adjuntos (plural, el que carga el drawer de Tareas — otra pantalla
+// de la app, fuera del visor, con su propio botón "+ Agregar archivo").
+// Esta función las junta en una sola lista — sin esto, un archivo
+// adjuntado desde Tareas (el caso normal en una nota marcada "Es una
+// tarea/OT") quedaba invisible acá: el pin/burbuja solo miraban n.adjunto.
+function todosAdjuntosNota(n){
+  const lista=[];
+  if(n.adjunto) lista.push({nombre:n.adjunto.nombre, mime:n.adjunto.mime, fileId:n.adjunto.fileId});
+  if(Array.isArray(n.adjuntos)) n.adjuntos.forEach(a=>lista.push({nombre:a.nombre, mime:a.mime, fileId:a.driveId}));
+  return lista;
+}
+
+function tipoAdjunto(a){
+  const n=(a.nombre||'').toLowerCase();
+  const m=a.mime||'';
+  if(m.startsWith('image/')||/\.(png|jpe?g|gif|webp)$/.test(n)) return 'imagen';
+  if(m==='application/pdf'||n.endsWith('.pdf')) return 'pdf';
+  if(n.endsWith('.dwg')||n.endsWith('.dxf')) return 'dxf';
+  if(n.endsWith('.glb')||n.endsWith('.gltf')||n.endsWith('.stl')) return 'glb';
+  return 'otro';
+}
+const ADJUNTO_TIPO_COLOR={imagen:'#B968E0',pdf:'#E05555',dxf:'#3a8ef6',glb:'#4CAF7D',otro:'#8a9099'};
+const ADJUNTO_TIPO_ICONO={imagen:'🖼️',pdf:'📄',dxf:'📐',glb:'🧊',otro:'📎'};
+const ADJUNTO_TIPO_TITULO={imagen:'Imagen asociada:',pdf:'PDF adjunto:',dxf:'Plano adjunto:',glb:'Modelo 3D adjunto:',otro:'Archivo adjunto:'};
+
+// Contenido de la tarjeta de adjuntos (título + preview) — el contenedor
+// .nota-burbuja-adj en sí es un elemento propio (ver sincronizarBurbujasNotas),
+// separado de la burbuja de texto, esto solo arma lo de adentro. Con un
+// solo adjunto: imagen real si es foto, ícono+nombre si no (no hay forma
+// barata de previsualizar la primera página de un PDF acá sin cargar
+// pdf.js por cada pin visible en pantalla). Con varios: título con el
+// total + una fila de miniaturas/íconos chicos, uno por archivo.
+function htmlAdjuntoBurbuja(n){
+  const lista=todosAdjuntosNota(n);
+  if(!lista.length) return '';
+  if(lista.length===1){
+    const a=lista[0], tipo=tipoAdjunto(a);
+    if(tipo==='imagen'){
+      const url=urlAdjuntoDrive(a.fileId);
+      if(url) return `<div class="nota-burbuja-adj-titulo">${ADJUNTO_TIPO_TITULO.imagen}</div><img src="${esc(url)}" alt="${esc(a.nombre||'')}" loading="lazy">`;
+    }
+    return `<div class="nota-burbuja-adj-titulo">${ADJUNTO_TIPO_TITULO[tipo]}</div><div class="nota-burbuja-adj-icon">${ADJUNTO_TIPO_ICONO[tipo]}<span>${esc(a.nombre||'adjunto')}</span></div>`;
+  }
+  const filas=lista.map(a=>{
+    const tipo=tipoAdjunto(a);
+    if(tipo==='imagen'){
+      const url=urlAdjuntoDrive(a.fileId);
+      if(url) return `<img class="nota-burbuja-adj-mini" src="${esc(url)}" alt="${esc(a.nombre||'')}" loading="lazy" title="${esc(a.nombre||'')}">`;
+    }
+    return `<div class="nota-burbuja-adj-mini nota-burbuja-adj-mini-icono" title="${esc(a.nombre||'')}">${ADJUNTO_TIPO_ICONO[tipo]}</div>`;
+  }).join('');
+  return `<div class="nota-burbuja-adj-titulo">Adjuntos (${lista.length}):</div><div class="nota-burbuja-adj-fila">${filas}</div>`;
+}
+
+// Color del badge del pin: el del primer adjunto (si hay varios tipos
+// mezclados, se muestra el del primero — informa "hay algo adjunto y de
+// qué pinta es" de un vistazo, sin espacio para un desglose completo en
+// un puntito de unos pocos píxeles).
+function pintarAdjuntoNota(n,refs){
+  const lista=todosAdjuntosNota(n);
+  const color=lista.length ? ADJUNTO_TIPO_COLOR[tipoAdjunto(lista[0])] : null;
+  refs.adjBadge.style.display=color?'':'none';
+  if(color) refs.adjBadgeCirc.setAttribute('fill',color);
 }
 
 // Tiñe el pin (dot + halo) con el color del estado de la tarea/OT si la
@@ -11429,6 +11695,9 @@ function renderPinesNotas(){
   Object.keys(notaBurbujaEls).forEach(id=>{
     if(!idsActuales.has(id)){ notaBurbujaEls[id].remove(); delete notaBurbujaEls[id]; }
   });
+  Object.keys(notaAdjBurbujaEls).forEach(id=>{
+    if(!idsActuales.has(id)){ notaAdjBurbujaEls[id].remove(); delete notaAdjBurbujaEls[id]; }
+  });
   Object.keys(notaMeshCache).forEach(id=>{
     if(!idsActuales.has(id)) delete notaMeshCache[id];
   });
@@ -11438,6 +11707,7 @@ function renderPinesNotas(){
   notas3d.forEach((n,idx)=>{
     notaMarkerEls[n.id].num.textContent=String(idx+1);
     pintarPinSegunEstado(n,notaMarkerEls[n.id]);
+    pintarAdjuntoNota(n,notaMarkerEls[n.id]);
   });
   sincronizarBurbujasNotas();
   actualizarBadgeNotas();
@@ -11469,7 +11739,6 @@ function sincronizarBurbujasNotas(){
     }
     if(notaBurbujaEls[n.id]){
       const div=notaBurbujaEls[n.id];
-      div.textContent=n.texto||'';
       div.classList.toggle('negrita',!!n.negrita);
       div.style.color=NOTA_COLORES[n.color]||NOTA_COLORES.negro;
       // El borde de la burbuja tiene que coincidir con el color del pin: el
@@ -11477,7 +11746,27 @@ function sincronizarBurbujasNotas(){
       // si es una nota común — mismo criterio que pintarPinSegunEstado().
       const colorPin=n.esTarea ? colorEstadoTarea(n.estado) : '#3a6be8';
       div.style.borderColor=colorPin;
+      div.textContent=n.texto||'';
     }
+
+    // Tarjeta de adjuntos: elemento PROPIO (no adentro de la burbuja de
+    // texto), solo si además de "mostrar en el pin" la nota tiene algún
+    // adjunto — de cualquiera de las dos fuentes (ver todosAdjuntosNota).
+    const debeExistirAdj=debeExistir && todosAdjuntosNota(n).length>0;
+    const existeAdj=!!notaAdjBurbujaEls[n.id];
+    if(debeExistirAdj && !existeAdj){
+      const div=document.createElement('div');
+      div.className='nota-burbuja-adj';
+      div.style.pointerEvents='auto';
+      div.style.cursor='pointer';
+      div.addEventListener('click',(e)=>{ e.stopPropagation(); abrirNota3D(n.id); });
+      notasBurbujasEl.appendChild(div);
+      notaAdjBurbujaEls[n.id]=div;
+    }else if(!debeExistirAdj && existeAdj){
+      notaAdjBurbujaEls[n.id].remove();
+      delete notaAdjBurbujaEls[n.id];
+    }
+    if(notaAdjBurbujaEls[n.id]) notaAdjBurbujaEls[n.id].innerHTML=htmlAdjuntoBurbuja(n);
   });
 }
 
@@ -11615,6 +11904,7 @@ function actualizarPosicionesNotas(){
     if(!n.point){
       refs.g.style.display='none';
       if(notaBurbujaEls[id]) notaBurbujaEls[id].style.display='none';
+      if(notaAdjBurbujaEls[id]) notaAdjBurbujaEls[id].style.display='none';
       return;
     }
     let worldPos=new THREE.Vector3(n.point.x,n.point.y,n.point.z);
@@ -11633,6 +11923,7 @@ function actualizarPosicionesNotas(){
     if(p.behind){
       refs.g.style.display='none';
       if(notaBurbujaEls[id]) notaBurbujaEls[id].style.display='none';
+      if(notaAdjBurbujaEls[id]) notaAdjBurbujaEls[id].style.display='none';
       return;
     }
     refs.g.style.display='';
@@ -11657,6 +11948,22 @@ function actualizarPosicionesNotas(){
       burbuja.style.right=irIzquierda ? (window.innerWidth-mx+14)+'px' : '';
       burbuja.style.top=Math.max(4,my-10)+'px';
     }
+
+    // Tarjeta de adjunto: misma columna horizontal que la burbuja (mismo
+    // lado, izquierda/derecha según corresponda), colgando JUSTO DEBAJO
+    // — usa la altura real de la burbuja si existe (con texto más largo
+    // ocupa más alto), o cae directo desde el pin si la nota no tiene
+    // burbuja de texto visible.
+    const adjCard=notaAdjBurbujaEls[id];
+    if(adjCard){
+      adjCard.style.display='';
+      const anchoAdj=150;
+      const irIzquierdaAdj=(mx+14+anchoAdj)>window.innerWidth;
+      adjCard.style.left=irIzquierdaAdj ? '' : (mx+14)+'px';
+      adjCard.style.right=irIzquierdaAdj ? (window.innerWidth-mx+14)+'px' : '';
+      const debajoDe=burbuja ? (Math.max(4,my-10)+burbuja.offsetHeight+6) : (my+14);
+      adjCard.style.top=debajoDe+'px';
+    }
   });
 }
 
@@ -11668,6 +11975,8 @@ function actualizarBadgeNotas(){
   const n=notas3d.length;
   badge.textContent = n>99 ? '99+' : String(n);
   badge.classList.toggle('show', n>0);
+  document.getElementById('pillNotasBadge').textContent = n>99 ? '99+' : String(n);
+  document.getElementById('pillNotas').classList.toggle('tiene-notas', n>0);
 }
 
 // Busca (sin crear — eso requiere el token de escritura) una subcarpeta
@@ -11960,6 +12269,14 @@ document.getElementById('btnNotas3D').addEventListener('click',()=>{
   else setMode('notas');
 });
 
+// Acceso directo de arriba al medio — mismo criterio que el botón chico
+// de la esquina, pero siempre visible en el mismo lugar (mobile y
+// desktop), en vez de depender de que el usuario encuentre el ícono.
+document.getElementById('pillNotas').addEventListener('click',()=>{
+  if(notas3d.length>0) abrirListaNotas();
+  else setMode('notas');
+});
+
 document.getElementById('notaCerrar3D').addEventListener('click', cerrarPanelNota3D);
 
 // Panel de nota arrastrable dentro del visor (útil en desktop, donde el
@@ -12189,6 +12506,13 @@ function handleClick(cx,cy){
       if(zone){currentZone=zone;currentObjName=null;openSidebar(zone,null);}
     }else closeSidebar();
   }
+  // Resaltar la cara clickeada (estilo SolidWorks) en órbita/selección —
+  // no en "measure" (tiene su propio sistema de 2 caras A/B con otro
+  // significado) ni en "notas" (el click ahí abre el form de la nota).
+  if(mode==='orbit'||mode==='select'){
+    if(hits.length>0) setSeleccionCara(hits[0].object, hits[0].faceIndex);
+    else limpiarSeleccionCara();
+  }
   if(mode==='measure'){
     if(hits.length===0){toast('Tocá sobre un objeto');return;}
     const hit=hits[0];
@@ -12367,6 +12691,7 @@ function worldToScreen(v3){const p=project(v3);if(p.behind||p.x<0||p.x>canvas.cl
 function clearAll(){
   measurePts=[];measureHits=[];
   clearFaceHighlights();
+  limpiarSeleccionCara();
   clearMeasureSVG();
   document.getElementById('msrPanel').classList.remove('show');
   document.getElementById('msrEdgeInfo').classList.remove('show');
@@ -12933,6 +13258,7 @@ function renderImportLibrary(){
   document.getElementById('libClearBtn').onclick=()=>{
     currentGlbData=null;ZONES=[];zoneGroups={};allMeshes=[];
     limpiarAristas();
+    seleccionHighlight=null; // el mesh ya se va a remover solo en el barrido de abajo — solo hay que soltar la referencia
     [...scene.children].forEach(o=>{if(o!==gridHelper&&o!==floor&&!(o instanceof THREE.Light))scene.remove(o);});
     scene.add(gridHelper);scene.add(floor);
     buildZonesPanel();renderImportLibrary();
@@ -12955,6 +13281,7 @@ document.getElementById('bBadges').onclick=()=>{
 
 // ── ARISTAS TOGGLE ───────────────────────────────────────────────────
 document.getElementById('bEdges').onclick=()=>{
+  edgesTocadoPorUsuario=true;
   edgesVisible=!edgesVisible;
   document.getElementById('bEdges').classList.toggle('on',edgesVisible);
   if(edgesVisible) construirAristas(); // primera vez que se activa: las arma
