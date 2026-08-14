@@ -11599,8 +11599,14 @@ function crearMarcadorNota(n){
 // tarea/OT") quedaba invisible acá: el pin/burbuja solo miraban n.adjunto.
 function todosAdjuntosNota(n){
   const lista=[];
-  if(n.adjunto) lista.push({nombre:n.adjunto.nombre, mime:n.adjunto.mime, fileId:n.adjunto.fileId});
-  if(Array.isArray(n.adjuntos)) n.adjuntos.forEach(a=>lista.push({nombre:a.nombre, mime:a.mime, fileId:a.driveId}));
+  // Exigir fileId/driveId real — un objeto adjunto sin eso (ej. quedó
+  // huérfano de un guardado interrumpido, o algún flujo viejo lo dejó
+  // como {} en vez de borrarlo) contaba igual como "tiene adjunto":
+  // se creaban el badge/tarjeta/chips pero sin nada real para mostrar
+  // adentro, quedando como una cajita vacía (solo el borde, sin
+  // contenido) — la línea rara que se ve debajo del globo en el reporte.
+  if(n.adjunto && n.adjunto.fileId) lista.push({nombre:n.adjunto.nombre, mime:n.adjunto.mime, fileId:n.adjunto.fileId});
+  if(Array.isArray(n.adjuntos)) n.adjuntos.forEach(a=>{ if(a && a.driveId) lista.push({nombre:a.nombre, mime:a.mime, fileId:a.driveId}); });
   return lista;
 }
 
