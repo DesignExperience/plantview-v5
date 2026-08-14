@@ -8912,6 +8912,14 @@ canvas{display:block;width:100%;height:100%}
 .nota-switch input:checked ~ .nota-switch-track{background:#3A6BE8}
 .nota-switch input:checked ~ .nota-switch-track::after{transform:translateX(16px)}
 
+/* Chips de tipo de adjunto, ARRIBA del globo de texto — uno por tipo
+   distinto presente en la nota (no uno por archivo: si hay 3 fotos, un
+   solo chip de imagen), para saber de un vistazo qué clase de
+   documentación tiene sin abrir nada. Mismos íconos/colores que
+   iconoTipo() usa en el resto de la app (Files, chips de tareas). */
+.nota-burbuja-tipos{position:fixed;display:flex;gap:6px;pointer-events:none;z-index:88}
+.nota-burbuja-tipo-chip{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+
 /* Burbuja de texto de la nota, pegada al pin en el modelo cuando el toggle
    "Mostrar nota en el pin" está activo — mismo patrón de leader line que el
    marcador, así se lee la nota sin abrir el panel. */
@@ -11495,6 +11503,7 @@ const notasBurbujasEl=document.getElementById('notas-burbujas');
 const notaMarkerEls={};         // id -> {g,leader,anchor,handle}
 const notaBurbujaEls={};        // id -> div.nota-burbuja (solo si n.mostrarPin)
 const notaAdjBurbujaEls={};     // id -> div.nota-burbuja-adj (solo si n.mostrarPin Y tiene adjunto) — tarjeta propia, colgando debajo de la burbuja de texto
+const notaTiposEls={};          // id -> div.nota-burbuja-tipos (solo si n.mostrarPin Y tiene adjunto) — chips de tipo, ARRIBA de la burbuja de texto
 let notaOffsets={};             // id -> {dx,dy} en px, desplazamiento manual del marcador (solo esta sesión)
 let notaAbiertaId=null;         // id de la nota que está en el panel (null = nota nueva)
 let notaHitPendiente=null;      // hit de raycast para la nota nueva sin guardar aún
@@ -11608,6 +11617,18 @@ const ADJUNTO_TIPO_COLOR={imagen:'#B968E0',pdf:'#E05555',dxf:'#3a8ef6',glb:'#4CA
 const ADJUNTO_TIPO_ICONO={imagen:'🖼️',pdf:'📄',dxf:'📐',glb:'🧊',otro:'📎'};
 const ADJUNTO_TIPO_TITULO={imagen:'Imagen asociada:',pdf:'PDF adjunto:',dxf:'Plano adjunto:',glb:'Modelo 3D adjunto:',otro:'Archivo adjunto:'};
 
+// Chips de tipo arriba del globo — uno por tipo DISTINTO presente en la
+// nota (no uno por archivo), reusando los mismos SVG/colores de
+// iconoTipo() que ya usa el resto de la app (Files, chips de tareas) —
+// así "hay una imagen y un GLB" se lee de un vistazo antes de abrir nada.
+function htmlChipsTipoNota(n){
+  const tipos=[...new Set(todosAdjuntosNota(n).map(tipoAdjunto))];
+  return tipos.map(t=>{
+    const color=ADJUNTO_TIPO_COLOR[t];
+    return `<div class="nota-burbuja-tipo-chip" style="background:${color}1a;border:1px solid ${color}40">${iconoTipo(t==='otro'?'':t,17)}</div>`;
+  }).join('');
+}
+
 // Contenido de la tarjeta de adjuntos (título + preview) — el contenedor
 // .nota-burbuja-adj en sí es un elemento propio (ver sincronizarBurbujasNotas),
 // separado de la burbuja de texto, esto solo arma lo de adentro. Con un
@@ -11707,6 +11728,9 @@ function renderPinesNotas(){
   Object.keys(notaAdjBurbujaEls).forEach(id=>{
     if(!idsActuales.has(id)){ notaAdjBurbujaEls[id].remove(); delete notaAdjBurbujaEls[id]; }
   });
+  Object.keys(notaTiposEls).forEach(id=>{
+    if(!idsActuales.has(id)){ notaTiposEls[id].remove(); delete notaTiposEls[id]; }
+  });
   Object.keys(notaMeshCache).forEach(id=>{
     if(!idsActuales.has(id)) delete notaMeshCache[id];
   });
@@ -11776,6 +11800,21 @@ function sincronizarBurbujasNotas(){
       delete notaAdjBurbujaEls[n.id];
     }
     if(notaAdjBurbujaEls[n.id]) notaAdjBurbujaEls[n.id].innerHTML=htmlAdjuntoBurbuja(n);
+
+    // Chips de tipo, arriba de la burbuja — mismo criterio de existencia
+    // que la tarjeta de adjuntos (debeExistirAdj), pero un elemento
+    // aparte porque van ANCLADOS ARRIBA en vez de abajo.
+    const existeTipos=!!notaTiposEls[n.id];
+    if(debeExistirAdj && !existeTipos){
+      const div=document.createElement('div');
+      div.className='nota-burbuja-tipos';
+      notasBurbujasEl.appendChild(div);
+      notaTiposEls[n.id]=div;
+    }else if(!debeExistirAdj && existeTipos){
+      notaTiposEls[n.id].remove();
+      delete notaTiposEls[n.id];
+    }
+    if(notaTiposEls[n.id]) notaTiposEls[n.id].innerHTML=htmlChipsTipoNota(n);
   });
 }
 
@@ -11914,6 +11953,7 @@ function actualizarPosicionesNotas(){
       refs.g.style.display='none';
       if(notaBurbujaEls[id]) notaBurbujaEls[id].style.display='none';
       if(notaAdjBurbujaEls[id]) notaAdjBurbujaEls[id].style.display='none';
+      if(notaTiposEls[id]) notaTiposEls[id].style.display='none';
       return;
     }
     let worldPos=new THREE.Vector3(n.point.x,n.point.y,n.point.z);
@@ -11933,6 +11973,7 @@ function actualizarPosicionesNotas(){
       refs.g.style.display='none';
       if(notaBurbujaEls[id]) notaBurbujaEls[id].style.display='none';
       if(notaAdjBurbujaEls[id]) notaAdjBurbujaEls[id].style.display='none';
+      if(notaTiposEls[id]) notaTiposEls[id].style.display='none';
       return;
     }
     refs.g.style.display='';
@@ -11947,6 +11988,7 @@ function actualizarPosicionesNotas(){
     refs.handle.setAttribute('transform',`translate(${mx},${my})`);
 
     const burbuja=notaBurbujaEls[id];
+    const burbujaTop=Math.max(4,my-10);
     if(burbuja){
       burbuja.style.display='';
       // Pegada al pin, corrida a la derecha — si no entra a la derecha
@@ -11955,7 +11997,7 @@ function actualizarPosicionesNotas(){
       const irIzquierda=(mx+14+anchoAprox)>window.innerWidth;
       burbuja.style.left=irIzquierda ? '' : (mx+14)+'px';
       burbuja.style.right=irIzquierda ? (window.innerWidth-mx+14)+'px' : '';
-      burbuja.style.top=Math.max(4,my-10)+'px';
+      burbuja.style.top=burbujaTop+'px';
     }
 
     // Tarjeta de adjunto: misma columna horizontal que la burbuja (mismo
@@ -11970,8 +12012,19 @@ function actualizarPosicionesNotas(){
       const irIzquierdaAdj=(mx+14+anchoAdj)>window.innerWidth;
       adjCard.style.left=irIzquierdaAdj ? '' : (mx+14)+'px';
       adjCard.style.right=irIzquierdaAdj ? (window.innerWidth-mx+14)+'px' : '';
-      const debajoDe=burbuja ? (Math.max(4,my-10)+burbuja.offsetHeight+6) : (my+14);
-      adjCard.style.top=debajoDe+'px';
+      adjCard.style.top=(burbuja ? (burbujaTop+burbuja.offsetHeight+6) : (my+14))+'px';
+    }
+
+    // Chips de tipo: misma columna horizontal, pero colgando ARRIBA de
+    // la burbuja (o del pin, si no hay burbuja de texto visible).
+    const tiposEl=notaTiposEls[id];
+    if(tiposEl){
+      tiposEl.style.display='';
+      const anchoAprox=Math.min(200,burbuja?.offsetWidth||200);
+      const irIzquierda=(mx+14+anchoAprox)>window.innerWidth;
+      tiposEl.style.left=irIzquierda ? '' : (mx+14)+'px';
+      tiposEl.style.right=irIzquierda ? (window.innerWidth-mx+14)+'px' : '';
+      tiposEl.style.top=(burbujaTop-(tiposEl.offsetHeight||30)-6)+'px';
     }
   });
 }
