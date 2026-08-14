@@ -8710,13 +8710,17 @@ canvas{display:block;width:100%;height:100%}
 }
 .hover-label{position:fixed;bottom:calc(104px + var(--safe-bottom));left:50%;transform:translateX(-50%);background:rgba(58,107,232,.12);border:1px solid rgba(58,107,232,.25);backdrop-filter:blur(8px);border-radius:20px;padding:6px 14px;font-size:11px;color:var(--acc);white-space:nowrap;pointer-events:none;z-index:190;opacity:0;transition:opacity .2s;max-width:220px;overflow:hidden;text-overflow:ellipsis}
 .hover-label.show{opacity:1}
-.mode-pill{position:fixed;top:calc(var(--safe-top) + 14px);left:50%;transform:translateX(-50%);background:rgba(232,234,239,.9);border:1px solid var(--border);backdrop-filter:blur(12px);border-radius:20px;padding:5px 14px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);z-index:200;pointer-events:none;white-space:nowrap}
+/* El indicador de modo (Órbita libre / Modo mover / etc.) se dejó de
+   mostrar arriba al medio — quedaba compitiendo visualmente con el pill
+   de Notas, que es el que de verdad hace falta accionar seguido. El
+   texto se sigue actualizando por JS (setMode) por si en algún momento
+   hace falta reactivarlo en otro lugar; acá solo se lo oculta. */
+.mode-pill{display:none}
 /* Acceso directo a la lista de notas, siempre visible arriba al medio
-   (mismo lugar/estilo que el mode-pill, pero clickeable) — en vez de
-   depender solo del botón chico de la esquina (#btnNotas3D), que muchos
-   usuarios no encontraban. Mismo componente para mobile y desktop: a
-   este ancho de pantalla no hace falta una versión distinta por tamaño. */
-.notas-pill{position:fixed;top:calc(var(--safe-top) + 46px);left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:5px;background:rgba(232,234,239,.9);border:1px solid var(--border);backdrop-filter:blur(12px);border-radius:20px;padding:5px 10px 5px 14px;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text);z-index:200;cursor:pointer;white-space:nowrap;font-family:inherit}
+   (único elemento en esa posición, ver arriba) — en vez de depender
+   solo del botón chico de la esquina (#btnNotas3D), que muchos usuarios
+   no encontraban. Mismo componente para mobile y desktop. */
+.notas-pill{position:fixed;top:calc(var(--safe-top) + 14px);left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:5px;background:rgba(232,234,239,.9);border:1px solid var(--border);backdrop-filter:blur(12px);border-radius:20px;padding:5px 10px 5px 14px;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text);z-index:200;cursor:pointer;white-space:nowrap;font-family:inherit}
 .notas-pill:hover{background:rgba(232,234,239,1)}
 .notas-pill svg{width:13px;height:13px;flex-shrink:0}
 .notas-pill #pillNotasBadge{background:var(--acc);color:#fff;border-radius:8px;min-width:15px;height:15px;padding:0 4px;font-size:9px;display:none;align-items:center;justify-content:center;line-height:1;letter-spacing:0}
@@ -8852,8 +8856,13 @@ canvas{display:block;width:100%;height:100%}
 #notasBadge3D{position:absolute;top:-5px;right:-5px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:#e03050;color:#fff;font-size:9.5px;font-weight:700;display:none;align-items:center;justify-content:center;line-height:1;border:1.5px solid var(--surf);cursor:pointer}
 #notasBadge3D.show{display:flex}
 
-#panelListaNotas{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);display:none;flex-direction:column;gap:10px;width:min(320px,calc(100vw - 32px));max-height:min(420px,calc(100vh - 100px));background:rgba(240,242,246,.98);border:1px solid var(--border);border-radius:14px;padding:14px;z-index:410;box-shadow:0 12px 40px rgba(0,0,0,.3)}
-#panelListaNotas.show{display:flex}
+/* Dropdown real, anclado justo debajo del pill "Notas" (no un modal
+   centrado en pantalla) — mismo eje horizontal que el botón que lo abre,
+   así se lee como su desplegable y no como una ventana aparte. Se anima
+   con opacity+translateY en vez de display puro, para que el open/close
+   se sienta como un dropdown y no un parpadeo — patrón estándar. */
+#panelListaNotas{position:fixed;top:calc(var(--safe-top) + 48px);left:50%;transform:translateX(-50%) translateY(-6px);display:flex;flex-direction:column;gap:10px;width:min(320px,calc(100vw - 32px));max-height:min(420px,calc(100vh - 140px));background:rgba(240,242,246,.98);border:1px solid var(--border);border-radius:14px;padding:14px;z-index:410;box-shadow:0 12px 40px rgba(0,0,0,.3);opacity:0;visibility:hidden;pointer-events:none;transition:opacity .16s ease,transform .16s ease,visibility 0s linear .16s}
+#panelListaNotas.show{opacity:1;visibility:visible;pointer-events:auto;transform:translateX(-50%) translateY(0);transition:opacity .16s ease,transform .16s ease}
 .lista-notas-head{display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
 .lista-notas-head span{font-weight:700;font-size:13px}
 .lista-notas-head-btns{display:flex;align-items:center;gap:6px}
@@ -12400,6 +12409,18 @@ document.getElementById('listaNotasCerrar').addEventListener('click', cerrarList
 document.getElementById('listaNotasAgregar').addEventListener('click', ()=>{
   cerrarListaNotas();
   setMode('notas');
+});
+
+// Cerrar tocando afuera o con Escape — comportamiento estándar de
+// cualquier dropdown (no hace falta ir a buscar la "×" para cerrarlo).
+document.addEventListener('click',(e)=>{
+  const panel=document.getElementById('panelListaNotas');
+  if(!panel.classList.contains('show')) return;
+  if(e.target.closest('#panelListaNotas,#pillNotas')) return;
+  cerrarListaNotas();
+});
+document.addEventListener('keydown',(e)=>{
+  if(e.key==='Escape') cerrarListaNotas();
 });
 
 document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
