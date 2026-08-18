@@ -12360,8 +12360,10 @@ document.getElementById('btnNotas3D').addEventListener('click',()=>{
 // de la esquina, pero siempre visible en el mismo lugar (mobile y
 // desktop), en vez de depender de que el usuario encuentre el ícono.
 document.getElementById('pillNotas').addEventListener('click',()=>{
-  if(notas3d.length>0) abrirListaNotas();
-  else setMode('notas');
+  // Siempre abre el panel (con su "+" para agregar), aunque no haya
+  // notas todavía — antes con 0 notas se saltaba directo a modo "tocar
+  // una pieza" sin mostrar ninguna forma explícita de agregar una nota.
+  abrirListaNotas();
 });
 
 document.getElementById('notaCerrar3D').addEventListener('click', cerrarPanelNota3D);
