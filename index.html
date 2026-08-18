@@ -9793,6 +9793,25 @@ function parseGLBFull(buffer){
     });
   }
 
+  // Fallback: pieza individual sin nodo raíz de agrupamiento (no hay un
+  // grupo con mesh===undefined + children que envuelva todo, por ej. un
+  // GLB exportado con un solo nodo que ya tiene su mesh directamente).
+  // No es un archivo sin subensamblajes, es una pieza con CERO niveles de
+  // ensamblaje — igual tiene que poder abrirse. Se trata cada nodo raíz
+  // de la escena (menos la cámara) como su propio "subensamblaje" de una
+  // sola pieza, para que buildNode() lo procese igual que a los demás.
+  if(subassemblies.length===0){
+    allNodes.forEach(ri=>{
+      const n=nodes[ri];
+      if(!n||n.name==='current camera')return;
+      const children=(n.children||[]).map(gci=>nodes[gci]);
+      const uniqueParts=children.length
+        ? [...new Set(children.map(c=>c.name).filter(Boolean))]
+        : (n.name?[n.name]:[]);
+      subassemblies.push({nodeIndex:ri,name:n.name||'Pieza',parts:uniqueParts,childIndices:n.children||[]});
+    });
+  }
+
   return {gltf,binBuf,nodes,subassemblies,rootName:rootNode?rootNode.name:'Modelo',buildNode,hasDraco};
 }
 
