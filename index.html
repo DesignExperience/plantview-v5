@@ -8728,9 +8728,14 @@ canvas{display:block;width:100%;height:100%}
 .notas-pill.tiene-notas #pillNotasBadge{display:flex}
 /* "+" separado del pill, siempre a la vista — agregar una nota es la
    acción más repetida y antes exigía abrir el desplegable primero solo
-   para llegar al "+" que ya vivía adentro (ver listaNotasAgregar). */
-#pillNotasAdd{width:26px;height:26px;flex-shrink:0;border:1px solid var(--border);border-radius:50%;background:rgba(232,234,239,.9);backdrop-filter:blur(12px);color:var(--text);font-size:16px;font-weight:700;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit}
-#pillNotasAdd:hover{background:rgba(232,234,239,1)}
+   para llegar al "+" que ya vivía adentro (ver listaNotasAgregar). Azul
+   de acento (en vez del gris del pill) para que se note que es LA
+   acción, no un dato para consultar. :active en vez de solo :hover —
+   :hover no dispara en mobile, así que sin esto el feedback de "lo toqué"
+   solo existía en desktop. */
+#pillNotasAdd{width:26px;height:26px;flex-shrink:0;border:none;border-radius:50%;background:var(--acc);color:#fff;font-size:16px;font-weight:700;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit;box-shadow:0 1px 4px rgba(58,107,232,.4);transition:background .12s,transform .12s}
+#pillNotasAdd:hover{background:#2f5bd0}
+#pillNotasAdd:active{background:#2851bd;transform:scale(.92)}
 .toast{position:fixed;top:calc(var(--safe-top) + 68px);left:50%;transform:translateX(-50%);background:rgba(58,107,232,.92);color:#fff;font-size:12px;padding:8px 18px;border-radius:20px;pointer-events:none;white-space:nowrap;z-index:300;opacity:0;transition:opacity .2s;max-width:90vw;overflow:hidden;text-overflow:ellipsis}
 .toast.show{opacity:1}
 #msr-svg{position:fixed;inset:0;pointer-events:none;z-index:80}
