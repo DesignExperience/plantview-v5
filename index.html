@@ -8824,7 +8824,13 @@ canvas{display:block;width:100%;height:100%}
 .doc-action-btn:active{background:var(--acc);border-color:var(--acc);color:#fff}
 .doc-action-btn svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .doc-new-badge{font-size:9px;padding:2px 7px;border-radius:10px;background:rgba(91,139,255,.15);color:var(--acc);border:1px solid rgba(91,139,255,.25);margin-left:6px;vertical-align:middle}
-.upload-zone{border:2px dashed var(--border);border-radius:14px;padding:20px 16px;text-align:center;cursor:pointer;transition:all .2s;background:var(--surf2);margin-bottom:10px}
+/* position:relative es necesario: el <input type=file> de adentro usa
+   position:absolute;inset:0 para cubrir justo esta zona (truco estándar
+   de "hacé click en cualquier lado de este cartel para elegir archivo").
+   Sin esto, el input se posiciona relativo al ancestro fixed más cercano
+   (.sheet, el panel entero) y termina tapando TODA la hoja con una capa
+   invisible que intercepta clicks — incluido el botón "×" para cerrarla. */
+.upload-zone{position:relative;border:2px dashed var(--border);border-radius:14px;padding:20px 16px;text-align:center;cursor:pointer;transition:all .2s;background:var(--surf2);margin-bottom:10px}
 .upload-zone.drag-over{border-color:var(--acc);background:rgba(91,139,255,.08)}
 .upload-zone-icon{width:36px;height:36px;border-radius:10px;background:rgba(91,139,255,.12);border:1px solid rgba(91,139,255,.2);display:flex;align-items:center;justify-content:center;margin:0 auto 10px}
 .upload-zone-icon svg{width:18px;height:18px;stroke:var(--acc);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
