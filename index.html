@@ -11899,17 +11899,17 @@ function htmlAdjuntoBurbuja(n){
     const a=lista[0], tipo=tipoAdjunto(a);
     if(tipo==='imagen'){
       const url=urlAdjuntoDrive(a.fileId);
-      if(url) return `<div class="nota-burbuja-adj-titulo">${ADJUNTO_TIPO_TITULO.imagen}</div><img src="${esc(url)}" alt="${esc(a.nombre||'')}" loading="lazy">`;
+      if(url) return `<div class="nota-burbuja-adj-titulo">${ADJUNTO_TIPO_TITULO.imagen}</div><img src="${escNota(url)}" alt="${escNota(a.nombre||'')}" loading="lazy">`;
     }
-    return `<div class="nota-burbuja-adj-titulo">${ADJUNTO_TIPO_TITULO[tipo]}</div><div class="nota-burbuja-adj-icon">${ADJUNTO_TIPO_ICONO[tipo]}<span>${esc(a.nombre||'adjunto')}</span></div>`;
+    return `<div class="nota-burbuja-adj-titulo">${ADJUNTO_TIPO_TITULO[tipo]}</div><div class="nota-burbuja-adj-icon">${ADJUNTO_TIPO_ICONO[tipo]}<span>${escNota(a.nombre||'adjunto')}</span></div>`;
   }
   const filas=lista.map(a=>{
     const tipo=tipoAdjunto(a);
     if(tipo==='imagen'){
       const url=urlAdjuntoDrive(a.fileId);
-      if(url) return `<img class="nota-burbuja-adj-mini" src="${esc(url)}" alt="${esc(a.nombre||'')}" loading="lazy" title="${esc(a.nombre||'')}">`;
+      if(url) return `<img class="nota-burbuja-adj-mini" src="${escNota(url)}" alt="${escNota(a.nombre||'')}" loading="lazy" title="${escNota(a.nombre||'')}">`;
     }
-    return `<div class="nota-burbuja-adj-mini nota-burbuja-adj-mini-icono" title="${esc(a.nombre||'')}">${ADJUNTO_TIPO_ICONO[tipo]}</div>`;
+    return `<div class="nota-burbuja-adj-mini nota-burbuja-adj-mini-icono" title="${escNota(a.nombre||'')}">${ADJUNTO_TIPO_ICONO[tipo]}</div>`;
   }).join('');
   return `<div class="nota-burbuja-adj-titulo">Adjuntos (${lista.length}):</div><div class="nota-burbuja-adj-fila">${filas}</div>`;
 }
