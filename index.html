@@ -9456,7 +9456,7 @@ window.onerror=function(msg,src,line){
 <div class="sheet" id="importSheet" style="max-height:92vh">
   <div class="sheet-handle"></div>
   <div class="sheet-hdr">
-    <div class="sheet-hdr-info"><h3>Importar modelo 3D</h3><p>GLB (+ Draco) · STL — Máx. 500 MB</p></div>
+    <div class="sheet-hdr-info"><h3>Importar modelo 3D</h3><p>GLB (+ Draco) · STL · STEP — Máx. 500 MB</p></div>
     <button class="sheet-close" id="importClose">×</button>
   </div>
   <div class="sheet-body">
@@ -9663,6 +9663,131 @@ function decodeDracoPrimitive(dracoData, prim){
   draco.destroy(buf);draco.destroy(decoder);draco.destroy(dracoGeom);
   if(!geo.attributes.normal)geo.computeVertexNormals();
   return geo;
+}
+
+// ── STEP (CAD sólido, ISO 10303) → mesh con occt-import-js ───────────
+// STEP no es un formato de malla como GLB/STL: son superficies NURBS
+// exactas (BREP), y Three.js solo sabe dibujar triángulos. occt-import-js
+// es OpenCascade (el motor de geometría de FreeCAD y buena parte de los
+// kernels CAD open source) compilado a WebAssembly — tesela el BREP a
+// mesh 100% en el navegador, mismo criterio que ya usamos para DWG con
+// LibreDWG (ver obtenerLibreDwg): el archivo nunca sale del dispositivo,
+// y el wasm (~11MB) se carga una sola vez por sesión y se cachea.
+//
+// A diferencia de LibreDWG (módulo ES, se carga con import()), el
+// bundle de occt-import-js es un script clásico que expone una función
+// global (occtimportjs) al cargarse — por eso se inyecta con un <script>
+// en vez de import(). locateFile se pasa explícito apuntando al mismo
+// CDN para que encuentre el .wasm sin depender de la resolución
+// automática por defecto de emscripten (frágil si el script se carga de
+// forma dinámica en vez de con un <script> estático en el <head>).
+let occtImportPromise=null;
+const OCCT_CDN_BASE='https://cdn.jsdelivr.net/npm/occt-import-js@0.0.23/dist/';
+function obtenerOcctImportJs(){
+  if(!occtImportPromise){
+    occtImportPromise=new Promise((resolve,reject)=>{
+      const s=document.createElement('script');
+      s.src=OCCT_CDN_BASE+'occt-import-js.js';
+      s.onload=()=>{
+        window.occtimportjs({locateFile:(path)=>OCCT_CDN_BASE+path})
+          .then(resolve).catch(reject);
+      };
+      s.onerror=()=>reject(new Error('No se pudo descargar el lector de STEP (revisá la conexión)'));
+      document.head.appendChild(s);
+    });
+  }
+  return occtImportPromise;
+}
+
+// Recorre el árbol de nombres de un nodo STEP (para el "N partes ·
+// tornillo, chapa, ..." que muestra el picker de zonas) — mismo criterio
+// que uniqueParts en parseGLBFull.
+function _nombresDelArbolStep(nodo){
+  const nombres=[];
+  (function recorrer(n){
+    if(n.name)nombres.push(n.name);
+    (n.children||[]).forEach(recorrer);
+  })(nodo);
+  return [...new Set(nombres)];
+}
+
+async function parseSTEPFull(buffer){
+  const occt=await obtenerOcctImportJs();
+  const result=occt.ReadStepFile(new Uint8Array(buffer),null);
+  if(!result.success)throw new Error('No se pudo leer este STEP (archivo corrupto o formato no soportado)');
+
+  const occtMeshes=result.meshes||[];
+  const _matCache=new Map();
+  function getCachedMat(color,metalness,roughness){
+    const key=`${color}_${(metalness*100|0)}_${(roughness*100|0)}`;
+    if(_matCache.has(key))return _matCache.get(key);
+    const mat=new THREE.MeshStandardMaterial({color,metalness,roughness});
+    _matCache.set(key,mat);
+    return mat;
+  }
+
+  function buildMeshFromOcct(om){
+    const geo=new THREE.BufferGeometry();
+    geo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(om.attributes.position.array),3));
+    if(om.attributes.normal){
+      geo.setAttribute('normal',new THREE.BufferAttribute(new Float32Array(om.attributes.normal.array),3));
+    }
+    if(om.index){
+      geo.setIndex(new THREE.BufferAttribute(new Uint32Array(om.index.array),1));
+    }
+    if(!om.attributes.normal)geo.computeVertexNormals();
+    // Sin color propio (STEP sin metadata de material): mismo gris azulado
+    // que usa buildMesh() para GLB sin material, para que se vea consistente.
+    let color=0x8899cc;
+    if(om.color)color=new THREE.Color(om.color[0],om.color[1],om.color[2]).getHex();
+    const mesh=new THREE.Mesh(geo,getCachedMat(color,0.1,0.75));
+    mesh.castShadow=false;mesh.receiveShadow=false;
+    return mesh;
+  }
+
+  // buildNode acá recibe directo el nodo del árbol de occt (no un índice
+  // numérico como en GLB) — el resto del visor lo trata como un handle
+  // opaco (ver sub.nodeIndex en buildSceneFromGLB), así que no hace falta
+  // que sea un índice para funcionar igual.
+  function buildNode(treeNode,userData){
+    const g=new THREE.Group();
+    const objNamePropio=treeNode.name||userData.objName;
+    g.userData={...userData,objName:objNamePropio};
+    (treeNode.meshes||[]).forEach(mi=>{
+      const om=occtMeshes[mi];
+      if(!om)return;
+      const m=buildMeshFromOcct(om);
+      m.userData={...userData,objName:objNamePropio};
+      g.add(m);
+    });
+    (treeNode.children||[]).forEach(child=>g.add(buildNode(child,userData)));
+    return g;
+  }
+
+  const rootTree=result.root||{name:'Modelo',meshes:[],children:[]};
+  const subassemblies=[];
+  (rootTree.children||[]).forEach(child=>{
+    subassemblies.push({
+      nodeIndex:child,
+      name:child.name||'Pieza',
+      parts:_nombresDelArbolStep(child),
+      childIndices:child.children||[],
+    });
+  });
+
+  // Fallback pieza suelta: STEP de una sola pieza, sin estructura de
+  // ensamblaje (el root tiene sus mallas directas y cero hijos) — mismo
+  // criterio que el fallback de parseGLBFull para GLB sin subensamblajes.
+  if(subassemblies.length===0){
+    subassemblies.push({
+      nodeIndex:rootTree,
+      name:rootTree.name||'Pieza',
+      parts:rootTree.name?[rootTree.name]:[],
+      childIndices:rootTree.children||[],
+    });
+  }
+
+  return {subassemblies,buildNode,rootName:rootTree.name||'Modelo',hasDraco:false};
 }
 
 // ── GLB PARSER — reads node hierarchy + builds Three.js scene ────────
@@ -13217,7 +13342,7 @@ document.getElementById('bImport').onclick=()=>{
 };
 
 document.getElementById('importDz').addEventListener('click',()=>{
-  const inp=document.createElement('input');inp.type='file';inp.accept='.glb,.stl';
+  const inp=document.createElement('input');inp.type='file';inp.accept='.glb,.stl,.step,.stp';
   inp.onchange=()=>{if(inp.files[0])onImportFileChosen(inp.files[0]);};
   inp.click();
 });
@@ -13228,20 +13353,36 @@ document.getElementById('importClear').onclick=resetImportUI;
 
 function onImportFileChosen(file){
   const ext=file.name.split('.').pop().toLowerCase();
-  if(!['glb','stl'].includes(ext)){toast('❌ Solo GLB o STL');return;}
+  if(!['glb','stl','step','stp'].includes(ext)){toast('❌ Solo GLB, STL o STEP');return;}
   if(file.size>500*1024*1024){toast('❌ Máx. 500MB');return;}
   const reader=new FileReader();
   reader.onload=e=>{
     const buffer=e.target.result;
     importRawData={buffer,dataUrl:e.target.result,name:file.name,size:file.size,ext};
 
-    // For GLB: parse immediately and show subassemblies
     if(ext==='glb'){
+      // Parseo síncrono y rápido (solo JSON del glTF, sin teselar nada
+      // todavía) — no hace falta spinner para esto.
       try{
         const parsed=parseGLBFull(buffer);
         importRawData.glbParsed=parsed;
-        showImportStep2_GLB(parsed,file);
+        showImportStep2_GLB(parsed,file,'GLB');
       }catch(err){toast('❌ Error leyendo GLB: '+err.message);}
+    }else if(ext==='step'||ext==='stp'){
+      // STEP sí tesela de una (occt.ReadStepFile hace todo el trabajo
+      // pesado ahí adentro, a diferencia del GLB que lo pospone hasta
+      // "Generar equipo"/confirmar zonas) — y la primera vez además baja
+      // ~11MB de wasm, así que amerita loader propio.
+      const lo=document.getElementById('loadOverlay');
+      if(lo){lo.classList.remove('hidden');lo.style.display='flex';lo.innerHTML='<div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:24px;max-width:280px;text-align:center"><div class="load-spinner"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg></div><div style="font-size:13px;font-weight:600;color:var(--text)">Leyendo STEP…</div><div style="font-size:11px;color:var(--muted)">Primera vez: puede tardar (descarga el motor de geometría)</div></div>';}
+      parseSTEPFull(buffer).then(parsed=>{
+        if(lo){lo.classList.add('hidden');setTimeout(()=>{lo.style.display='none';},300);}
+        importRawData.glbParsed=parsed;
+        showImportStep2_GLB(parsed,file,'STEP');
+      }).catch(err=>{
+        if(lo){lo.classList.add('hidden');setTimeout(()=>{lo.style.display='none';},300);}
+        toast('❌ Error leyendo STEP: '+err.message);
+      });
     }else{
       showImportStep2_STL(file);
     }
@@ -13249,11 +13390,11 @@ function onImportFileChosen(file){
   reader.readAsArrayBuffer(file);
 }
 
-function showImportStep2_GLB(parsed,file){
+function showImportStep2_GLB(parsed,file,formato){
   document.getElementById('importStep1').style.display='none';
   document.getElementById('importStep2').style.display='block';
   document.getElementById('importFileName').textContent=file.name;
-  document.getElementById('importFileMeta').textContent='GLB · '+formatBytes(file.size)+' · '+parsed.subassemblies.length+' subensamblajes'+(parsed.hasDraco?' · 🗜 Draco':'');
+  document.getElementById('importFileMeta').textContent=(formato||'GLB')+' · '+formatBytes(file.size)+' · '+parsed.subassemblies.length+' subensamblajes'+(parsed.hasDraco?' · 🗜 Draco':'');
   document.getElementById('importGlbZones').style.display='block';
   document.getElementById('importStlActions').style.display='none';
 
@@ -13457,9 +13598,9 @@ window.addEventListener('message', async (e) => {
       buffer = await resp.arrayBuffer();
     }
     const ext = (nombre || url || '').split('.').pop().toLowerCase();
-    if (!['glb', 'stl'].includes(ext)) throw new Error('Formato no soportado: .' + ext);
+    if (!['glb', 'stl', 'step', 'stp'].includes(ext)) throw new Error('Formato no soportado: .' + ext);
 
-    const mime = ext === 'stl' ? 'model/stl' : 'model/gltf-binary';
+    const mime = ext === 'stl' ? 'model/stl' : (ext === 'step' || ext === 'stp') ? 'model/step' : 'model/gltf-binary';
     const blob = new Blob([buffer], { type: mime });
     const file = new File([blob], nombre || ('modelo.' + ext), { type: mime });
 
@@ -13474,21 +13615,27 @@ window.addEventListener('message', async (e) => {
     // parseo de un GLB de 15-20MB puede tardar bastante más que en desktop —
     // con 20s el timeout saltaba antes de terminar, dejando el visor "cargado"
     // pero vacío (el toast de error se veía apenas 2.5s y pasaba desapercibido).
+    // STEP suma la descarga del wasm de occt-import-js (~11MB, solo la
+    // primera vez por sesión) + la teselación del BREP, así que se le da
+    // más margen todavía.
+    const timeoutMs = (ext === 'step' || ext === 'stp') ? 180000 : 90000;
     const t0 = Date.now();
-    while (step2.style.display !== 'block' && Date.now() - t0 < 90000) {
+    while (step2.style.display !== 'block' && Date.now() - t0 < timeoutMs) {
       await new Promise(r => setTimeout(r, 50));
     }
     if (step2.style.display !== 'block') {
       throw new Error('Tiempo de espera agotado al procesar el archivo (puede ser muy grande para este dispositivo)');
     }
 
-    if (ext === 'glb') {
+    if (ext === 'glb' || ext === 'step' || ext === 'stp') {
+      // Mismo picker de zonas para los tres (importGlbZones) — el "GLB"
+      // en el nombre del botón/id es historia, no una restricción real.
       const btn = document.getElementById('importConfirmBtn');
       if (btn && !btn.hasAttribute('disabled')) {
         btn.click();
         // buildSceneFromGLB toma el control del overlay desde acá — no tocarlo.
       } else {
-        if (lm) lm.textContent = '❌ No se detectaron subensamblajes en el GLB';
+        if (lm) lm.textContent = '❌ No se detectaron subensamblajes en el archivo';
         setTimeout(ocultarOverlay, 2000);
       }
     } else if (ext === 'stl') {
