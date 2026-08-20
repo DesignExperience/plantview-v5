@@ -8736,14 +8736,19 @@ canvas{display:block;width:100%;height:100%}
 #pillNotasAdd{width:26px;height:26px;flex-shrink:0;border:none;border-radius:50%;background:var(--acc);color:#fff;font-size:16px;font-weight:700;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit;box-shadow:0 1px 4px rgba(58,107,232,.4);transition:background .12s,transform .12s}
 #pillNotasAdd:hover{background:#2f5bd0}
 #pillNotasAdd:active{background:#2851bd;transform:scale(.92)}
-/* Toolbar de nivel de selección (estilo SolidWorks: elegir si el click
-   agarra TODO el subensamblaje o solo la pieza puntual tocada) — solo
-   visible en modo Selección, debajo del pill de Notas. */
-.sel-level-toolbar{position:fixed;top:calc(var(--safe-top) + 52px);left:50%;transform:translateX(-50%);display:flex;gap:2px;background:rgba(232,234,239,.9);border:1px solid var(--border);backdrop-filter:blur(12px);border-radius:16px;padding:3px;z-index:200}
-.sel-level-btn{display:flex;align-items:center;gap:5px;border:none;background:transparent;border-radius:13px;padding:6px 11px;font-size:10px;font-weight:600;letter-spacing:.05em;color:var(--muted);cursor:pointer;white-space:nowrap;font-family:inherit;transition:background .12s,color .12s}
-.sel-level-btn svg{width:14px;height:14px;flex-shrink:0}
-.sel-level-btn.active{background:var(--acc);color:#fff}
-.sel-level-btn:not(.active):active{background:rgba(0,0,0,.06)}
+/* Popup de nivel de selección (estilo SolidWorks: mini-toolbar que
+   aparece flotando justo en el punto donde tocaste, para elegir si ese
+   click agarra la PIEZA puntual o todo el SUBENSAMBLAJE). Reemplaza al
+   toggle fijo de arriba que existía antes — acá la posición (left/top)
+   la calcula JS en cada click, position:fixed es solo para que quede
+   por encima del canvas sin importar el scroll. */
+.sel-level-popup{position:fixed;z-index:210;display:none;flex-direction:column;gap:6px;background:rgba(255,255,255,.97);border:1px solid var(--border);backdrop-filter:blur(12px);border-radius:12px;padding:8px;box-shadow:0 6px 24px rgba(0,0,0,.18);max-width:220px}
+.sel-level-popup-nombre{font-size:10px;font-weight:700;color:var(--text);padding:0 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sel-level-popup-btns{display:flex;gap:3px}
+.sel-level-btn{display:flex;flex-direction:column;align-items:center;gap:3px;border:1px solid var(--border);background:var(--surf2);border-radius:9px;padding:7px 10px;font-size:9px;font-weight:600;letter-spacing:.03em;color:var(--text);cursor:pointer;white-space:nowrap;font-family:inherit;transition:background .12s,border-color .12s}
+.sel-level-btn svg{width:18px;height:18px;flex-shrink:0}
+.sel-level-btn:hover{background:#eef2ff;border-color:var(--acc)}
+.sel-level-btn:active{background:var(--acc);color:#fff;border-color:var(--acc)}
 .toast{position:fixed;top:calc(var(--safe-top) + 68px);left:50%;transform:translateX(-50%);background:rgba(58,107,232,.92);color:#fff;font-size:12px;padding:8px 18px;border-radius:20px;pointer-events:none;white-space:nowrap;z-index:300;opacity:0;transition:opacity .2s;max-width:90vw;overflow:hidden;text-overflow:ellipsis}
 .toast.show{opacity:1}
 #msr-svg{position:fixed;inset:0;pointer-events:none;z-index:80}
@@ -9182,15 +9187,18 @@ window.onerror=function(msg,src,line){
   </button>
   <button type="button" id="pillNotasAdd" aria-label="Agregar nota" title="Agregar nota">+</button>
 </div>
-<div class="sel-level-toolbar" id="selLevelToolbar" style="display:none">
-  <button type="button" class="sel-level-btn active" id="btnNivelSub" title="Tap agarra todo el subensamblaje">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="8" rx="1.2"/><rect x="13" y="3" width="8" height="8" rx="1.2"/><rect x="3" y="13" width="8" height="8" rx="1.2"/><rect x="13" y="13" width="8" height="8" rx="1.2"/></svg>
-    <span>Subensamblaje</span>
-  </button>
-  <button type="button" class="sel-level-btn" id="btnNivelPieza" title="Tap agarra solo esa pieza">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
-    <span>Pieza</span>
-  </button>
+<div class="sel-level-popup" id="selLevelPopup">
+  <div class="sel-level-popup-nombre" id="selLevelPopupNombre">—</div>
+  <div class="sel-level-popup-btns">
+    <button type="button" class="sel-level-btn" id="btnNivelPieza" title="Seleccionar solo esta pieza">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
+      <span>Pieza</span>
+    </button>
+    <button type="button" class="sel-level-btn" id="btnNivelSub" title="Seleccionar todo el subensamblaje">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="8" rx="1.2"/><rect x="13" y="3" width="8" height="8" rx="1.2"/><rect x="3" y="13" width="8" height="8" rx="1.2"/><rect x="13" y="13" width="8" height="8" rx="1.2"/></svg>
+      <span>Subensamblaje</span>
+    </button>
+  </div>
 </div>
 <div id="canvas-wrap"><canvas id="cv"></canvas></div>
 <svg id="badges-svg" style="position:fixed;inset:0;pointer-events:none;z-index:85;overflow:visible"></svg>
@@ -11477,7 +11485,6 @@ function restoreHover(){if(hoveredMesh&&hoveredOrigColor){hoveredMesh.material.c
 
 // ── MODE ─────────────────────────────────────────────────────────────
 let mode='orbit';
-let nivelSeleccion='subensamblaje'; // 'subensamblaje' | 'pieza' — toggle de la toolbar de modo Selección
 const tapGuide=document.getElementById('tapGuide');
 function clearMeasureSVG(){
   ['pt-a','pt-b','ml-main','ml-x','ml-y','ml-z','ml-edge-a','ml-edge-b','snap-a','snap-b',
@@ -11497,8 +11504,7 @@ function setMode(m){
   // mezclarla con el sistema de 2 caras A/B de medición ni dejarla
   // pisada visualmente por otro modo.
   if(m!=='orbit'&&m!=='select') limpiarSeleccionCara();
-  if(m!=='select') limpiarResaltadoNivel(); // el resaltado por nivel (pieza/subensamblaje) es propio de Selección
-  document.getElementById('selLevelToolbar').style.display = m==='select' ? 'flex' : 'none';
+  if(m!=='select'){ limpiarResaltadoNivel(); ocultarSelLevelPopup(); } // el resaltado por nivel y su popup son propios de Selección
   mode=m;
   ['bOrbit','bPan','bSelect','bMeasure','btnNotas3D'].forEach(id=>document.getElementById(id).classList.remove('on'));
   const map={orbit:'bOrbit',pan:'bPan',select:'bSelect',measure:'bMeasure',notas:'btnNotas3D'};
@@ -11506,7 +11512,7 @@ function setMode(m){
   const labels={orbit:'Órbita libre',pan:'Modo mover',select:'Selección',measure:'Medición',notas:'Notas'};
   document.getElementById('modePill').textContent=labels[m]||'';
   document.getElementById('canvas-wrap').style.cursor=navMode==='pan'?'grab':'default';
-  if(m==='select'){tapGuide.innerHTML='<strong>Modo selección</strong>Tap para agarrar '+(nivelSeleccion==='pieza'?'la pieza':'el subensamblaje')+' → ficha técnica';tapGuide.style.display='block';}
+  if(m==='select'){tapGuide.innerHTML='<strong>Modo selección</strong>Tap en el modelo → elegí Pieza o Subensamblaje';tapGuide.style.display='block';}
   else if(m==='measure'){tapGuide.innerHTML='<strong>Modo medición</strong>Tap → seleccionar cara · Arrastrar → orbitar · Pinch → zoom';tapGuide.style.display='block';}
   else if(m==='pan'){tapGuide.innerHTML='<strong>Modo mover</strong>Arrastrá para desplazar · doble tap para volver a órbita';tapGuide.style.display='block';}
   else if(m==='notas'){tapGuide.innerHTML='<strong>Modo notas</strong>Tap en una pieza → agregar nota · tap en un pin → verla';tapGuide.style.display='block';}
@@ -11714,15 +11720,15 @@ function _resaltarMeshCompleto(mesh,color){
   resaltadosNivel.push(hl);
 }
 
-// Resalta según nivelSeleccion (pieza puntual vs subensamblaje completo)
-// el objeto tocado en modo Selección — hit viene del mismo raycast que ya
-// usa handleClick().
-function resaltarNivelSeleccion(hit){
+// Resalta el objeto tocado en modo Selección según el nivel elegido en
+// el popup flotante (ver selLevelPopup) — hit viene del mismo raycast
+// que ya usa handleClick(), nivel es 'pieza' o 'subensamblaje'.
+function resaltarNivelSeleccion(hit,nivel){
   limpiarResaltadoNivel();
   const mesh=hit.object;
   const ud=mesh.userData;
 
-  if(nivelSeleccion==='pieza'){
+  if(nivel==='pieza'){
     if(ud.piezas){
       // Mesh fusionado (modelo pesado, ver mergearGeometriasSimple): la
       // pieza tocada es solo un rango de caras dentro de este mesh.
@@ -11750,6 +11756,47 @@ function resaltarNivelSeleccion(hit){
     meshesZona.forEach(m=>_resaltarMeshCompleto(m,SELECCION_COLOR));
   }
 }
+
+// ── POPUP DE NIVEL (flota en el punto de click, estilo SolidWorks) ────
+// En vez de un toggle fijo que decide el nivel de ANTEMANO para todos
+// los clicks, cada click en modo Selección abre este popup justo ahí
+// donde tocaste — recién al elegir Pieza/Subensamblaje se abre la
+// ficha y se resalta. selPopupPendiente guarda el hit/pieza/zona de ESE
+// click hasta que se elige (o se descarta clickeando afuera).
+let selPopupPendiente=null;
+
+function mostrarSelLevelPopup(cx,cy,hit,piezaUd,zone){
+  selPopupPendiente={hit,piezaUd,zone};
+  const popup=document.getElementById('selLevelPopup');
+  document.getElementById('selLevelPopupNombre').textContent=piezaUd.objName||nombreZona(zone);
+  popup.style.display='flex';
+
+  // Clamp para que no se salga de la pantalla cerca de los bordes —
+  // se mide DESPUÉS de mostrarlo (display:flex) para tener el tamaño real.
+  const pw=popup.offsetWidth, ph=popup.offsetHeight;
+  let left=cx-pw/2, top=cy-ph-14;
+  left=Math.max(8,Math.min(left,window.innerWidth-pw-8));
+  if(top<8) top=cy+14; // no entra arriba del click: se muestra abajo en su lugar
+  popup.style.left=left+'px';
+  popup.style.top=top+'px';
+}
+
+function ocultarSelLevelPopup(){
+  selPopupPendiente=null;
+  document.getElementById('selLevelPopup').style.display='none';
+}
+
+function elegirNivelDesdePopup(nivel){
+  if(!selPopupPendiente) return;
+  const {hit,piezaUd,zone}=selPopupPendiente;
+  currentZone=zone;
+  currentObjName=nivel==='pieza'?piezaUd.objName:null;
+  openSidebar(zone,currentObjName);
+  resaltarNivelSeleccion(hit,nivel);
+  ocultarSelLevelPopup();
+}
+document.getElementById('btnNivelPieza').addEventListener('click',()=>elegirNivelDesdePopup('pieza'));
+document.getElementById('btnNivelSub').addEventListener('click',()=>elegirNivelDesdePopup('subensamblaje'));
 
 // ── NOTAS 3D (compartidas por Drive, un pin por nota) ─────────────────
 // Marcadores como overlay SVG en pantalla (mismo patrón que los badges de
@@ -12612,20 +12659,6 @@ document.getElementById('pillNotasAdd').addEventListener('click',()=>{
   setMode('notas');
 });
 
-// Toolbar de nivel de selección (Subensamblaje/Pieza) — cambiar de nivel
-// invalida lo resaltado hasta ahora (ver limpiarResaltadoNivel), para no
-// dejar en pantalla un resaltado con el nivel viejo.
-function _elegirNivelSeleccion(nivel){
-  nivelSeleccion=nivel;
-  document.getElementById('btnNivelSub').classList.toggle('active', nivel==='subensamblaje');
-  document.getElementById('btnNivelPieza').classList.toggle('active', nivel==='pieza');
-  limpiarResaltadoNivel();
-  closeSidebar();
-  if(mode==='select') tapGuide.innerHTML='<strong>Modo selección</strong>Tap para agarrar '+(nivel==='pieza'?'la pieza':'el subensamblaje')+' → ficha técnica';
-}
-document.getElementById('btnNivelSub').addEventListener('click',()=>_elegirNivelSeleccion('subensamblaje'));
-document.getElementById('btnNivelPieza').addEventListener('click',()=>_elegirNivelSeleccion('pieza'));
-
 document.getElementById('notaCerrar3D').addEventListener('click', cerrarPanelNota3D);
 
 // Panel de nota arrastrable dentro del visor (útil en desktop, donde el
@@ -12848,7 +12881,7 @@ let measureHits=[];   // raw hit objects for face re-highlight on replace
 
 function handleClick(cx,cy){
   const el=document.elementFromPoint(cx,cy);
-  if(el&&el.closest('.fab-dock,.topbar,.sheet,.msr-panel,.compass,#panelNota,#btnNotas3D,#btnGuardarVista,#modalVista,#panelListaNotas,#panelListaVistas'))return;
+  if(el&&el.closest('.fab-dock,.topbar,.sheet,.msr-panel,.compass,#panelNota,#btnNotas3D,#btnGuardarVista,#modalVista,#panelListaNotas,#panelListaVistas,#selLevelPopup'))return;
   const hits=getIntersects(cx,cy);
 
   // Los pines de notas ahora son elementos SVG con su propio handler de
@@ -12864,18 +12897,15 @@ function handleClick(cx,cy){
     if(hits.length>0){
       const piezaUd=resolverPiezaDeHit(hits[0]);
       const zone=ZONES.find(z=>z.id===piezaUd.zoneId);
-      // Toolbar de nivel (ver selLevelToolbar): "Subensamblaje" abre la
-      // ficha del subensamblaje entero (objName null, como siempre);
-      // "Pieza" abre la ficha de la pieza puntual tocada.
-      if(zone){
-        currentZone=zone;
-        currentObjName=nivelSeleccion==='pieza'?piezaUd.objName:null;
-        openSidebar(zone,currentObjName);
-      }
-      resaltarNivelSeleccion(hits[0]);
+      // Popup de nivel (ver selLevelPopup): aparece flotando justo en el
+      // punto tocado, ahí se elige Pieza/Subensamblaje y recién entonces
+      // se abre la ficha — no se decide de antemano con un toggle fijo.
+      if(zone) mostrarSelLevelPopup(cx,cy,hits[0],piezaUd,zone);
+      else ocultarSelLevelPopup();
     }else{
       closeSidebar();
       limpiarResaltadoNivel();
+      ocultarSelLevelPopup();
     }
   }
   // Resaltar la cara clickeada (estilo SolidWorks) en órbita — en
@@ -13130,7 +13160,12 @@ document.getElementById('bZones').onclick=()=>{const s=document.getElementById('
 document.getElementById('zonesClose').onclick=closeZones;
 document.getElementById('sbClose').onclick=closeSidebar;
 document.getElementById('importClose').onclick=closeImport;
-document.getElementById('sheetOverlay').onclick=()=>{closeZones();closeSidebar();closeImport();};
+// Tocar el fondo oscuro tapa el canvas 3D por completo, así que el click
+// nunca llega a handleClick() (el gate de isDragging exige que el mousedown
+// haya arrancado en el propio canvas) — sin esto, cerrar la ficha así
+// dejaba el resaltado por nivel (ver resaltarNivelSeleccion) pegado en
+// pantalla, sin la ficha que lo justificaba.
+document.getElementById('sheetOverlay').onclick=()=>{closeZones();closeSidebar();closeImport();limpiarResaltadoNivel();ocultarSelLevelPopup();};
 
 // ── SIDEBAR ──────────────────────────────────────────────────────────
 let currentZone=null,currentObjName=null,currentEquipoKey=null,currentDocViewer=null;
