@@ -10047,7 +10047,7 @@ const gridHelper=new THREE.GridHelper(100,50,0xb0b8c8,0xc4cad6);scene.add(gridHe
 // era casi identico al fondo de la escena (0xd0d4dc, ver setClearColor
 // arriba) -- el piso se volvia invisible/se confundia con el fondo en
 // modelos chicos o alejados de la camara (quedaba solo el grid visible).
-const floor=new THREE.Mesh(new THREE.PlaneGeometry(100,100),new THREE.MeshLambertMaterial({color:0xa8afbc,transparent:true,opacity:0.55}));
+const floor=new THREE.Mesh(new THREE.PlaneGeometry(100,100),new THREE.MeshLambertMaterial({color:0xa8afbc,transparent:true,opacity:0.28}));
 floor.rotation.x=-Math.PI/2;floor.position.y=-.01;scene.add(floor);
 
 // ── SCENE STATE ──────────────────────────────────────────────────────
