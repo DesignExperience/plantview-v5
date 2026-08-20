@@ -9952,7 +9952,7 @@ function parseGLBFull(buffer){
       const n=nodes[ci];
       const children=(n.children||[]).map(gci=>nodes[gci]);
       const uniqueParts=[...new Set(children.map(c=>c.name).filter(Boolean))];
-      subassemblies.push({nodeIndex:ci,name:n.name,parts:uniqueParts,childIndices:n.children||[]});
+      subassemblies.push({nodeIndex:ci,name:n.name||'Pieza',parts:uniqueParts,childIndices:n.children||[]});
     });
   }
 
@@ -10055,7 +10055,12 @@ const docStore={};
 const COLORS=['#5B8BFF','#3DFFD0','#FF4F6A','#FFB830','#A78BFA','#34D399','#F87171','#60A5FA','#4ADE80','#FBBF24'];
 
 function equipoKey(zone,objName){
-  const raw=objName||zone.name;
+  // Fallback 'pieza': ademas de arreglar el origen (nodos GLB sin name,
+  // ver parseGLBFull), esto es la ultima linea de defensa para que un
+  // dato raro en un GLB puntual no tire abajo toda la carga del modelo
+  // (ver updateBadgeAnchors, que llama esto para CADA zona sin pedir
+  // permiso antes).
+  const raw=objName||zone.name||'pieza';
   return raw.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'');
 }
 
