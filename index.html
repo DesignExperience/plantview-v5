@@ -8749,6 +8749,15 @@ canvas{display:block;width:100%;height:100%}
 .sel-level-btn svg{width:18px;height:18px;flex-shrink:0}
 .sel-level-btn:hover{background:#eef2ff;border-color:var(--acc)}
 .sel-level-btn:active{background:var(--acc);color:#fff;border-color:var(--acc)}
+/* .active (elegido, se mantiene) es distinto de :active (mientras se
+   apreta) -- el popup queda abierto después de elegir, así que hace
+   falta un estado persistente que muestre cuál de los dos quedó
+   resaltado en la escena ahora mismo. */
+.sel-level-btn.active{background:var(--acc);color:#fff;border-color:var(--acc)}
+.sel-level-popup-ficha{display:flex;align-items:center;justify-content:center;gap:6px;border:none;border-radius:9px;padding:8px;font-size:10.5px;font-weight:600;color:#fff;background:var(--acc);cursor:pointer;font-family:inherit;transition:opacity .12s}
+.sel-level-popup-ficha svg{width:15px;height:15px;flex-shrink:0}
+.sel-level-popup-ficha:disabled{background:var(--surf2);color:var(--muted);cursor:default}
+.sel-level-popup-ficha:disabled svg{opacity:.5}
 .toast{position:fixed;top:calc(var(--safe-top) + 68px);left:50%;transform:translateX(-50%);background:rgba(58,107,232,.92);color:#fff;font-size:12px;padding:8px 18px;border-radius:20px;pointer-events:none;white-space:nowrap;z-index:300;opacity:0;transition:opacity .2s;max-width:90vw;overflow:hidden;text-overflow:ellipsis}
 .toast.show{opacity:1}
 #msr-svg{position:fixed;inset:0;pointer-events:none;z-index:80}
@@ -9199,6 +9208,10 @@ window.onerror=function(msg,src,line){
       <span>Subensamblaje</span>
     </button>
   </div>
+  <button type="button" class="sel-level-popup-ficha" id="btnSelLevelFicha" disabled title="Elegí Pieza o Subensamblaje primero">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="8" r="0.5" fill="currentColor"/></svg>
+    Ver ficha técnica
+  </button>
 </div>
 <div id="canvas-wrap"><canvas id="cv"></canvas></div>
 <svg id="badges-svg" style="position:fixed;inset:0;pointer-events:none;z-index:85;overflow:visible"></svg>
@@ -11673,23 +11686,15 @@ function setFaceHighlight(slot, mesh, faceIndex){
   faceHighlights[slot]={hlMesh, normal};
 }
 
-// ── SELECCIÓN DE CARA AL CLICK (estilo SolidWorks) ─────────────────────
-// Independiente del sistema de arriba (que es solo para medición, tope de
-// 2 caras A/B y se limpia al salir de "measure"): esto es un highlight
-// único y persistente que sigue el click normal en órbita/selección — la
-// cara clickeada queda pintada de azul hasta que se clickea otra cara o
-// se clickea en vacío, igual que seleccionar una cara en SolidWorks.
+// ── COLOR DE SELECCIÓN (estilo SolidWorks) ─────────────────────────────
+// seleccionHighlight/limpiarSeleccionCara quedan (llamados en un par de
+// resets defensivos, ver setMode y buildSceneFromGLB) aunque el click
+// que los llenaba pasó a usar el popup de nivel — soltar la referencia
+// vieja si quedó alguna no cuesta nada y evita un mesh húerfano.
 const SELECCION_COLOR=0x2f7dff;
 let seleccionHighlight=null;
 function limpiarSeleccionCara(){
   if(seleccionHighlight){ scene.remove(seleccionHighlight.hlMesh); seleccionHighlight=null; }
-}
-function setSeleccionCara(mesh, faceIndex){
-  limpiarSeleccionCara();
-  const {faceIndices}=getFlatFaceGroup(mesh, faceIndex);
-  const hlMesh=buildFaceHighlightMesh(mesh, faceIndices, SELECCION_COLOR);
-  scene.add(hlMesh);
-  seleccionHighlight={hlMesh};
 }
 
 // ── RESALTADO POR NIVEL (Pieza / Subensamblaje, toolbar estilo SolidWorks) ──
@@ -11758,17 +11763,25 @@ function resaltarNivelSeleccion(hit,nivel){
 }
 
 // ── POPUP DE NIVEL (flota en el punto de click, estilo SolidWorks) ────
-// En vez de un toggle fijo que decide el nivel de ANTEMANO para todos
-// los clicks, cada click en modo Selección abre este popup justo ahí
-// donde tocaste — recién al elegir Pieza/Subensamblaje se abre la
-// ficha y se resalta. selPopupPendiente guarda el hit/pieza/zona de ESE
-// click hasta que se elige (o se descarta clickeando afuera).
+// Disponible con cualquier click sobre el modelo (órbita o Selección),
+// sin tener que activar un modo especial antes. Elegir Pieza o
+// Subensamblaje SOLO resalta esa pieza/subensamblaje en otro color —
+// no abre la ficha técnica sola: para eso está el botón "Ver ficha
+// técnica" de abajo, que aparece habilitado recién después de elegir
+// un nivel. selPopupPendiente guarda el hit/pieza/zona de ESE click
+// (y el nivel elegido, si ya se eligió uno) hasta que se descarta
+// (click afuera, cambio de modo, o abrir la ficha).
 let selPopupPendiente=null;
 
 function mostrarSelLevelPopup(cx,cy,hit,piezaUd,zone){
-  selPopupPendiente={hit,piezaUd,zone};
+  selPopupPendiente={hit,piezaUd,zone,nivel:null};
   const popup=document.getElementById('selLevelPopup');
   document.getElementById('selLevelPopupNombre').textContent=piezaUd.objName||nombreZona(zone);
+  document.getElementById('btnNivelPieza').classList.remove('active');
+  document.getElementById('btnNivelSub').classList.remove('active');
+  const btnFicha=document.getElementById('btnSelLevelFicha');
+  btnFicha.disabled=true;
+  btnFicha.title='Elegí Pieza o Subensamblaje primero';
   popup.style.display='flex';
 
   // Clamp para que no se salga de la pantalla cerca de los bordes —
@@ -11786,17 +11799,32 @@ function ocultarSelLevelPopup(){
   document.getElementById('selLevelPopup').style.display='none';
 }
 
+// Elegir un nivel SOLO resalta — el popup se queda abierto (con el
+// botón de ficha ya habilitado) para que decidas si además la querés
+// ver, o simplemente comparar Pieza vs Subensamblaje tocando los dos
+// botones sin perder el punto donde clickeaste.
 function elegirNivelDesdePopup(nivel){
   if(!selPopupPendiente) return;
-  const {hit,piezaUd,zone}=selPopupPendiente;
-  currentZone=zone;
-  currentObjName=nivel==='pieza'?piezaUd.objName:null;
-  openSidebar(zone,currentObjName);
-  resaltarNivelSeleccion(hit,nivel);
-  ocultarSelLevelPopup();
+  selPopupPendiente.nivel=nivel;
+  document.getElementById('btnNivelPieza').classList.toggle('active',nivel==='pieza');
+  document.getElementById('btnNivelSub').classList.toggle('active',nivel==='subensamblaje');
+  const btnFicha=document.getElementById('btnSelLevelFicha');
+  btnFicha.disabled=false;
+  btnFicha.title='';
+  resaltarNivelSeleccion(selPopupPendiente.hit,nivel);
 }
 document.getElementById('btnNivelPieza').addEventListener('click',()=>elegirNivelDesdePopup('pieza'));
 document.getElementById('btnNivelSub').addEventListener('click',()=>elegirNivelDesdePopup('subensamblaje'));
+
+function abrirFichaDesdePopup(){
+  if(!selPopupPendiente||!selPopupPendiente.nivel) return;
+  const {piezaUd,zone,nivel}=selPopupPendiente;
+  currentZone=zone;
+  currentObjName=nivel==='pieza'?piezaUd.objName:null;
+  openSidebar(zone,currentObjName);
+  ocultarSelLevelPopup();
+}
+document.getElementById('btnSelLevelFicha').addEventListener('click',abrirFichaDesdePopup);
 
 // ── NOTAS 3D (compartidas por Drive, un pin por nota) ─────────────────
 // Marcadores como overlay SVG en pantalla (mismo patrón que los badges de
@@ -12893,13 +12921,17 @@ function handleClick(cx,cy){
     return;
   }
 
-  if(mode==='select'){
+  // Popup de nivel (ver selLevelPopup): disponible con CUALQUIER click
+  // sobre el modelo en órbita o en modo Selección — no hace falta
+  // activar un modo especial antes. Aparece flotando en el punto
+  // tocado; elegir Pieza/Subensamblaje ahí solo resalta (ver
+  // elegirNivelDesdePopup), la ficha técnica se abre aparte con su
+  // propio botón. Reemplaza al viejo resaltado de cara suelta en
+  // órbita — mismo gesto de click, ahora con esto en vez de eso.
+  if(mode==='orbit'||mode==='select'){
     if(hits.length>0){
       const piezaUd=resolverPiezaDeHit(hits[0]);
       const zone=ZONES.find(z=>z.id===piezaUd.zoneId);
-      // Popup de nivel (ver selLevelPopup): aparece flotando justo en el
-      // punto tocado, ahí se elige Pieza/Subensamblaje y recién entonces
-      // se abre la ficha — no se decide de antemano con un toggle fijo.
       if(zone) mostrarSelLevelPopup(cx,cy,hits[0],piezaUd,zone);
       else ocultarSelLevelPopup();
     }else{
@@ -12907,14 +12939,6 @@ function handleClick(cx,cy){
       limpiarResaltadoNivel();
       ocultarSelLevelPopup();
     }
-  }
-  // Resaltar la cara clickeada (estilo SolidWorks) en órbita — en
-  // Selección el resaltado ahora es por nivel (ver arriba), no por cara
-  // suelta. No aplica a "measure" (2 caras A/B con otro significado) ni
-  // a "notas" (el click ahí abre el form de la nota).
-  if(mode==='orbit'){
-    if(hits.length>0) setSeleccionCara(hits[0].object, hits[0].faceIndex);
-    else limpiarSeleccionCara();
   }
   if(mode==='measure'){
     if(hits.length===0){toast('Tocá sobre un objeto');return;}
