@@ -8790,6 +8790,26 @@ canvas{display:block;width:100%;height:100%}
 .sheet-overlay.show{background:rgba(0,0,0,.5);pointer-events:all}
 .sheet{position:fixed;left:0;right:0;bottom:0;background:var(--surf);border-radius:20px 20px 0 0;border-top:1px solid var(--border);z-index:300;transform:translateY(100%);transition:transform .35s cubic-bezier(.32,0.72,0,.99);max-height:85vh;display:flex;flex-direction:column;padding-bottom:var(--safe-bottom)}
 .sheet.open{transform:translateY(0)}
+/* Ficha técnica (#sidebar): modal flotante centrado en vez de hoja de
+   ancho completo que sube desde abajo — mismo lenguaje visual que el
+   modal "Nueva tarea" del shell exterior (tamaño acotado, esquinas
+   redondeadas en las 4 puntas, centrado en pantalla). Los demás sheets
+   (Zonas, Importar) siguen siendo hojas de abajo, sin tocar — esto
+   pisa solo lo necesario con mayor especificidad (.sheet.sheet-flotante). */
+.sheet.sheet-flotante{
+  left:50%;right:auto;bottom:auto;top:50%;
+  width:min(460px,92vw);border-radius:16px;border-top:1px solid var(--border);
+  max-height:80vh;
+  opacity:0;pointer-events:none;
+  transform:translate(-50%,-50%) scale(.96);
+  transition:transform .2s cubic-bezier(.2,.8,.2,1),opacity .16s ease;
+  box-shadow:0 16px 50px rgba(0,0,0,.35);
+}
+.sheet.sheet-flotante.open{
+  opacity:1;pointer-events:auto;
+  transform:translate(-50%,-50%) scale(1);
+}
+.sheet.sheet-flotante .sheet-handle{display:none} /* el gesto de "arrastrar para cerrar" es de las hojas de abajo, no aplica acá */
 .sheet-handle{width:36px;height:4px;border-radius:2px;background:var(--border);margin:10px auto 0;flex-shrink:0}
 .sheet-hdr{padding:14px 20px 12px;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;align-items:center;gap:10px}
 .sheet-hdr-info{flex:1;min-width:0}
@@ -9477,7 +9497,7 @@ window.onerror=function(msg,src,line){
 </div>
 
 <!-- Sidebar -->
-<div class="sheet" id="sidebar">
+<div class="sheet sheet-flotante" id="sidebar">
   <div class="sheet-handle"></div>
   <div class="sheet-hdr">
     <div class="sheet-hdr-info">
