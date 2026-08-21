@@ -11691,7 +11691,7 @@ function setFaceHighlight(slot, mesh, faceIndex){
 // resets defensivos, ver setMode y buildSceneFromGLB) aunque el click
 // que los llenaba pasó a usar el popup de nivel — soltar la referencia
 // vieja si quedó alguna no cuesta nada y evita un mesh húerfano.
-const SELECCION_COLOR=0x2f7dff;
+const SELECCION_COLOR=0x1449a8; // azul mas oscuro que antes (0x2f7dff) — se pidió que se note mas obvio qué está seleccionado
 let seleccionHighlight=null;
 function limpiarSeleccionCara(){
   if(seleccionHighlight){ scene.remove(seleccionHighlight.hlMesh); seleccionHighlight=null; }
