@@ -10881,14 +10881,62 @@ function recuperarCamaraSiCorrupta(){
 
 function updateZoom(){ recuperarCamaraSiCorrupta(); applyZoom(); actualizarNearFar(); }
 
+// ── ZOOM HACIA EL CURSOR (estilo SolidWorks/CAD) ───────────────────────
+// Antes el wheel/pinch SIEMPRE dolly-eaba hacia target (el punto de
+// órbita) sin importar dónde apuntara el mouse — si la pieza que
+// querías inspeccionar no estaba justo en el centro de la vista, girar
+// la rueda te acercaba a otro punto, no a la pieza bajo el cursor. Se
+// sentía como una traba aunque RMIN ya permite acercarse casi hasta
+// pegado a una pieza (no es un piso numérico el problema, es la
+// dirección del zoom).
+//
+// puntoAnclaZoom() da el punto 3D real bajo el cursor: si hay geometría
+// ahí, ese punto exacto (mismo raycast que ya usa el click de
+// selección); si apuntás a un hueco, un plano imaginario a la
+// profundidad actual del target, perpendicular a la cámara.
+//
+// camera.position Y target se escalan hacia ese ancla por el mismo
+// factor (newDist/dist) — técnica estándar de "zoom to cursor": no
+// solo se ve la cámara acercarse a donde apuntás, el punto de órbita
+// se corre ahí también, así que seguir orbitando después pivotea
+// alrededor de la pieza a la que acabás de hacer zoom.
+function puntoAnclaZoom(cx,cy){
+  const hits=getIntersects(cx,cy);
+  if(hits.length>0) return hits[0].point.clone();
+  const rect=canvas.getBoundingClientRect();
+  const ndc=new THREE.Vector2(((cx-rect.left)/rect.width)*2-1,-((cy-rect.top)/rect.height)*2+1);
+  raycaster.setFromCamera(ndc,camera);
+  const viewDir=camera.getWorldDirection(new THREE.Vector3());
+  const plane=new THREE.Plane().setFromNormalAndCoplanarPoint(viewDir,target);
+  const punto=new THREE.Vector3();
+  if(raycaster.ray.intersectPlane(plane,punto)) return punto;
+  return target.clone();
+}
+
+function zoomHaciaCursor(cx,cy,dist,newDist){
+  if(dist<1e-9) return;
+  const factor=newDist/dist;
+  const anchor=puntoAnclaZoom(cx,cy);
+  camera.position.lerpVectors(anchor,camera.position,factor);
+  target.lerpVectors(anchor,target,factor);
+  camera.lookAt(target);
+}
+
 const cvwrap=document.getElementById('canvas-wrap');
 
 // ── MOUSE ────────────────────────────────────────────────────────────
+// dragButton guarda con qué botón arrancó el drag actual — el botón
+// del medio (rueda) siempre paniza, esté o no activado "Mover", igual
+// que en SolidWorks/CAD: no hace falta tildar un modo para desplazarte,
+// solo mantenerlo apretado. Click izquierdo sigue respetando navMode.
+let dragButton=0;
 cvwrap.addEventListener('mousedown',e=>{
+  if(e.button===1) e.preventDefault();
+  dragButton=e.button;
   isDragging=true; didMove=false; ox=e.clientX; oy=e.clientY;
 });
 window.addEventListener('mouseup',e=>{
-  if(isDragging&&!didMove) handleClick(e.clientX,e.clientY);
+  if(isDragging&&!didMove&&dragButton===0) handleClick(e.clientX,e.clientY);
   isDragging=false;
 });
 window.addEventListener('mousemove',e=>{
@@ -10897,7 +10945,7 @@ window.addEventListener('mousemove',e=>{
   if(Math.abs(dx)>2||Math.abs(dy)>2) didMove=true;
   const W=cvwrap.clientWidth||window.innerWidth;
   const H=cvwrap.clientHeight||window.innerHeight;
-  if(navMode==='pan'){
+  if(navMode==='pan'||dragButton===1){
     panCamera(dx, dy);
   } else {
     orbitCamera(-dx*0.0055, -dy*0.0055);
@@ -10916,9 +10964,7 @@ cvwrap.addEventListener('wheel', e=>{
   const normalizedDelta = delta / 100;
   const dist = camera.position.distanceTo(target);
   const newDist = Math.max(RMIN, Math.min(RMAX, dist * Math.pow(0.95, normalizedDelta)));
-  const dir = direccionCamaraSegura();
-  camera.position.copy(target).addScaledVector(dir, newDist);
-  camera.lookAt(target);
+  zoomHaciaCursor(e.clientX,e.clientY,dist,newDist);
 },{passive:false});
 
 // ── TOUCH ────────────────────────────────────────────────────────────
@@ -10962,9 +11008,14 @@ cvwrap.addEventListener('touchmove',e=>{
     // mucho más (ver applyScaleAndCamera) y hacía falta más rango de
     // zoom por gesto para no sentirlo lento.
     const pinchFactor=(pinchDist-d)*0.014;
-    zoomTarget+=pinchFactor;
+    // Ancla en el punto medio del pellizco (misma técnica que zoomHaciaCursor
+    // del wheel) en vez de mandarlo a la cola de zoomTarget/applyZoom(), que
+    // solo dolly-ea hacia target sin importar dónde esté el gesto.
     const mx=(e.touches[0].clientX+e.touches[1].clientX)/2;
     const my=(e.touches[0].clientY+e.touches[1].clientY)/2;
+    const dist=camera.position.distanceTo(target);
+    const newDist=Math.max(RMIN,Math.min(RMAX, dist*Math.pow(0.95,-pinchFactor*8)));
+    zoomHaciaCursor(mx,my,dist,newDist);
     panCamera(mx-ox, my-oy);
     pinchDist=d; ox=mx; oy=my;
   }
