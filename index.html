@@ -8682,7 +8682,13 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 .topbar-btn.on{background:var(--acc);border-color:var(--acc);color:#fff}
 .topbar-btn svg{width:18px;height:18px;flex-shrink:0}
 .notif-dot{position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%;background:var(--acc2);border:2px solid var(--bg);display:none}
-#canvas-wrap{position:fixed;inset:0;background:var(--bg)}
+/* touch-action:none es necesario en mobile: sin esto, el gesto nativo
+   de pellizco/zoom del navegador puede competir con nuestro pinch-zoom
+   propio (touchstart/touchmove ya hacen preventDefault(), pero eso no
+   siempre alcanza a tiempo en Safari/iOS antes de que el navegador
+   empiece a reconocer su propio gesto) — se sentía como el pellizco
+   "no responde del todo" o se traba cerca del límite de zoom. */
+#canvas-wrap{position:fixed;inset:0;background:var(--bg);touch-action:none}
 canvas{display:block;width:100%;height:100%}
 .fab-dock{position:fixed;bottom:calc(24px + var(--safe-bottom));left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:6px;background:rgba(232,234,239,.95);border:1px solid var(--border);backdrop-filter:blur(20px);border-radius:22px;padding:7px;z-index:200;box-shadow:0 4px 24px rgba(0,0,0,.15)}
 .fab{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;width:60px;height:56px;border-radius:16px;border:none;background:transparent;color:var(--muted);cursor:pointer;transition:all .2s cubic-bezier(.34,1.56,.64,1);position:relative;overflow:hidden}
@@ -10858,7 +10864,16 @@ function direccionCamaraSegura(){
 // creación de la cámara — eso era el límite real, no RMIN/RMAX.
 function actualizarNearFar(){
   const dist = camera.position.distanceTo(target);
-  const near = Math.max(dist / 1000, 0.0001);
+  // El piso de near ERA una constante fija (0.0001) sin importar el
+  // tamaño del modelo — en un modelo normalizado a ~40 unidades, RMIN
+  // (el mínimo real al que se puede acercar la cámara) queda en ~0.00008,
+  // MENOR que ese piso fijo. Resultado: al llegar al zoom máximo, el
+  // plano de recorte cercano quedaba MÁS LEJOS que la pieza que estabas
+  // mirando — se recortaba/desaparecía justo ahí, sensación de "tope"
+  // aunque la cámara sí seguía pudiendo acercarse. Atado a RMIN en vez
+  // de un número fijo: escala solo con el tamaño real del modelo, así
+  // que siempre queda bien por debajo de cualquier distancia alcanzable.
+  const near = Math.max(dist / 1000, RMIN * 0.05, 1e-8);
   const far  = Math.max(dist * 1000, RMAX * 2, 10);
   camera.near = near;
   camera.far = far;
