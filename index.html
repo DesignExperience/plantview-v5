@@ -11052,8 +11052,13 @@ cvwrap.addEventListener('touchend',e=>{
         setNavMode(navMode==='pan'?'orbit':'pan');
         toast(navMode==='pan'?'Moviendo · tap para medir':'Orbitando · tap para medir',1500);
       } else {
-        if(mode!=='pan') setMode('pan');
-        else setMode('orbit');
+        // setMode() sola solo cambia el resaltado del botón — lo que de
+        // verdad decide si arrastrar orbita o panea es navMode (ver
+        // touchmove), y acá se estaba quedando sin actualizar: el botón
+        // MOVER se veía activo pero arrastrar seguía orbitando. Mismo
+        // patrón que ya usan los botones bOrbit/bPan de abajo.
+        if(mode!=='pan'){ setMode('pan'); navMode='pan'; }
+        else{ setMode('orbit'); navMode='orbit'; }
       }
       return;
     }
