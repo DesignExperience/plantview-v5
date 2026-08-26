@@ -8983,7 +8983,11 @@ canvas{display:block;width:100%;height:100%}
    documentación tiene sin abrir nada. Mismos íconos/colores que
    iconoTipo() usa en el resto de la app (Files, chips de tareas). */
 .nota-burbuja-tipos{position:fixed;display:flex;gap:6px;pointer-events:none;z-index:88}
-.nota-burbuja-tipo-chip{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+.nota-burbuja-tipo-chip{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.12);transition:transform .12s}
+/* Tocado (tarjeta de adjunto revelada) — mismo bg/borde que ya trae el
+   chip inline (ver htmlChipsTipoNota), esto solo lo agranda un toque
+   para que se note cuál está "abierto" cuando hay varios tipos. */
+.nota-burbuja-tipos.expandido .nota-burbuja-tipo-chip{transform:scale(1.12)}
 
 /* Burbuja de texto de la nota, pegada al pin en el modelo cuando el toggle
    "Mostrar nota en el pin" está activo — mismo patrón de leader line que el
@@ -11932,6 +11936,7 @@ const notaMarkerEls={};         // id -> {g,leader,anchor,handle}
 const notaBurbujaEls={};        // id -> div.nota-burbuja (solo si n.mostrarPin)
 const notaAdjBurbujaEls={};     // id -> div.nota-burbuja-adj (solo si n.mostrarPin Y tiene adjunto) — tarjeta propia, colgando debajo de la burbuja de texto
 const notaTiposEls={};          // id -> div.nota-burbuja-tipos (solo si n.mostrarPin Y tiene adjunto) — chips de tipo, ARRIBA de la burbuja de texto
+const notaAdjExpandido={};      // id -> bool, si la tarjeta de adjunto está revelada (se togglea tocando el chip) — solo memoria de esta sesión, no se persiste
 let notaOffsets={};             // id -> {dx,dy} en px, desplazamiento manual del marcador (solo esta sesión)
 let notaAbiertaId=null;         // id de la nota que está en el panel (null = nota nueva)
 let notaHitPendiente=null;      // hit de raycast para la nota nueva sin guardar aún
@@ -12089,21 +12094,29 @@ function htmlChipsTipoNota(n){
 function htmlAdjuntoBurbuja(n){
   const lista=todosAdjuntosNota(n);
   if(!lista.length) return '';
+  // data-fileid/data-tipo/data-nombre: el click de la tarjeta (ver
+  // sincronizarBurbujasNotas) los lee por delegación para saber CUÁL
+  // adjunto puntual abrir en el visor grande — solo imagen/pdf tienen
+  // ese botón "abrir en grande", dxf/glb no llevan data-fileid.
   if(lista.length===1){
     const a=lista[0], tipo=tipoAdjunto(a);
     if(tipo==='imagen'){
       const url=urlAdjuntoDrive(a.fileId);
-      if(url) return `<div class="nota-burbuja-adj-titulo">${ADJUNTO_TIPO_TITULO.imagen}</div><img src="${escNota(url)}" alt="${escNota(a.nombre||'')}" loading="lazy">`;
+      if(url) return `<div class="nota-burbuja-adj-titulo">${ADJUNTO_TIPO_TITULO.imagen}</div><img data-fileid="${escNota(a.fileId)}" data-tipo="imagen" data-nombre="${escNota(a.nombre||'')}" src="${escNota(url)}" alt="${escNota(a.nombre||'')}" loading="lazy">`;
     }
-    return `<div class="nota-burbuja-adj-titulo">${ADJUNTO_TIPO_TITULO[tipo]}</div><div class="nota-burbuja-adj-icon">${iconoAdjuntoNota(tipo,17)}<span>${escNota(a.nombre||'adjunto')}</span></div>`;
+    const puedeAbrir=tipo==='pdf';
+    const attrs=puedeAbrir?` data-fileid="${escNota(a.fileId||'')}" data-tipo="${tipo}" data-nombre="${escNota(a.nombre||'')}"`:'';
+    return `<div class="nota-burbuja-adj-titulo">${ADJUNTO_TIPO_TITULO[tipo]}</div><div class="nota-burbuja-adj-icon"${attrs}>${iconoAdjuntoNota(tipo,17)}<span>${escNota(a.nombre||'adjunto')}</span></div>`;
   }
   const filas=lista.map(a=>{
     const tipo=tipoAdjunto(a);
     if(tipo==='imagen'){
       const url=urlAdjuntoDrive(a.fileId);
-      if(url) return `<img class="nota-burbuja-adj-mini" src="${escNota(url)}" alt="${escNota(a.nombre||'')}" loading="lazy" title="${escNota(a.nombre||'')}">`;
+      if(url) return `<img class="nota-burbuja-adj-mini" data-fileid="${escNota(a.fileId)}" data-tipo="imagen" data-nombre="${escNota(a.nombre||'')}" src="${escNota(url)}" alt="${escNota(a.nombre||'')}" loading="lazy" title="${escNota(a.nombre||'')}">`;
     }
-    return `<div class="nota-burbuja-adj-mini nota-burbuja-adj-mini-icono" title="${escNota(a.nombre||'')}">${iconoAdjuntoNota(tipo,17)}</div>`;
+    const puedeAbrir=tipo==='pdf';
+    const attrs=puedeAbrir?` data-fileid="${escNota(a.fileId||'')}" data-tipo="${tipo}" data-nombre="${escNota(a.nombre||'')}"`:'';
+    return `<div class="nota-burbuja-adj-mini nota-burbuja-adj-mini-icono"${attrs} title="${escNota(a.nombre||'')}">${iconoAdjuntoNota(tipo,17)}</div>`;
   }).join('');
   return `<div class="nota-burbuja-adj-titulo">Adjuntos (${lista.length}):</div><div class="nota-burbuja-adj-fila">${filas}</div>`;
 }
@@ -12232,17 +12245,39 @@ function sincronizarBurbujasNotas(){
       div.textContent=n.texto||'';
     }
 
+    // Flujo de 3 pasos pedido: 1) por defecto solo se ve el/los chip(s)
+    // de tipo — 2) tocar un chip revela la tarjeta con la preview — 3)
+    // tocar la tarjeta recién ahí abre el visor grande (openDocViewer).
+    // notaAdjExpandido guarda ese "revelado" en memoria (no se persiste
+    // a Drive, es puramente de esta sesión de visualización).
+    const tieneAdjuntos=todosAdjuntosNota(n).length>0;
+    const debeExistirTipos=debeExistir && tieneAdjuntos;
+    const debeExistirAdj=debeExistirTipos && !!notaAdjExpandido[n.id];
+
     // Tarjeta de adjuntos: elemento PROPIO (no adentro de la burbuja de
-    // texto), solo si además de "mostrar en el pin" la nota tiene algún
-    // adjunto — de cualquiera de las dos fuentes (ver todosAdjuntosNota).
-    const debeExistirAdj=debeExistir && todosAdjuntosNota(n).length>0;
+    // texto). Solo existe cuando además de tener adjunto está "revelada"
+    // (chip tocado) — ver debeExistirAdj arriba.
     const existeAdj=!!notaAdjBurbujaEls[n.id];
     if(debeExistirAdj && !existeAdj){
       const div=document.createElement('div');
       div.className='nota-burbuja-adj';
       div.style.pointerEvents='auto';
       div.style.cursor='pointer';
-      div.addEventListener('click',(e)=>{ e.stopPropagation(); abrirNota3D(n.id); });
+      // Delegación: los <img>/<div> individuales de htmlAdjuntoBurbuja()
+      // llevan data-tipo/data-fileid/data-nombre — si el click cayó en
+      // uno de imagen/pdf, abre el visor grande con ESE adjunto puntual
+      // (no siempre "el primero"). Si no matchea nada (ej. tocaste el
+      // título "Adjuntos (N):", o el tipo no tiene preview como dxf/glb),
+      // cae al comportamiento de siempre: abrir la nota para editarla.
+      div.addEventListener('click',(e)=>{
+        e.stopPropagation();
+        const t=e.target.closest('[data-tipo]');
+        if(t && t.dataset.fileid && (t.dataset.tipo==='imagen'||t.dataset.tipo==='pdf')){
+          openDocViewer({name:t.dataset.nombre||'adjunto', dataUrl:urlAdjuntoDrive(t.dataset.fileid), type:t.dataset.tipo});
+          return;
+        }
+        abrirNota3D(n.id);
+      });
       notasBurbujasEl.appendChild(div);
       notaAdjBurbujaEls[n.id]=div;
     }else if(!debeExistirAdj && existeAdj){
@@ -12251,20 +12286,30 @@ function sincronizarBurbujasNotas(){
     }
     if(notaAdjBurbujaEls[n.id]) notaAdjBurbujaEls[n.id].innerHTML=htmlAdjuntoBurbuja(n);
 
-    // Chips de tipo, arriba de la burbuja — mismo criterio de existencia
-    // que la tarjeta de adjuntos (debeExistirAdj), pero un elemento
-    // aparte porque van ANCLADOS ARRIBA en vez de abajo.
+    // Chips de tipo, arriba de la burbuja — SIEMPRE visibles si hay
+    // adjunto (independiente de si la tarjeta está revelada o no).
+    // Tocar el chip alterna esa revelación en vez de abrir nada directo.
     const existeTipos=!!notaTiposEls[n.id];
-    if(debeExistirAdj && !existeTipos){
+    if(debeExistirTipos && !existeTipos){
       const div=document.createElement('div');
       div.className='nota-burbuja-tipos';
+      div.style.pointerEvents='auto';
+      div.style.cursor='pointer';
+      div.addEventListener('click',(e)=>{
+        e.stopPropagation();
+        notaAdjExpandido[n.id]=!notaAdjExpandido[n.id];
+        sincronizarBurbujasNotas();
+      });
       notasBurbujasEl.appendChild(div);
       notaTiposEls[n.id]=div;
-    }else if(!debeExistirAdj && existeTipos){
+    }else if(!debeExistirTipos && existeTipos){
       notaTiposEls[n.id].remove();
       delete notaTiposEls[n.id];
     }
-    if(notaTiposEls[n.id]) notaTiposEls[n.id].innerHTML=htmlChipsTipoNota(n);
+    if(notaTiposEls[n.id]){
+      notaTiposEls[n.id].innerHTML=htmlChipsTipoNota(n);
+      notaTiposEls[n.id].classList.toggle('expandido',!!notaAdjExpandido[n.id]);
+    }
   });
 }
 
