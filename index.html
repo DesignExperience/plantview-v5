@@ -12048,19 +12048,34 @@ function tipoAdjunto(a){
   return 'otro';
 }
 const ADJUNTO_TIPO_COLOR={imagen:'#B968E0',pdf:'#E05555',dxf:'#3a8ef6',glb:'#4CAF7D',otro:'#8a9099'};
-const ADJUNTO_TIPO_ICONO={imagen:'🖼️',pdf:'📄',dxf:'📐',glb:'🧊',otro:'📎'};
 const ADJUNTO_TIPO_TITULO={imagen:'Imagen asociada:',pdf:'PDF adjunto:',dxf:'Plano adjunto:',glb:'Modelo 3D adjunto:',otro:'Archivo adjunto:'};
 
+// Mismo ícono SVG (marco + sol + montaña) que usa iconoTipo() en Files
+// para el tipo "imagen" — el visor no puede llamar a esa función (corre
+// en su propio documento aislado, ver comentario de escNota más abajo),
+// así que se redibuja acá con el mismo trazo/color en vez de un emoji
+// genérico, para que se vea igual que en Files.
+function iconoAdjuntoNota(tipo,size=17){
+  const color=ADJUNTO_TIPO_COLOR[tipo]||ADJUNTO_TIPO_COLOR.otro;
+  if(tipo==='pdf')
+    return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="1.6"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>`;
+  if(tipo==='glb')
+    return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="1.6"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`;
+  if(tipo==='dxf')
+    return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>`;
+  if(tipo==='imagen')
+    return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>`;
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="1.6"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>`;
+}
+
 // Chips de tipo arriba del globo — uno por tipo DISTINTO presente en la
-// nota (no uno por archivo). El visor corre en su propio documento
-// aislado (ver <template id="pv-tpl">) y no comparte iconoTipo() del
-// shell exterior (Files) — usa el emoji de ADJUNTO_TIPO_ICONO, ya
-// definido más arriba y ya usado para la tarjeta de adjunto de abajo.
+// nota (no uno por archivo). Mismo ícono SVG que Files (ver
+// iconoAdjuntoNota más arriba) en vez de un emoji genérico.
 function htmlChipsTipoNota(n){
   const tipos=[...new Set(todosAdjuntosNota(n).map(tipoAdjunto))];
   return tipos.map(t=>{
     const color=ADJUNTO_TIPO_COLOR[t];
-    return `<div class="nota-burbuja-tipo-chip" style="background:${color}1a;border:1px solid ${color}40">${ADJUNTO_TIPO_ICONO[t]}</div>`;
+    return `<div class="nota-burbuja-tipo-chip" style="background:${color}1a;border:1px solid ${color}40">${iconoAdjuntoNota(t,17)}</div>`;
   }).join('');
 }
 
@@ -12080,7 +12095,7 @@ function htmlAdjuntoBurbuja(n){
       const url=urlAdjuntoDrive(a.fileId);
       if(url) return `<div class="nota-burbuja-adj-titulo">${ADJUNTO_TIPO_TITULO.imagen}</div><img src="${escNota(url)}" alt="${escNota(a.nombre||'')}" loading="lazy">`;
     }
-    return `<div class="nota-burbuja-adj-titulo">${ADJUNTO_TIPO_TITULO[tipo]}</div><div class="nota-burbuja-adj-icon">${ADJUNTO_TIPO_ICONO[tipo]}<span>${escNota(a.nombre||'adjunto')}</span></div>`;
+    return `<div class="nota-burbuja-adj-titulo">${ADJUNTO_TIPO_TITULO[tipo]}</div><div class="nota-burbuja-adj-icon">${iconoAdjuntoNota(tipo,17)}<span>${escNota(a.nombre||'adjunto')}</span></div>`;
   }
   const filas=lista.map(a=>{
     const tipo=tipoAdjunto(a);
@@ -12088,7 +12103,7 @@ function htmlAdjuntoBurbuja(n){
       const url=urlAdjuntoDrive(a.fileId);
       if(url) return `<img class="nota-burbuja-adj-mini" src="${escNota(url)}" alt="${escNota(a.nombre||'')}" loading="lazy" title="${escNota(a.nombre||'')}">`;
     }
-    return `<div class="nota-burbuja-adj-mini nota-burbuja-adj-mini-icono" title="${escNota(a.nombre||'')}">${ADJUNTO_TIPO_ICONO[tipo]}</div>`;
+    return `<div class="nota-burbuja-adj-mini nota-burbuja-adj-mini-icono" title="${escNota(a.nombre||'')}">${iconoAdjuntoNota(tipo,17)}</div>`;
   }).join('');
   return `<div class="nota-burbuja-adj-titulo">Adjuntos (${lista.length}):</div><div class="nota-burbuja-adj-fila">${filas}</div>`;
 }
