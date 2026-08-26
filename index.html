@@ -12052,14 +12052,15 @@ const ADJUNTO_TIPO_ICONO={imagen:'🖼️',pdf:'📄',dxf:'📐',glb:'🧊',otro
 const ADJUNTO_TIPO_TITULO={imagen:'Imagen asociada:',pdf:'PDF adjunto:',dxf:'Plano adjunto:',glb:'Modelo 3D adjunto:',otro:'Archivo adjunto:'};
 
 // Chips de tipo arriba del globo — uno por tipo DISTINTO presente en la
-// nota (no uno por archivo), reusando los mismos SVG/colores de
-// iconoTipo() que ya usa el resto de la app (Files, chips de tareas) —
-// así "hay una imagen y un GLB" se lee de un vistazo antes de abrir nada.
+// nota (no uno por archivo). El visor corre en su propio documento
+// aislado (ver <template id="pv-tpl">) y no comparte iconoTipo() del
+// shell exterior (Files) — usa el emoji de ADJUNTO_TIPO_ICONO, ya
+// definido más arriba y ya usado para la tarjeta de adjunto de abajo.
 function htmlChipsTipoNota(n){
   const tipos=[...new Set(todosAdjuntosNota(n).map(tipoAdjunto))];
   return tipos.map(t=>{
     const color=ADJUNTO_TIPO_COLOR[t];
-    return `<div class="nota-burbuja-tipo-chip" style="background:${color}1a;border:1px solid ${color}40">${iconoTipo(t==='otro'?'':t,17)}</div>`;
+    return `<div class="nota-burbuja-tipo-chip" style="background:${color}1a;border:1px solid ${color}40">${ADJUNTO_TIPO_ICONO[t]}</div>`;
   }).join('');
 }
 
