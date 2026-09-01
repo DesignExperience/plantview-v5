@@ -9967,7 +9967,14 @@ function parseGLBFull(buffer){
     // terminar de cargar. Con el nombre propio, la búsqueda matchea 1 sola
     // pieza casi siempre y ese fallback caro ni se ejecuta.
     const objNamePropio=n.name||userData.objName;
-    g.userData={...userData, objName:objNamePropio};
+    // extras: campo estándar de glTF para datos arbitrarios por nodo —
+    // ahí es donde puede viajar la Description de PDM (u otras
+    // propiedades custom) si el exportador la escribe. Mismo criterio de
+    // herencia que objName: si ESTE nodo puntual no trae extras propios,
+    // hereda los del padre (útil si el exportador solo los pone en el
+    // nodo del subensamblaje, no en cada pieza suelta).
+    const extrasPropios=(n.extras&&Object.keys(n.extras).length)?n.extras:userData.extras;
+    g.userData={...userData, objName:objNamePropio, extras:extrasPropios};
     if(n.matrix){g.matrix.fromArray(n.matrix);g.matrix.decompose(g.position,g.quaternion,g.scale);}
     else{
       if(n.translation)g.position.fromArray(n.translation);
@@ -9977,7 +9984,7 @@ function parseGLBFull(buffer){
     if(n.mesh!==undefined){
       gltf.meshes[n.mesh].primitives.forEach(prim=>{
         const m=buildMesh(prim);
-        m.userData={...userData, objName:objNamePropio};
+        m.userData={...userData, objName:objNamePropio, extras:extrasPropios};
         g.add(m);
       });
     }
@@ -12602,6 +12609,16 @@ function nombreZona(zone){
   if(!zone) return '';
   return aliasesZonas[zone.id] || zone.name;
 }
+// Busca el userData.extras (ver buildNode en parseGLBFull) de la pieza
+// puntual objName dentro de zone -- ahí puede venir la Description de
+// PDM u otra propiedad custom, si el exportador la escribió en el nodo
+// glTF. Sin objName (viendo el subensamblaje entero) no hay una única
+// pieza de la que sacarlo, así que no aplica.
+function piezaExtras(zone,objName){
+  if(!zone||!objName) return null;
+  const mesh=allMeshes.find(m=>m.userData.zoneId===zone.id && m.userData.objName===objName);
+  return (mesh && mesh.userData.extras && Object.keys(mesh.userData.extras).length) ? mesh.userData.extras : null;
+}
 async function cargarAliasesDrive(){
   aliasesZonas={};
   const archivo=nombreArchivoAlias();
@@ -13535,11 +13552,20 @@ function renderSidebarBody(zone,objName){
   const stored=docStore[key]||[];
   const notasZona=notas3d.filter(n=>n.zoneId===zone.id);
   const badge=zone.status==='ok'?`<span class="status-badge badge-ok">● ${zone.statusLabel}</span>`:`<span class="status-badge badge-warn">● ${zone.statusLabel}</span>`;
+  // extras del nodo glTF (ver piezaExtras/buildNode) — solo tiene sentido
+  // viendo UNA pieza puntual (objName), no el subensamblaje entero. Ahí
+  // puede venir la Description de PDM u otra propiedad custom, si el
+  // exportador la escribió en el GLB (ver comentario en parseGLBFull).
+  const extras=piezaExtras(zone,objName);
+  const extrasRows=extras?Object.entries(extras).map(([k,v])=>
+    `<div class="sb-row"><span class="sb-row-key">${escNota(k)}</span><span class="sb-row-val">${escNota(String(v))}</span></div>`
+  ).join(''):'';
   document.getElementById('sb-body').innerHTML=`
     <div class="sb-section">
       <div class="sb-section-hdr"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>Ficha técnica</div>
       <div class="sb-section-body">
         ${zone.specs.map(s=>`<div class="sb-row"><span class="sb-row-key">${s.k}</span><span class="sb-row-val">${s.v}</span></div>`).join('')}
+        ${extrasRows}
         <div style="padding:12px 0">${badge}</div>
       </div>
     </div>
