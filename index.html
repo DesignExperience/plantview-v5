@@ -9565,6 +9565,17 @@ window.onerror=function(msg,src,line){
         <div class="import-file-info"><div class="import-file-name" id="importFileName">—</div><div class="import-file-meta" id="importFileMeta">—</div></div>
         <button class="import-clear-btn" id="importClear"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
+      <!-- Comprimir con Draco: solo visible para GLB sin Draco ya aplicado -->
+      <div id="importCompressRow" style="display:none;margin:10px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="import-btn" id="importCompressBtn" style="flex:1;min-width:200px">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>
+          <span id="importCompressLabel">Comprimir con Draco</span>
+        </button>
+        <button class="import-btn" id="importDownloadCompressedBtn" style="display:none;flex:1;min-width:200px;background:var(--acc2)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+          Descargar GLB comprimido
+        </button>
+      </div>
       <!-- GLB: zona picker shown; STL: shown after parse -->
       <div id="importGlbZones" style="display:none">
         <div class="import-section-lbl">Subensamblajes detectados — elegí cuáles activar como zonas</div>
@@ -9738,6 +9749,221 @@ function decodeDracoPrimitive(dracoData, prim){
   draco.destroy(buf);draco.destroy(decoder);draco.destroy(dracoGeom);
   if(!geo.attributes.normal)geo.computeVertexNormals();
   return geo;
+}
+
+// ── DRACO ENCODER — comprimir un GLB en el navegador ──────────────────
+// Mismo criterio que obtenerOcctImportJs: el paquete oficial de Google
+// (draco3d en npm) es el mismo motor WASM que ya usamos para DECODIFICAR
+// arriba (inlineado), pero acá lo pedimos al CDN bajo demanda porque el
+// encoder es un módulo WASM aparte (~1MB) que la mayoría de las sesiones
+// nunca van a usar (solo quien elige "Comprimir con Draco" al importar).
+// El archivo se llama "..._nodejs.js" en el paquete de npm pero el glue
+// code de emscripten detecta el entorno en runtime (mismo patrón que el
+// decoder ya inlineado) — funciona en navegador sin problema.
+let dracoEncoderPromise=null;
+const DRACO_ENC_CDN_BASE='https://cdn.jsdelivr.net/npm/draco3d@1.5.7/';
+function obtenerDracoEncoder(){
+  if(!dracoEncoderPromise){
+    dracoEncoderPromise=new Promise((resolve,reject)=>{
+      const s=document.createElement('script');
+      s.src=DRACO_ENC_CDN_BASE+'draco_encoder_nodejs.js';
+      s.onload=()=>{
+        window.DracoEncoderModule({locateFile:(f)=>DRACO_ENC_CDN_BASE+f})
+          .then(resolve).catch(reject);
+      };
+      s.onerror=()=>reject(new Error('No se pudo descargar el compresor Draco (revisá la conexión)'));
+      document.head.appendChild(s);
+    });
+  }
+  return dracoEncoderPromise;
+}
+
+// Codifica un único mesh (posiciones + normales opcionales + índices) a
+// un buffer Draco crudo. positions/normals son Float32Array planos
+// (x,y,z,x,y,z,...), indices es un array de enteros (o null si la
+// geometría no viene indexada — se genera secuencial 0..n-1).
+function encodeMeshToDraco(draco,positions,normals,indices){
+  const numPoints=positions.length/3;
+  const idx=indices?Uint32Array.from(indices):Uint32Array.from({length:numPoints},(_,i)=>i);
+  const numFaces=idx.length/3;
+
+  const builder=new draco.MeshBuilder();
+  const mesh=new draco.Mesh();
+  builder.AddFacesToMesh(mesh,numFaces,idx);
+  builder.AddFloatAttributeToMesh(mesh,draco.POSITION,numPoints,3,positions);
+  let hasNormal=false;
+  if(normals&&normals.length===positions.length){
+    builder.AddFloatAttributeToMesh(mesh,draco.NORMAL,numPoints,3,normals);
+    hasNormal=true;
+  }
+
+  const encoder=new draco.Encoder();
+  encoder.SetAttributeQuantization(draco.POSITION,14);
+  if(hasNormal)encoder.SetAttributeQuantization(draco.NORMAL,10);
+  encoder.SetSpeedOptions(1,1); // priorizar mejor compresión sobre velocidad
+
+  const encodedData=new draco.DracoInt8Array();
+  const encodedLen=encoder.EncodeMeshToDracoBuffer(mesh,encodedData);
+  if(encodedLen<=0){
+    draco.destroy(mesh);draco.destroy(builder);draco.destroy(encoder);draco.destroy(encodedData);
+    throw new Error('Draco encode error');
+  }
+  const out=new Uint8Array(encodedLen);
+  for(let i=0;i<encodedLen;i++)out[i]=encodedData.GetValue(i);
+
+  draco.destroy(mesh);draco.destroy(builder);draco.destroy(encoder);draco.destroy(encodedData);
+  return {data:out,hasNormal,numFaces};
+}
+
+// Recomprime un GLB entero con Draco: recorre todas las primitivas SIN
+// Draco ya aplicado, codifica POSITION+NORMAL+índices, y arma un GLB
+// nuevo con KHR_draco_mesh_compression. El resto del binario (imágenes,
+// otros buffers) se copia tal cual al final del nuevo BIN chunk.
+async function comprimirGLBConDraco(buffer){
+  const draco=await obtenerDracoEncoder();
+  const view=new DataView(buffer);
+  if(view.getUint32(0,true)!==0x46546C67)throw new Error('No es un GLB válido');
+  const jsonLen=view.getUint32(12,true);
+  const gltf=JSON.parse(new TextDecoder().decode(new Uint8Array(buffer,20,jsonLen)));
+  const binOff=20+jsonLen;
+  let binBuf=new Uint8Array(0);
+  if(binOff+8<=buffer.byteLength){
+    const bl=view.getUint32(binOff,true);
+    binBuf=new Uint8Array(buffer,binOff+8,bl);
+  }
+  if(!gltf.meshes||!gltf.meshes.length)throw new Error('El GLB no tiene mallas para comprimir');
+
+  const TYPE_SIZE={SCALAR:1,VEC2:2,VEC3:3,VEC4:4,MAT4:16};
+  const COMP={5120:Int8Array,5121:Uint8Array,5122:Int16Array,5123:Uint16Array,5125:Uint32Array,5126:Float32Array};
+  function readAccessor(idx){
+    const acc=gltf.accessors[idx],bv=gltf.bufferViews[acc.bufferView];
+    const off=(bv.byteOffset||0)+(acc.byteOffset||0);
+    const n=acc.count*TYPE_SIZE[acc.type];
+    return new COMP[acc.componentType](binBuf.buffer,binBuf.byteOffset+off,n);
+  }
+
+  const extraBlobs=[]; // buffers Draco nuevos, se appendean al final del BIN
+  let compressedCount=0;
+
+  gltf.meshes.forEach(mesh=>{
+    (mesh.primitives||[]).forEach(prim=>{
+      if(prim.mode!==undefined&&prim.mode!==4)return; // solo TRIANGLES
+      if(prim.extensions&&prim.extensions.KHR_draco_mesh_compression)return; // ya comprimido
+      if(prim.attributes.POSITION===undefined)return;
+
+      const positions=Float32Array.from(readAccessor(prim.attributes.POSITION));
+      const normals=prim.attributes.NORMAL!==undefined?Float32Array.from(readAccessor(prim.attributes.NORMAL)):null;
+      const indices=prim.indices!==undefined?Array.from(readAccessor(prim.indices)):null;
+
+      const {data,hasNormal}=encodeMeshToDraco(draco,positions,normals,indices);
+
+      const attrIds={POSITION:0};
+      if(hasNormal)attrIds.NORMAL=1;
+      prim.extensions=prim.extensions||{};
+      // El bufferView real se asigna más abajo, una vez reconstruido el
+      // binario completo (ver extraBlobs.forEach más abajo).
+      extraBlobs.push({prim,attrIds,data});
+
+      // Los accessors referenciados por la primitiva se mantienen (count/
+      // type/componentType siguen siendo válidos y algunos lectores los
+      // usan para saber cuántos vértices/índices hay) pero ya no deben
+      // apuntar a un bufferView propio — los datos reales viven en el
+      // blob Draco de arriba.
+      delete gltf.accessors[prim.attributes.POSITION].bufferView;
+      delete gltf.accessors[prim.attributes.POSITION].byteOffset;
+      if(prim.attributes.NORMAL!==undefined){
+        delete gltf.accessors[prim.attributes.NORMAL].bufferView;
+        delete gltf.accessors[prim.attributes.NORMAL].byteOffset;
+      }
+      if(prim.indices!==undefined){
+        delete gltf.accessors[prim.indices].bufferView;
+        delete gltf.accessors[prim.indices].byteOffset;
+      }
+      compressedCount++;
+    });
+  });
+
+  if(compressedCount===0)throw new Error('No se encontraron mallas sin comprimir');
+
+  // Los bufferViews de las primitivas que acabamos de comprimir quedaron
+  // "huérfanos" (sus bytes originales siguen en binBuf, pero ya ningún
+  // accessor los referencia — se los borramos arriba). Si simplemente
+  // appendáramos los blobs Draco al final del binario original, esos
+  // bytes muertos seguirían pesando y el archivo "comprimido" terminaría
+  // más grande que el original. Por eso reconstruimos el buffer desde
+  // cero: copiamos solo los bufferViews que todavía están en uso
+  // (accessors sin comprimir, imágenes embebidas) y recién después
+  // appendeamos los blobs Draco nuevos.
+  const usedOldBv=new Set();
+  (gltf.accessors||[]).forEach(acc=>{if(acc.bufferView!==undefined)usedOldBv.add(acc.bufferView);});
+  (gltf.images||[]).forEach(img=>{if(img.bufferView!==undefined)usedOldBv.add(img.bufferView);});
+
+  const chunks=[];
+  const newBufferViews=[];
+  const oldToNewBv=new Map();
+  let cursor=0;
+  function pushChunk(bytes){
+    const pad=(4-(cursor%4))%4;
+    if(pad){chunks.push(new Uint8Array(pad));cursor+=pad;}
+    const off=cursor;
+    chunks.push(bytes);
+    cursor+=bytes.byteLength;
+    return off;
+  }
+
+  gltf.bufferViews.forEach((bv,oldIdx)=>{
+    if(!usedOldBv.has(oldIdx))return; // huérfano — no se copia
+    const bytes=binBuf.slice((bv.byteOffset||0),(bv.byteOffset||0)+bv.byteLength);
+    const off=pushChunk(bytes);
+    const newIdx=newBufferViews.length;
+    newBufferViews.push({...bv,buffer:0,byteOffset:off});
+    oldToNewBv.set(oldIdx,newIdx);
+  });
+
+  // Remapear referencias de accessors/imágenes a los nuevos índices
+  (gltf.accessors||[]).forEach(acc=>{
+    if(acc.bufferView!==undefined)acc.bufferView=oldToNewBv.get(acc.bufferView);
+  });
+  (gltf.images||[]).forEach(img=>{
+    if(img.bufferView!==undefined)img.bufferView=oldToNewBv.get(img.bufferView);
+  });
+
+  // Ahora sí, appendear los blobs Draco nuevos y fijar sus bufferView reales
+  extraBlobs.forEach(({prim,attrIds,data})=>{
+    const off=pushChunk(data);
+    const newIdx=newBufferViews.length;
+    newBufferViews.push({buffer:0,byteOffset:off,byteLength:data.byteLength});
+    prim.extensions.KHR_draco_mesh_compression={bufferView:newIdx,attributes:attrIds};
+  });
+
+  gltf.bufferViews=newBufferViews;
+  gltf.buffers=[{byteLength:cursor}];
+
+  gltf.extensionsUsed=[...new Set([...(gltf.extensionsUsed||[]),'KHR_draco_mesh_compression'])];
+  gltf.extensionsRequired=[...new Set([...(gltf.extensionsRequired||[]),'KHR_draco_mesh_compression'])];
+
+  const newBin=new Uint8Array(cursor);
+  let o=0;chunks.forEach(c=>{newBin.set(c,o);o+=c.byteLength;});
+
+  // Serializar GLB final: header + JSON chunk (padded con espacios) + BIN chunk (padded con ceros)
+  let jsonStr=JSON.stringify(gltf);
+  while(jsonStr.length%4!==0)jsonStr+=' ';
+  const jsonBytes=new TextEncoder().encode(jsonStr);
+  const binPad=(4-(newBin.byteLength%4))%4;
+  const binLenPadded=newBin.byteLength+binPad;
+
+  const totalLen=12+8+jsonBytes.byteLength+8+binLenPadded;
+  const out=new Uint8Array(totalLen);
+  const dv=new DataView(out.buffer);
+  dv.setUint32(0,0x46546C67,true); // magic 'glTF'
+  dv.setUint32(4,2,true);          // version
+  dv.setUint32(8,totalLen,true);
+  let p=12;
+  dv.setUint32(p,jsonBytes.byteLength,true);dv.setUint32(p+4,0x4E4F534A,true);p+=8; // 'JSON'
+  out.set(jsonBytes,p);p+=jsonBytes.byteLength;
+  dv.setUint32(p,binLenPadded,true);dv.setUint32(p+4,0x004E4942,true);p+=8; // 'BIN\0'
+  out.set(newBin,p);
+  return out;
 }
 
 // ── STEP (CAD sólido, ISO 10303) → mesh con occt-import-js ───────────
@@ -13718,6 +13944,40 @@ document.getElementById('importDz').addEventListener('dragleave',()=>document.ge
 document.getElementById('importDz').addEventListener('drop',e=>{e.preventDefault();document.getElementById('importDz').classList.remove('over');if(e.dataTransfer.files[0])onImportFileChosen(e.dataTransfer.files[0]);});
 document.getElementById('importClear').onclick=resetImportUI;
 
+document.getElementById('importCompressBtn').addEventListener('click',async()=>{
+  if(!importRawData||!importRawData.buffer)return;
+  const btn=document.getElementById('importCompressBtn');
+  const label=document.getElementById('importCompressLabel');
+  const downloadBtn=document.getElementById('importDownloadCompressedBtn');
+  const originalLabel=label.textContent;
+  btn.setAttribute('disabled','');
+  label.textContent='Comprimiendo… (primera vez descarga el motor Draco)';
+  try{
+    const compressed=await comprimirGLBConDraco(importRawData.buffer);
+    const originalSize=importRawData.size;
+    const newSize=compressed.byteLength;
+    const pct=Math.round((1-newSize/originalSize)*100);
+    importRawData.compressedBuffer=compressed.buffer.slice(compressed.byteOffset,compressed.byteOffset+compressed.byteLength);
+    label.textContent='✅ Comprimido: -'+pct+'% ('+formatBytes(originalSize)+' → '+formatBytes(newSize)+')';
+    downloadBtn.style.display='flex';
+    downloadBtn.onclick=()=>{
+      const blob=new Blob([importRawData.compressedBuffer],{type:'model/gltf-binary'});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');
+      a.href=url;
+      a.download=importRawData.name.replace(/\.glb$/i,'')+'_draco.glb';
+      document.body.appendChild(a);a.click();a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),1000);
+    };
+    toast('🗜 GLB comprimido -'+pct+'%');
+  }catch(err){
+    label.textContent=originalLabel;
+    toast('❌ Error comprimiendo: '+err.message);
+  }finally{
+    btn.removeAttribute('disabled');
+  }
+});
+
 function onImportFileChosen(file){
   const ext=file.name.split('.').pop().toLowerCase();
   if(!['glb','stl','step','stp'].includes(ext)){toast('❌ Solo GLB, STL o STEP');return;}
@@ -13764,6 +14024,16 @@ function showImportStep2_GLB(parsed,file,formato){
   document.getElementById('importFileMeta').textContent=(formato||'GLB')+' · '+formatBytes(file.size)+' · '+parsed.subassemblies.length+' subensamblajes'+(parsed.hasDraco?' · 🗜 Draco':'');
   document.getElementById('importGlbZones').style.display='block';
   document.getElementById('importStlActions').style.display='none';
+
+  // Comprimir con Draco solo tiene sentido para GLB sin comprimir todavía
+  const compressRow=document.getElementById('importCompressRow');
+  const downloadBtn=document.getElementById('importDownloadCompressedBtn');
+  downloadBtn.style.display='none';
+  if(formato==='GLB'&&!parsed.hasDraco){
+    compressRow.style.display='flex';
+  }else{
+    compressRow.style.display='none';
+  }
 
   glbSelectedZones=new Set();
   const picker=document.getElementById('importZonePicker');
