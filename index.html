@@ -3523,6 +3523,27 @@ function descargarBlob(blob, nombre) {
 }
 
 // ── Compresión Draco de un GLB ya en Drive/carpeta (misma lógica que el visor) ──
+// Decoder Draco cargado por CDN — este documento (Files/Drive) no tiene
+// el decoder inlineado como el visor 3D, así que hace falta pedirlo
+// aparte para poder RECOMPRIMIR un GLB que ya viene con Draco (hay que
+// decodificarlo primero para volver a codificarlo con mejores
+// parámetros — ver comprimirGLBConDraco más abajo).
+let dracoDecoderPromise=null;
+function obtenerDracoDecoderParaComprimir(){
+  if(!dracoDecoderPromise){
+    dracoDecoderPromise=new Promise((resolve,reject)=>{
+      const s=document.createElement('script');
+      s.src=DRACO_ENC_CDN_BASE+'draco_decoder_nodejs.js';
+      s.onload=()=>{
+        window.DracoDecoderModule({locateFile:(f)=>DRACO_ENC_CDN_BASE+f})
+          .then(resolve).catch(reject);
+      };
+      s.onerror=()=>reject(new Error('No se pudo descargar el decodificador Draco (revisá la conexión)'));
+      document.head.appendChild(s);
+    });
+  }
+  return dracoDecoderPromise;
+}
 // ── DRACO ENCODER — comprimir un GLB en el navegador ──────────────────
 // Mismo criterio que obtenerOcctImportJs: el paquete oficial de Google
 // (draco3d en npm) es el mismo motor WASM que ya usamos para DECODIFICAR
@@ -3625,10 +3646,63 @@ function encodeMeshToDraco(draco,positions,normals,indices){
   return {data:out,hasNormal,numFaces};
 }
 
-// Recomprime un GLB entero con Draco: recorre todas las primitivas SIN
-// Draco ya aplicado, codifica POSITION+NORMAL+índices, y arma un GLB
-// nuevo con KHR_draco_mesh_compression. El resto del binario (imágenes,
-// otros buffers) se copia tal cual al final del nuevo BIN chunk.
+// Decodifica un buffer Draco crudo a arrays planos (sin depender de
+// three.js — este mismo código corre también en el documento de
+// Files/Drive, que no carga three.js). Se usa para poder RECOMPRIMIR
+// mallas que ya vienen con Draco (ver comprimirGLBConDraco): hay que
+// decodificarlas primero para volver a codificarlas con EDGEBREAKER +
+// máxima calidad, que puede rendir bastante mejor que con el método/
+// quantización con que se hayan comprimido originalmente (por ejemplo,
+// con una herramienta externa que solo usó SEQUENTIAL).
+function decodeDracoBufferToArrays(draco,dracoData){
+  const buf=new draco.DecoderBuffer();
+  buf.Init(new Int8Array(dracoData),dracoData.byteLength);
+  const decoder=new draco.Decoder();
+  const geomType=decoder.GetEncodedGeometryType(buf);
+  if(geomType!==draco.TRIANGULAR_MESH){
+    draco.destroy(buf);draco.destroy(decoder);
+    throw new Error('Solo se pueden recomprimir mallas triangulares');
+  }
+  const mesh=new draco.Mesh();
+  const status=decoder.DecodeBufferToMesh(buf,mesh);
+  if(!status.ok()){
+    draco.destroy(buf);draco.destroy(decoder);draco.destroy(mesh);
+    throw new Error('Draco decode error: '+status.error_msg());
+  }
+  const numPoints=mesh.num_points();
+  const numFaces=mesh.num_faces();
+
+  function readAttr(attrEnum){
+    const id=decoder.GetAttributeId(mesh,attrEnum);
+    if(id===-1)return null;
+    const attr=decoder.GetAttribute(mesh,id);
+    const arr=new draco.DracoFloat32Array();
+    decoder.GetAttributeFloatForAllPoints(mesh,attr,arr);
+    const fa=new Float32Array(numPoints*3);
+    for(let i=0;i<fa.length;i++)fa[i]=arr.GetValue(i);
+    draco.destroy(arr);
+    return fa;
+  }
+  const positions=readAttr(draco.POSITION);
+  const normals=readAttr(draco.NORMAL);
+
+  const ia=new draco.DracoInt32Array();
+  const indices=new Uint32Array(numFaces*3);
+  for(let i=0;i<numFaces;i++){
+    decoder.GetFaceFromMesh(mesh,i,ia);
+    indices[i*3]=ia.GetValue(0);indices[i*3+1]=ia.GetValue(1);indices[i*3+2]=ia.GetValue(2);
+  }
+  draco.destroy(ia);draco.destroy(buf);draco.destroy(decoder);draco.destroy(mesh);
+  return {positions,normals,indices};
+}
+
+// Recomprime un GLB entero con Draco: recorre todas las primitivas y
+// codifica POSITION+NORMAL+índices con EDGEBREAKER + máxima calidad —
+// incluidas las que YA tenían Draco (se decodifican primero), para
+// poder ganar más si venían comprimidas con un método más débil (ej.
+// SEQUENTIAL de una herramienta externa). Arma un GLB nuevo con
+// KHR_draco_mesh_compression; el resto del binario (imágenes, otros
+// buffers) se copia tal cual al final del nuevo BIN chunk.
 async function comprimirGLBConDraco(buffer){
   const draco=await obtenerDracoEncoder();
   const view=new DataView(buffer);
@@ -3652,18 +3726,36 @@ async function comprimirGLBConDraco(buffer){
     return new COMP[acc.componentType](binBuf.buffer,binBuf.byteOffset+off,n);
   }
 
+  // El decoder solo se pide si hace falta (algún primitive ya venía con
+  // Draco) — no tiene sentido bajar ~500KB de wasm extra si no se va a
+  // usar.
+  let dracoDecoder=null;
+  async function getDracoDecoder(){
+    if(!dracoDecoder)dracoDecoder=await obtenerDracoDecoderParaComprimir();
+    return dracoDecoder;
+  }
+
   const extraBlobs=[]; // buffers Draco nuevos, se appendean al final del BIN
   let compressedCount=0;
 
-  gltf.meshes.forEach(mesh=>{
-    (mesh.primitives||[]).forEach(prim=>{
-      if(prim.mode!==undefined&&prim.mode!==4)return; // solo TRIANGLES
-      if(prim.extensions&&prim.extensions.KHR_draco_mesh_compression)return; // ya comprimido
-      if(prim.attributes.POSITION===undefined)return;
+  for(const mesh of gltf.meshes){
+    for(const prim of (mesh.primitives||[])){
+      if(prim.mode!==undefined&&prim.mode!==4)continue; // solo TRIANGLES
+      if(prim.attributes.POSITION===undefined)continue;
 
-      const positions=Float32Array.from(readAccessor(prim.attributes.POSITION));
-      const normals=prim.attributes.NORMAL!==undefined?Float32Array.from(readAccessor(prim.attributes.NORMAL)):null;
-      const indices=prim.indices!==undefined?Array.from(readAccessor(prim.indices)):null;
+      const existingDraco=prim.extensions&&prim.extensions.KHR_draco_mesh_compression;
+      let positions,normals,indices;
+      if(existingDraco){
+        const dec=await getDracoDecoder();
+        const bv=gltf.bufferViews[existingDraco.bufferView];
+        const dracoData=binBuf.slice((bv.byteOffset||0),(bv.byteOffset||0)+bv.byteLength);
+        const decoded=decodeDracoBufferToArrays(dec,dracoData);
+        positions=decoded.positions;normals=decoded.normals;indices=Array.from(decoded.indices);
+      }else{
+        positions=Float32Array.from(readAccessor(prim.attributes.POSITION));
+        normals=prim.attributes.NORMAL!==undefined?Float32Array.from(readAccessor(prim.attributes.NORMAL)):null;
+        indices=prim.indices!==undefined?Array.from(readAccessor(prim.indices)):null;
+      }
 
       const {data,hasNormal}=encodeMeshToDraco(draco,positions,normals,indices);
 
@@ -3671,7 +3763,10 @@ async function comprimirGLBConDraco(buffer){
       if(hasNormal)attrIds.NORMAL=1;
       prim.extensions=prim.extensions||{};
       // El bufferView real se asigna más abajo, una vez reconstruido el
-      // binario completo (ver extraBlobs.forEach más abajo).
+      // binario completo (ver extraBlobs.forEach más abajo) — esto
+      // también pisa la referencia al bufferView Draco VIEJO si ya
+      // tenía uno, que así queda huérfano y se descarta solo (ver
+      // usedOldBv más abajo).
       extraBlobs.push({prim,attrIds,data});
 
       // Los accessors referenciados por la primitiva se mantienen (count/
@@ -3690,10 +3785,10 @@ async function comprimirGLBConDraco(buffer){
         delete gltf.accessors[prim.indices].byteOffset;
       }
       compressedCount++;
-    });
-  });
+    }
+  }
 
-  if(compressedCount===0)throw new Error('No se encontraron mallas sin comprimir');
+  if(compressedCount===0)throw new Error('No se encontraron mallas para comprimir');
 
   // Los bufferViews de las primitivas que acabamos de comprimir quedaron
   // "huérfanos" (sus bytes originales siguen en binBuf, pero ya ningún
@@ -9998,6 +10093,16 @@ function waitForDraco(){
   });
 }
 
+// Reusa el decoder ya inicializado al cargar el visor (ver initDraco
+// arriba) para poder RECOMPRIMIR un GLB que ya viene con Draco — hace
+// falta decodificarlo primero para volver a codificarlo con mejores
+// parámetros (ver comprimirGLBConDraco más abajo).
+async function obtenerDracoDecoderParaComprimir(){
+  await waitForDraco();
+  if(!_dracoModule)throw new Error('Draco decoder no disponible');
+  return _dracoModule;
+}
+
 function decodeDracoPrimitive(dracoData, prim){
   const draco = _dracoModule;
   if(!draco) throw new Error('Draco decoder no disponible — intentá de nuevo en un momento');
@@ -10157,10 +10262,63 @@ function encodeMeshToDraco(draco,positions,normals,indices){
   return {data:out,hasNormal,numFaces};
 }
 
-// Recomprime un GLB entero con Draco: recorre todas las primitivas SIN
-// Draco ya aplicado, codifica POSITION+NORMAL+índices, y arma un GLB
-// nuevo con KHR_draco_mesh_compression. El resto del binario (imágenes,
-// otros buffers) se copia tal cual al final del nuevo BIN chunk.
+// Decodifica un buffer Draco crudo a arrays planos (sin depender de
+// three.js — este mismo código corre también en el documento de
+// Files/Drive, que no carga three.js). Se usa para poder RECOMPRIMIR
+// mallas que ya vienen con Draco (ver comprimirGLBConDraco): hay que
+// decodificarlas primero para volver a codificarlas con EDGEBREAKER +
+// máxima calidad, que puede rendir bastante mejor que con el método/
+// quantización con que se hayan comprimido originalmente (por ejemplo,
+// con una herramienta externa que solo usó SEQUENTIAL).
+function decodeDracoBufferToArrays(draco,dracoData){
+  const buf=new draco.DecoderBuffer();
+  buf.Init(new Int8Array(dracoData),dracoData.byteLength);
+  const decoder=new draco.Decoder();
+  const geomType=decoder.GetEncodedGeometryType(buf);
+  if(geomType!==draco.TRIANGULAR_MESH){
+    draco.destroy(buf);draco.destroy(decoder);
+    throw new Error('Solo se pueden recomprimir mallas triangulares');
+  }
+  const mesh=new draco.Mesh();
+  const status=decoder.DecodeBufferToMesh(buf,mesh);
+  if(!status.ok()){
+    draco.destroy(buf);draco.destroy(decoder);draco.destroy(mesh);
+    throw new Error('Draco decode error: '+status.error_msg());
+  }
+  const numPoints=mesh.num_points();
+  const numFaces=mesh.num_faces();
+
+  function readAttr(attrEnum){
+    const id=decoder.GetAttributeId(mesh,attrEnum);
+    if(id===-1)return null;
+    const attr=decoder.GetAttribute(mesh,id);
+    const arr=new draco.DracoFloat32Array();
+    decoder.GetAttributeFloatForAllPoints(mesh,attr,arr);
+    const fa=new Float32Array(numPoints*3);
+    for(let i=0;i<fa.length;i++)fa[i]=arr.GetValue(i);
+    draco.destroy(arr);
+    return fa;
+  }
+  const positions=readAttr(draco.POSITION);
+  const normals=readAttr(draco.NORMAL);
+
+  const ia=new draco.DracoInt32Array();
+  const indices=new Uint32Array(numFaces*3);
+  for(let i=0;i<numFaces;i++){
+    decoder.GetFaceFromMesh(mesh,i,ia);
+    indices[i*3]=ia.GetValue(0);indices[i*3+1]=ia.GetValue(1);indices[i*3+2]=ia.GetValue(2);
+  }
+  draco.destroy(ia);draco.destroy(buf);draco.destroy(decoder);draco.destroy(mesh);
+  return {positions,normals,indices};
+}
+
+// Recomprime un GLB entero con Draco: recorre todas las primitivas y
+// codifica POSITION+NORMAL+índices con EDGEBREAKER + máxima calidad —
+// incluidas las que YA tenían Draco (se decodifican primero), para
+// poder ganar más si venían comprimidas con un método más débil (ej.
+// SEQUENTIAL de una herramienta externa). Arma un GLB nuevo con
+// KHR_draco_mesh_compression; el resto del binario (imágenes, otros
+// buffers) se copia tal cual al final del nuevo BIN chunk.
 async function comprimirGLBConDraco(buffer){
   const draco=await obtenerDracoEncoder();
   const view=new DataView(buffer);
@@ -10184,18 +10342,36 @@ async function comprimirGLBConDraco(buffer){
     return new COMP[acc.componentType](binBuf.buffer,binBuf.byteOffset+off,n);
   }
 
+  // El decoder solo se pide si hace falta (algún primitive ya venía con
+  // Draco) — no tiene sentido bajar ~500KB de wasm extra si no se va a
+  // usar.
+  let dracoDecoder=null;
+  async function getDracoDecoder(){
+    if(!dracoDecoder)dracoDecoder=await obtenerDracoDecoderParaComprimir();
+    return dracoDecoder;
+  }
+
   const extraBlobs=[]; // buffers Draco nuevos, se appendean al final del BIN
   let compressedCount=0;
 
-  gltf.meshes.forEach(mesh=>{
-    (mesh.primitives||[]).forEach(prim=>{
-      if(prim.mode!==undefined&&prim.mode!==4)return; // solo TRIANGLES
-      if(prim.extensions&&prim.extensions.KHR_draco_mesh_compression)return; // ya comprimido
-      if(prim.attributes.POSITION===undefined)return;
+  for(const mesh of gltf.meshes){
+    for(const prim of (mesh.primitives||[])){
+      if(prim.mode!==undefined&&prim.mode!==4)continue; // solo TRIANGLES
+      if(prim.attributes.POSITION===undefined)continue;
 
-      const positions=Float32Array.from(readAccessor(prim.attributes.POSITION));
-      const normals=prim.attributes.NORMAL!==undefined?Float32Array.from(readAccessor(prim.attributes.NORMAL)):null;
-      const indices=prim.indices!==undefined?Array.from(readAccessor(prim.indices)):null;
+      const existingDraco=prim.extensions&&prim.extensions.KHR_draco_mesh_compression;
+      let positions,normals,indices;
+      if(existingDraco){
+        const dec=await getDracoDecoder();
+        const bv=gltf.bufferViews[existingDraco.bufferView];
+        const dracoData=binBuf.slice((bv.byteOffset||0),(bv.byteOffset||0)+bv.byteLength);
+        const decoded=decodeDracoBufferToArrays(dec,dracoData);
+        positions=decoded.positions;normals=decoded.normals;indices=Array.from(decoded.indices);
+      }else{
+        positions=Float32Array.from(readAccessor(prim.attributes.POSITION));
+        normals=prim.attributes.NORMAL!==undefined?Float32Array.from(readAccessor(prim.attributes.NORMAL)):null;
+        indices=prim.indices!==undefined?Array.from(readAccessor(prim.indices)):null;
+      }
 
       const {data,hasNormal}=encodeMeshToDraco(draco,positions,normals,indices);
 
@@ -10203,7 +10379,10 @@ async function comprimirGLBConDraco(buffer){
       if(hasNormal)attrIds.NORMAL=1;
       prim.extensions=prim.extensions||{};
       // El bufferView real se asigna más abajo, una vez reconstruido el
-      // binario completo (ver extraBlobs.forEach más abajo).
+      // binario completo (ver extraBlobs.forEach más abajo) — esto
+      // también pisa la referencia al bufferView Draco VIEJO si ya
+      // tenía uno, que así queda huérfano y se descarta solo (ver
+      // usedOldBv más abajo).
       extraBlobs.push({prim,attrIds,data});
 
       // Los accessors referenciados por la primitiva se mantienen (count/
@@ -10222,10 +10401,10 @@ async function comprimirGLBConDraco(buffer){
         delete gltf.accessors[prim.indices].byteOffset;
       }
       compressedCount++;
-    });
-  });
+    }
+  }
 
-  if(compressedCount===0)throw new Error('No se encontraron mallas sin comprimir');
+  if(compressedCount===0)throw new Error('No se encontraron mallas para comprimir');
 
   // Los bufferViews de las primitivas que acabamos de comprimir quedaron
   // "huérfanos" (sus bytes originales siguen en binBuf, pero ya ningún
