@@ -779,6 +779,7 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 .btn-descargar:active { border-color: var(--accent2); color: var(--accent2); }
 .btn-comprimir:active { border-color: var(--accent2); color: var(--accent2); }
 .btn-comprimir:disabled { opacity: .5; }
+.compress-progress { display: block; font-size: 11px; color: var(--accent2); margin-top: 2px; }
 
 /* Selección múltiple de Files (ver btn-seleccionar-archivos): checkbox
    oculto hasta que el modo esté activo, mismo lenguaje visual (borde +
@@ -3326,6 +3327,7 @@ function renderArchivos(filtro) {
           ${esNuevo?`<span class="new-pill">nuevo</span>`:""}
           ${esActivo?`<div class="playing-dot"></div>`:""}
         </span>
+        <span class="compress-progress" data-progress-idx="${i}" style="display:none"></span>
       </span>
       <span class="file-actions">
         ${esPDF && state.archivoActual?.tipo !== 'pdf' ? `
@@ -3422,19 +3424,25 @@ function renderArchivos(filtro) {
   lista.querySelectorAll(".btn-comprimir").forEach(btn => {
     btn.addEventListener("click", async e => {
       e.stopPropagation();
-      const f = window._archivos_actuales[Number(btn.dataset.comprimirIdx)];
+      const idx = Number(btn.dataset.comprimirIdx);
+      const f = window._archivos_actuales[idx];
+      const progressEl = lista.querySelector(`.compress-progress[data-progress-idx="${idx}"]`);
       btn.disabled = true;
       const original = btn.innerHTML;
       btn.innerHTML = '<div class="spinner" style="width:12px;height:12px;border-width:2px"></div>';
+      if (progressEl) { progressEl.style.display = "block"; progressEl.textContent = "Comprimiendo…"; }
       try {
         const buffer = await obtenerBytesArchivo(f);
-        const compressed = await comprimirGLBConDraco(buffer);
+        const compressed = await comprimirGLBConDraco(buffer, (done, total) => {
+          if (progressEl) progressEl.textContent = `Comprimiendo… malla ${done} de ${total}`;
+        });
         const originalSize = buffer.byteLength;
         const newSize = compressed.byteLength;
         const pct = Math.round((1 - newSize / originalSize) * 100);
         const nuevoNombre = f.nombre.replace(/\.glb$/i, "") + "_draco.glb";
         const blob = new Blob([compressed], { type: "model/gltf-binary" });
 
+        if (progressEl) progressEl.textContent = "Guardando…";
         if (f.handle) {
           const fileHandle = await state.carpetaActual.handle.getFileHandle(nuevoNombre, { create: true });
           const writable = await fileHandle.createWritable();
@@ -3442,7 +3450,9 @@ function renderArchivos(filtro) {
           await writable.close();
           await cargarArchivosFS(state.carpetaActual);
         } else if (f.driveId) {
-          await subirArchivoADriveConProgreso(nuevoNombre, blob, state.carpetaActual.driveId);
+          await subirArchivoADriveConProgreso(nuevoNombre, blob, state.carpetaActual.driveId, pct2 => {
+            if (progressEl) progressEl.textContent = `Subiendo… ${pct2}%`;
+          });
           await cargarArchivosDrive(state.carpetaActual);
         } else {
           throw new Error("No se pudo determinar dónde guardar el archivo comprimido");
@@ -3452,6 +3462,7 @@ function renderArchivos(filtro) {
         showToast("❌ No se pudo comprimir: " + (err.message || err));
         btn.disabled = false;
         btn.innerHTML = original;
+        if (progressEl) { progressEl.style.display = "none"; progressEl.textContent = ""; }
       }
     });
   });
@@ -3703,7 +3714,7 @@ function decodeDracoBufferToArrays(draco,dracoData){
 // SEQUENTIAL de una herramienta externa). Arma un GLB nuevo con
 // KHR_draco_mesh_compression; el resto del binario (imágenes, otros
 // buffers) se copia tal cual al final del nuevo BIN chunk.
-async function comprimirGLBConDraco(buffer){
+async function comprimirGLBConDraco(buffer,onProgress){
   const draco=await obtenerDracoEncoder();
   const view=new DataView(buffer);
   if(view.getUint32(0,true)!==0x46546C67)throw new Error('No es un GLB válido');
@@ -3735,58 +3746,76 @@ async function comprimirGLBConDraco(buffer){
     return dracoDecoder;
   }
 
+  // Lista plana de primitivas a procesar, calculada antes de arrancar —
+  // así el callback de progreso conoce el total desde el primer aviso
+  // (si no, "malla 1 de ???" no le dice nada al usuario en un archivo
+  // grande donde el proceso completo puede tardar minutos).
+  const pendientes=[];
+  gltf.meshes.forEach(mesh=>{
+    (mesh.primitives||[]).forEach(prim=>{
+      if(prim.mode!==undefined&&prim.mode!==4)return; // solo TRIANGLES
+      if(prim.attributes.POSITION===undefined)return;
+      pendientes.push(prim);
+    });
+  });
+
   const extraBlobs=[]; // buffers Draco nuevos, se appendean al final del BIN
   let compressedCount=0;
 
-  for(const mesh of gltf.meshes){
-    for(const prim of (mesh.primitives||[])){
-      if(prim.mode!==undefined&&prim.mode!==4)continue; // solo TRIANGLES
-      if(prim.attributes.POSITION===undefined)continue;
+  for(let pi=0;pi<pendientes.length;pi++){
+    const prim=pendientes[pi];
+    if(onProgress)onProgress(pi,pendientes.length);
+    // Yield periódico al event loop — sin esto, con SetSpeedOptions(0,0)
+    // (a propósito lo más lento posible, ver encodeMeshToDraco) un
+    // archivo con miles de mallas bloquea el hilo principal tanto tiempo
+    // que ni el callback de progreso llega a pintarse en pantalla, y
+    // parece que la UI se colgó aunque siga trabajando.
+    if(pi%3===0)await new Promise(r=>setTimeout(r,0));
 
-      const existingDraco=prim.extensions&&prim.extensions.KHR_draco_mesh_compression;
-      let positions,normals,indices;
-      if(existingDraco){
-        const dec=await getDracoDecoder();
-        const bv=gltf.bufferViews[existingDraco.bufferView];
-        const dracoData=binBuf.slice((bv.byteOffset||0),(bv.byteOffset||0)+bv.byteLength);
-        const decoded=decodeDracoBufferToArrays(dec,dracoData);
-        positions=decoded.positions;normals=decoded.normals;indices=Array.from(decoded.indices);
-      }else{
-        positions=Float32Array.from(readAccessor(prim.attributes.POSITION));
-        normals=prim.attributes.NORMAL!==undefined?Float32Array.from(readAccessor(prim.attributes.NORMAL)):null;
-        indices=prim.indices!==undefined?Array.from(readAccessor(prim.indices)):null;
-      }
-
-      const {data,hasNormal}=encodeMeshToDraco(draco,positions,normals,indices);
-
-      const attrIds={POSITION:0};
-      if(hasNormal)attrIds.NORMAL=1;
-      prim.extensions=prim.extensions||{};
-      // El bufferView real se asigna más abajo, una vez reconstruido el
-      // binario completo (ver extraBlobs.forEach más abajo) — esto
-      // también pisa la referencia al bufferView Draco VIEJO si ya
-      // tenía uno, que así queda huérfano y se descarta solo (ver
-      // usedOldBv más abajo).
-      extraBlobs.push({prim,attrIds,data});
-
-      // Los accessors referenciados por la primitiva se mantienen (count/
-      // type/componentType siguen siendo válidos y algunos lectores los
-      // usan para saber cuántos vértices/índices hay) pero ya no deben
-      // apuntar a un bufferView propio — los datos reales viven en el
-      // blob Draco de arriba.
-      delete gltf.accessors[prim.attributes.POSITION].bufferView;
-      delete gltf.accessors[prim.attributes.POSITION].byteOffset;
-      if(prim.attributes.NORMAL!==undefined){
-        delete gltf.accessors[prim.attributes.NORMAL].bufferView;
-        delete gltf.accessors[prim.attributes.NORMAL].byteOffset;
-      }
-      if(prim.indices!==undefined){
-        delete gltf.accessors[prim.indices].bufferView;
-        delete gltf.accessors[prim.indices].byteOffset;
-      }
-      compressedCount++;
+    const existingDraco=prim.extensions&&prim.extensions.KHR_draco_mesh_compression;
+    let positions,normals,indices;
+    if(existingDraco){
+      const dec=await getDracoDecoder();
+      const bv=gltf.bufferViews[existingDraco.bufferView];
+      const dracoData=binBuf.slice((bv.byteOffset||0),(bv.byteOffset||0)+bv.byteLength);
+      const decoded=decodeDracoBufferToArrays(dec,dracoData);
+      positions=decoded.positions;normals=decoded.normals;indices=Array.from(decoded.indices);
+    }else{
+      positions=Float32Array.from(readAccessor(prim.attributes.POSITION));
+      normals=prim.attributes.NORMAL!==undefined?Float32Array.from(readAccessor(prim.attributes.NORMAL)):null;
+      indices=prim.indices!==undefined?Array.from(readAccessor(prim.indices)):null;
     }
+
+    const {data,hasNormal}=encodeMeshToDraco(draco,positions,normals,indices);
+
+    const attrIds={POSITION:0};
+    if(hasNormal)attrIds.NORMAL=1;
+    prim.extensions=prim.extensions||{};
+    // El bufferView real se asigna más abajo, una vez reconstruido el
+    // binario completo (ver extraBlobs.forEach más abajo) — esto
+    // también pisa la referencia al bufferView Draco VIEJO si ya
+    // tenía uno, que así queda huérfano y se descarta solo (ver
+    // usedOldBv más abajo).
+    extraBlobs.push({prim,attrIds,data});
+
+    // Los accessors referenciados por la primitiva se mantienen (count/
+    // type/componentType siguen siendo válidos y algunos lectores los
+    // usan para saber cuántos vértices/índices hay) pero ya no deben
+    // apuntar a un bufferView propio — los datos reales viven en el
+    // blob Draco de arriba.
+    delete gltf.accessors[prim.attributes.POSITION].bufferView;
+    delete gltf.accessors[prim.attributes.POSITION].byteOffset;
+    if(prim.attributes.NORMAL!==undefined){
+      delete gltf.accessors[prim.attributes.NORMAL].bufferView;
+      delete gltf.accessors[prim.attributes.NORMAL].byteOffset;
+    }
+    if(prim.indices!==undefined){
+      delete gltf.accessors[prim.indices].bufferView;
+      delete gltf.accessors[prim.indices].byteOffset;
+    }
+    compressedCount++;
   }
+  if(onProgress)onProgress(pendientes.length,pendientes.length);
 
   if(compressedCount===0)throw new Error('No se encontraron mallas para comprimir');
 
@@ -10319,7 +10348,7 @@ function decodeDracoBufferToArrays(draco,dracoData){
 // SEQUENTIAL de una herramienta externa). Arma un GLB nuevo con
 // KHR_draco_mesh_compression; el resto del binario (imágenes, otros
 // buffers) se copia tal cual al final del nuevo BIN chunk.
-async function comprimirGLBConDraco(buffer){
+async function comprimirGLBConDraco(buffer,onProgress){
   const draco=await obtenerDracoEncoder();
   const view=new DataView(buffer);
   if(view.getUint32(0,true)!==0x46546C67)throw new Error('No es un GLB válido');
@@ -10351,58 +10380,76 @@ async function comprimirGLBConDraco(buffer){
     return dracoDecoder;
   }
 
+  // Lista plana de primitivas a procesar, calculada antes de arrancar —
+  // así el callback de progreso conoce el total desde el primer aviso
+  // (si no, "malla 1 de ???" no le dice nada al usuario en un archivo
+  // grande donde el proceso completo puede tardar minutos).
+  const pendientes=[];
+  gltf.meshes.forEach(mesh=>{
+    (mesh.primitives||[]).forEach(prim=>{
+      if(prim.mode!==undefined&&prim.mode!==4)return; // solo TRIANGLES
+      if(prim.attributes.POSITION===undefined)return;
+      pendientes.push(prim);
+    });
+  });
+
   const extraBlobs=[]; // buffers Draco nuevos, se appendean al final del BIN
   let compressedCount=0;
 
-  for(const mesh of gltf.meshes){
-    for(const prim of (mesh.primitives||[])){
-      if(prim.mode!==undefined&&prim.mode!==4)continue; // solo TRIANGLES
-      if(prim.attributes.POSITION===undefined)continue;
+  for(let pi=0;pi<pendientes.length;pi++){
+    const prim=pendientes[pi];
+    if(onProgress)onProgress(pi,pendientes.length);
+    // Yield periódico al event loop — sin esto, con SetSpeedOptions(0,0)
+    // (a propósito lo más lento posible, ver encodeMeshToDraco) un
+    // archivo con miles de mallas bloquea el hilo principal tanto tiempo
+    // que ni el callback de progreso llega a pintarse en pantalla, y
+    // parece que la UI se colgó aunque siga trabajando.
+    if(pi%3===0)await new Promise(r=>setTimeout(r,0));
 
-      const existingDraco=prim.extensions&&prim.extensions.KHR_draco_mesh_compression;
-      let positions,normals,indices;
-      if(existingDraco){
-        const dec=await getDracoDecoder();
-        const bv=gltf.bufferViews[existingDraco.bufferView];
-        const dracoData=binBuf.slice((bv.byteOffset||0),(bv.byteOffset||0)+bv.byteLength);
-        const decoded=decodeDracoBufferToArrays(dec,dracoData);
-        positions=decoded.positions;normals=decoded.normals;indices=Array.from(decoded.indices);
-      }else{
-        positions=Float32Array.from(readAccessor(prim.attributes.POSITION));
-        normals=prim.attributes.NORMAL!==undefined?Float32Array.from(readAccessor(prim.attributes.NORMAL)):null;
-        indices=prim.indices!==undefined?Array.from(readAccessor(prim.indices)):null;
-      }
-
-      const {data,hasNormal}=encodeMeshToDraco(draco,positions,normals,indices);
-
-      const attrIds={POSITION:0};
-      if(hasNormal)attrIds.NORMAL=1;
-      prim.extensions=prim.extensions||{};
-      // El bufferView real se asigna más abajo, una vez reconstruido el
-      // binario completo (ver extraBlobs.forEach más abajo) — esto
-      // también pisa la referencia al bufferView Draco VIEJO si ya
-      // tenía uno, que así queda huérfano y se descarta solo (ver
-      // usedOldBv más abajo).
-      extraBlobs.push({prim,attrIds,data});
-
-      // Los accessors referenciados por la primitiva se mantienen (count/
-      // type/componentType siguen siendo válidos y algunos lectores los
-      // usan para saber cuántos vértices/índices hay) pero ya no deben
-      // apuntar a un bufferView propio — los datos reales viven en el
-      // blob Draco de arriba.
-      delete gltf.accessors[prim.attributes.POSITION].bufferView;
-      delete gltf.accessors[prim.attributes.POSITION].byteOffset;
-      if(prim.attributes.NORMAL!==undefined){
-        delete gltf.accessors[prim.attributes.NORMAL].bufferView;
-        delete gltf.accessors[prim.attributes.NORMAL].byteOffset;
-      }
-      if(prim.indices!==undefined){
-        delete gltf.accessors[prim.indices].bufferView;
-        delete gltf.accessors[prim.indices].byteOffset;
-      }
-      compressedCount++;
+    const existingDraco=prim.extensions&&prim.extensions.KHR_draco_mesh_compression;
+    let positions,normals,indices;
+    if(existingDraco){
+      const dec=await getDracoDecoder();
+      const bv=gltf.bufferViews[existingDraco.bufferView];
+      const dracoData=binBuf.slice((bv.byteOffset||0),(bv.byteOffset||0)+bv.byteLength);
+      const decoded=decodeDracoBufferToArrays(dec,dracoData);
+      positions=decoded.positions;normals=decoded.normals;indices=Array.from(decoded.indices);
+    }else{
+      positions=Float32Array.from(readAccessor(prim.attributes.POSITION));
+      normals=prim.attributes.NORMAL!==undefined?Float32Array.from(readAccessor(prim.attributes.NORMAL)):null;
+      indices=prim.indices!==undefined?Array.from(readAccessor(prim.indices)):null;
     }
+
+    const {data,hasNormal}=encodeMeshToDraco(draco,positions,normals,indices);
+
+    const attrIds={POSITION:0};
+    if(hasNormal)attrIds.NORMAL=1;
+    prim.extensions=prim.extensions||{};
+    // El bufferView real se asigna más abajo, una vez reconstruido el
+    // binario completo (ver extraBlobs.forEach más abajo) — esto
+    // también pisa la referencia al bufferView Draco VIEJO si ya
+    // tenía uno, que así queda huérfano y se descarta solo (ver
+    // usedOldBv más abajo).
+    extraBlobs.push({prim,attrIds,data});
+
+    // Los accessors referenciados por la primitiva se mantienen (count/
+    // type/componentType siguen siendo válidos y algunos lectores los
+    // usan para saber cuántos vértices/índices hay) pero ya no deben
+    // apuntar a un bufferView propio — los datos reales viven en el
+    // blob Draco de arriba.
+    delete gltf.accessors[prim.attributes.POSITION].bufferView;
+    delete gltf.accessors[prim.attributes.POSITION].byteOffset;
+    if(prim.attributes.NORMAL!==undefined){
+      delete gltf.accessors[prim.attributes.NORMAL].bufferView;
+      delete gltf.accessors[prim.attributes.NORMAL].byteOffset;
+    }
+    if(prim.indices!==undefined){
+      delete gltf.accessors[prim.indices].bufferView;
+      delete gltf.accessors[prim.indices].byteOffset;
+    }
+    compressedCount++;
   }
+  if(onProgress)onProgress(pendientes.length,pendientes.length);
 
   if(compressedCount===0)throw new Error('No se encontraron mallas para comprimir');
 
@@ -14474,7 +14521,9 @@ document.getElementById('importCompressBtn').addEventListener('click',async()=>{
   btn.setAttribute('disabled','');
   label.textContent='Comprimiendo… (primera vez descarga el motor Draco)';
   try{
-    const compressed=await comprimirGLBConDraco(importRawData.buffer);
+    const compressed=await comprimirGLBConDraco(importRawData.buffer,(done,total)=>{
+      label.textContent=`Comprimiendo… malla ${done} de ${total}`;
+    });
     const originalSize=importRawData.size;
     const newSize=compressed.byteLength;
     const pct=Math.round((1-newSize/originalSize)*100);
