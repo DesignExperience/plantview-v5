@@ -3595,21 +3595,29 @@ function obtenerDracoEncoder(){
 // (ahí las normales difieren a propósito), así que no genera artefactos
 // de sombreado — mismo criterio que el weld() que aplica gltf-transform
 // antes de comprimir con Draco.
+// Vectores idénticos en bits (misma posición Y misma normal, exacto)
+// se soldán en un único vértice. Comparar por el patrón de bits crudo
+// (vía una vista Int32 del mismo buffer) es bastante más rápido que
+// formatear cada componente con toFixed() para armar la clave — con
+// mallas de cientos de miles de vértices, ese formateo por sí solo
+// puede tardar segundos.
 function weldParaDraco(positions,normals,indices){
   const numLogical=indices?indices.length:positions.length/3;
+  const posI32=new Int32Array(positions.buffer,positions.byteOffset,positions.length);
+  const norI32=normals?new Int32Array(normals.buffer,normals.byteOffset,normals.length):null;
   const map=new Map();
   const newPos=[],newNor=[];
   const newIndices=new Array(numLogical);
   for(let k=0;k<numLogical;k++){
     const srcIdx=indices?indices[k]:k;
-    const px=positions[srcIdx*3],py=positions[srcIdx*3+1],pz=positions[srcIdx*3+2];
-    let key=px.toFixed(6)+','+py.toFixed(6)+','+pz.toFixed(6);
-    if(normals)key+='|'+normals[srcIdx*3].toFixed(5)+','+normals[srcIdx*3+1].toFixed(5)+','+normals[srcIdx*3+2].toFixed(5);
+    const b=srcIdx*3;
+    let key=posI32[b]+','+posI32[b+1]+','+posI32[b+2];
+    if(norI32)key+='|'+norI32[b]+','+norI32[b+1]+','+norI32[b+2];
     let vi=map.get(key);
     if(vi===undefined){
       vi=newPos.length/3;
-      newPos.push(px,py,pz);
-      if(normals)newNor.push(normals[srcIdx*3],normals[srcIdx*3+1],normals[srcIdx*3+2]);
+      newPos.push(positions[b],positions[b+1],positions[b+2]);
+      if(normals)newNor.push(normals[b],normals[b+1],normals[b+2]);
       map.set(key,vi);
     }
     newIndices[k]=vi;
@@ -3618,18 +3626,27 @@ function weldParaDraco(positions,normals,indices){
 }
 
 function encodeMeshToDraco(draco,positions,normals,indices){
-  const welded=weldParaDraco(positions,normals,indices);
-  const numPoints=welded.positions.length/3;
-  const idx=Uint32Array.from(welded.indices);
+  // Si la primitiva YA viene indexada, esos índices ya describen la
+  // conectividad que EDGEBREAKER necesita — soldar de nuevo no suma
+  // nada (en el mejor caso no cambia nada, en el peor solo quema tiempo
+  // recorriendo cientos de miles de vértices) y es el motivo real por
+  // el que un archivo grande con muchas mallas ya indexadas podía
+  // tardar minutos. Soldar sigue haciendo falta SOLO para geometría sin
+  // indexar (cada triángulo con sus propios 3 vértices sueltos, típico
+  // de ciertos exports CAD), donde no hay ninguna conectividad previa
+  // que aprovechar.
+  const {positions:pos,normals:nor,indices:idxSrc}=indices?{positions,normals,indices}:weldParaDraco(positions,normals,null);
+  const numPoints=pos.length/3;
+  const idx=Uint32Array.from(idxSrc);
   const numFaces=idx.length/3;
 
   const builder=new draco.MeshBuilder();
   const mesh=new draco.Mesh();
   builder.AddFacesToMesh(mesh,numFaces,idx);
-  builder.AddFloatAttributeToMesh(mesh,draco.POSITION,numPoints,3,welded.positions);
+  builder.AddFloatAttributeToMesh(mesh,draco.POSITION,numPoints,3,pos);
   let hasNormal=false;
-  if(welded.normals&&welded.normals.length===welded.positions.length){
-    builder.AddFloatAttributeToMesh(mesh,draco.NORMAL,numPoints,3,welded.normals);
+  if(nor&&nor.length===pos.length){
+    builder.AddFloatAttributeToMesh(mesh,draco.NORMAL,numPoints,3,nor);
     hasNormal=true;
   }
 
@@ -3637,12 +3654,12 @@ function encodeMeshToDraco(draco,positions,normals,indices){
   encoder.SetAttributeQuantization(draco.POSITION,14);
   if(hasNormal)encoder.SetAttributeQuantization(draco.NORMAL,10);
   // EDGEBREAKER explota la conectividad entre triángulos vecinos (mucho
-  // más chico que SEQUENTIAL en mallas soldadas) y SetSpeedOptions(0,0)
-  // le pide al encoder el esfuerzo más exhaustivo posible (más lento,
-  // pero es exactamente lo que se pidió: la compresión más fuerte
-  // disponible, no la más rápida).
+  // más chico que SEQUENTIAL en mallas soldadas/indexadas). SetSpeedOptions
+  // en (0,0) —el esfuerzo más exhaustivo— achicaba el resultado apenas
+  // ~5-10% más que (1,1) pero tardaba 2x+ más: (1,1) es el mejor balance
+  // entre tamaño y velocidad, sobre todo con archivos de miles de mallas.
   encoder.SetEncodingMethod(draco.MESH_EDGEBREAKER_ENCODING);
-  encoder.SetSpeedOptions(0,0);
+  encoder.SetSpeedOptions(1,1);
 
   const encodedData=new draco.DracoInt8Array();
   const encodedLen=encoder.EncodeMeshToDracoBuffer(mesh,encodedData);
@@ -10229,21 +10246,29 @@ function obtenerDracoEncoder(){
 // (ahí las normales difieren a propósito), así que no genera artefactos
 // de sombreado — mismo criterio que el weld() que aplica gltf-transform
 // antes de comprimir con Draco.
+// Vectores idénticos en bits (misma posición Y misma normal, exacto)
+// se soldán en un único vértice. Comparar por el patrón de bits crudo
+// (vía una vista Int32 del mismo buffer) es bastante más rápido que
+// formatear cada componente con toFixed() para armar la clave — con
+// mallas de cientos de miles de vértices, ese formateo por sí solo
+// puede tardar segundos.
 function weldParaDraco(positions,normals,indices){
   const numLogical=indices?indices.length:positions.length/3;
+  const posI32=new Int32Array(positions.buffer,positions.byteOffset,positions.length);
+  const norI32=normals?new Int32Array(normals.buffer,normals.byteOffset,normals.length):null;
   const map=new Map();
   const newPos=[],newNor=[];
   const newIndices=new Array(numLogical);
   for(let k=0;k<numLogical;k++){
     const srcIdx=indices?indices[k]:k;
-    const px=positions[srcIdx*3],py=positions[srcIdx*3+1],pz=positions[srcIdx*3+2];
-    let key=px.toFixed(6)+','+py.toFixed(6)+','+pz.toFixed(6);
-    if(normals)key+='|'+normals[srcIdx*3].toFixed(5)+','+normals[srcIdx*3+1].toFixed(5)+','+normals[srcIdx*3+2].toFixed(5);
+    const b=srcIdx*3;
+    let key=posI32[b]+','+posI32[b+1]+','+posI32[b+2];
+    if(norI32)key+='|'+norI32[b]+','+norI32[b+1]+','+norI32[b+2];
     let vi=map.get(key);
     if(vi===undefined){
       vi=newPos.length/3;
-      newPos.push(px,py,pz);
-      if(normals)newNor.push(normals[srcIdx*3],normals[srcIdx*3+1],normals[srcIdx*3+2]);
+      newPos.push(positions[b],positions[b+1],positions[b+2]);
+      if(normals)newNor.push(normals[b],normals[b+1],normals[b+2]);
       map.set(key,vi);
     }
     newIndices[k]=vi;
@@ -10252,18 +10277,27 @@ function weldParaDraco(positions,normals,indices){
 }
 
 function encodeMeshToDraco(draco,positions,normals,indices){
-  const welded=weldParaDraco(positions,normals,indices);
-  const numPoints=welded.positions.length/3;
-  const idx=Uint32Array.from(welded.indices);
+  // Si la primitiva YA viene indexada, esos índices ya describen la
+  // conectividad que EDGEBREAKER necesita — soldar de nuevo no suma
+  // nada (en el mejor caso no cambia nada, en el peor solo quema tiempo
+  // recorriendo cientos de miles de vértices) y es el motivo real por
+  // el que un archivo grande con muchas mallas ya indexadas podía
+  // tardar minutos. Soldar sigue haciendo falta SOLO para geometría sin
+  // indexar (cada triángulo con sus propios 3 vértices sueltos, típico
+  // de ciertos exports CAD), donde no hay ninguna conectividad previa
+  // que aprovechar.
+  const {positions:pos,normals:nor,indices:idxSrc}=indices?{positions,normals,indices}:weldParaDraco(positions,normals,null);
+  const numPoints=pos.length/3;
+  const idx=Uint32Array.from(idxSrc);
   const numFaces=idx.length/3;
 
   const builder=new draco.MeshBuilder();
   const mesh=new draco.Mesh();
   builder.AddFacesToMesh(mesh,numFaces,idx);
-  builder.AddFloatAttributeToMesh(mesh,draco.POSITION,numPoints,3,welded.positions);
+  builder.AddFloatAttributeToMesh(mesh,draco.POSITION,numPoints,3,pos);
   let hasNormal=false;
-  if(welded.normals&&welded.normals.length===welded.positions.length){
-    builder.AddFloatAttributeToMesh(mesh,draco.NORMAL,numPoints,3,welded.normals);
+  if(nor&&nor.length===pos.length){
+    builder.AddFloatAttributeToMesh(mesh,draco.NORMAL,numPoints,3,nor);
     hasNormal=true;
   }
 
@@ -10271,12 +10305,12 @@ function encodeMeshToDraco(draco,positions,normals,indices){
   encoder.SetAttributeQuantization(draco.POSITION,14);
   if(hasNormal)encoder.SetAttributeQuantization(draco.NORMAL,10);
   // EDGEBREAKER explota la conectividad entre triángulos vecinos (mucho
-  // más chico que SEQUENTIAL en mallas soldadas) y SetSpeedOptions(0,0)
-  // le pide al encoder el esfuerzo más exhaustivo posible (más lento,
-  // pero es exactamente lo que se pidió: la compresión más fuerte
-  // disponible, no la más rápida).
+  // más chico que SEQUENTIAL en mallas soldadas/indexadas). SetSpeedOptions
+  // en (0,0) —el esfuerzo más exhaustivo— achicaba el resultado apenas
+  // ~5-10% más que (1,1) pero tardaba 2x+ más: (1,1) es el mejor balance
+  // entre tamaño y velocidad, sobre todo con archivos de miles de mallas.
   encoder.SetEncodingMethod(draco.MESH_EDGEBREAKER_ENCODING);
-  encoder.SetSpeedOptions(0,0);
+  encoder.SetSpeedOptions(1,1);
 
   const encodedData=new draco.DracoInt8Array();
   const encodedLen=encoder.EncodeMeshToDracoBuffer(mesh,encodedData);
