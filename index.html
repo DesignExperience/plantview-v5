@@ -3554,25 +3554,63 @@ function obtenerDracoEncoder(){
 // un buffer Draco crudo. positions/normals son Float32Array planos
 // (x,y,z,x,y,z,...), indices es un array de enteros (o null si la
 // geometría no viene indexada — se genera secuencial 0..n-1).
+// Suelda vértices lógicamente idénticos (misma posición Y misma normal)
+// antes de codificar — sin esto, geometría no indexada (común en
+// exports de SolidWorks/CAD, cada triángulo con sus propios 3 vértices
+// sueltos) no tiene conectividad real que explotar y EDGEBREAKER rinde
+// igual que SEQUENTIAL. Soldar solo por posición+normal exacta es
+// seguro: nunca funde vértices de un lado y otro de una arista dura
+// (ahí las normales difieren a propósito), así que no genera artefactos
+// de sombreado — mismo criterio que el weld() que aplica gltf-transform
+// antes de comprimir con Draco.
+function weldParaDraco(positions,normals,indices){
+  const numLogical=indices?indices.length:positions.length/3;
+  const map=new Map();
+  const newPos=[],newNor=[];
+  const newIndices=new Array(numLogical);
+  for(let k=0;k<numLogical;k++){
+    const srcIdx=indices?indices[k]:k;
+    const px=positions[srcIdx*3],py=positions[srcIdx*3+1],pz=positions[srcIdx*3+2];
+    let key=px.toFixed(6)+','+py.toFixed(6)+','+pz.toFixed(6);
+    if(normals)key+='|'+normals[srcIdx*3].toFixed(5)+','+normals[srcIdx*3+1].toFixed(5)+','+normals[srcIdx*3+2].toFixed(5);
+    let vi=map.get(key);
+    if(vi===undefined){
+      vi=newPos.length/3;
+      newPos.push(px,py,pz);
+      if(normals)newNor.push(normals[srcIdx*3],normals[srcIdx*3+1],normals[srcIdx*3+2]);
+      map.set(key,vi);
+    }
+    newIndices[k]=vi;
+  }
+  return {positions:new Float32Array(newPos),normals:normals?new Float32Array(newNor):null,indices:newIndices};
+}
+
 function encodeMeshToDraco(draco,positions,normals,indices){
-  const numPoints=positions.length/3;
-  const idx=indices?Uint32Array.from(indices):Uint32Array.from({length:numPoints},(_,i)=>i);
+  const welded=weldParaDraco(positions,normals,indices);
+  const numPoints=welded.positions.length/3;
+  const idx=Uint32Array.from(welded.indices);
   const numFaces=idx.length/3;
 
   const builder=new draco.MeshBuilder();
   const mesh=new draco.Mesh();
   builder.AddFacesToMesh(mesh,numFaces,idx);
-  builder.AddFloatAttributeToMesh(mesh,draco.POSITION,numPoints,3,positions);
+  builder.AddFloatAttributeToMesh(mesh,draco.POSITION,numPoints,3,welded.positions);
   let hasNormal=false;
-  if(normals&&normals.length===positions.length){
-    builder.AddFloatAttributeToMesh(mesh,draco.NORMAL,numPoints,3,normals);
+  if(welded.normals&&welded.normals.length===welded.positions.length){
+    builder.AddFloatAttributeToMesh(mesh,draco.NORMAL,numPoints,3,welded.normals);
     hasNormal=true;
   }
 
   const encoder=new draco.Encoder();
   encoder.SetAttributeQuantization(draco.POSITION,14);
   if(hasNormal)encoder.SetAttributeQuantization(draco.NORMAL,10);
-  encoder.SetSpeedOptions(1,1); // priorizar mejor compresión sobre velocidad
+  // EDGEBREAKER explota la conectividad entre triángulos vecinos (mucho
+  // más chico que SEQUENTIAL en mallas soldadas) y SetSpeedOptions(0,0)
+  // le pide al encoder el esfuerzo más exhaustivo posible (más lento,
+  // pero es exactamente lo que se pidió: la compresión más fuerte
+  // disponible, no la más rápida).
+  encoder.SetEncodingMethod(draco.MESH_EDGEBREAKER_ENCODING);
+  encoder.SetSpeedOptions(0,0);
 
   const encodedData=new draco.DracoInt8Array();
   const encodedLen=encoder.EncodeMeshToDracoBuffer(mesh,encodedData);
@@ -10048,25 +10086,63 @@ function obtenerDracoEncoder(){
 // un buffer Draco crudo. positions/normals son Float32Array planos
 // (x,y,z,x,y,z,...), indices es un array de enteros (o null si la
 // geometría no viene indexada — se genera secuencial 0..n-1).
+// Suelda vértices lógicamente idénticos (misma posición Y misma normal)
+// antes de codificar — sin esto, geometría no indexada (común en
+// exports de SolidWorks/CAD, cada triángulo con sus propios 3 vértices
+// sueltos) no tiene conectividad real que explotar y EDGEBREAKER rinde
+// igual que SEQUENTIAL. Soldar solo por posición+normal exacta es
+// seguro: nunca funde vértices de un lado y otro de una arista dura
+// (ahí las normales difieren a propósito), así que no genera artefactos
+// de sombreado — mismo criterio que el weld() que aplica gltf-transform
+// antes de comprimir con Draco.
+function weldParaDraco(positions,normals,indices){
+  const numLogical=indices?indices.length:positions.length/3;
+  const map=new Map();
+  const newPos=[],newNor=[];
+  const newIndices=new Array(numLogical);
+  for(let k=0;k<numLogical;k++){
+    const srcIdx=indices?indices[k]:k;
+    const px=positions[srcIdx*3],py=positions[srcIdx*3+1],pz=positions[srcIdx*3+2];
+    let key=px.toFixed(6)+','+py.toFixed(6)+','+pz.toFixed(6);
+    if(normals)key+='|'+normals[srcIdx*3].toFixed(5)+','+normals[srcIdx*3+1].toFixed(5)+','+normals[srcIdx*3+2].toFixed(5);
+    let vi=map.get(key);
+    if(vi===undefined){
+      vi=newPos.length/3;
+      newPos.push(px,py,pz);
+      if(normals)newNor.push(normals[srcIdx*3],normals[srcIdx*3+1],normals[srcIdx*3+2]);
+      map.set(key,vi);
+    }
+    newIndices[k]=vi;
+  }
+  return {positions:new Float32Array(newPos),normals:normals?new Float32Array(newNor):null,indices:newIndices};
+}
+
 function encodeMeshToDraco(draco,positions,normals,indices){
-  const numPoints=positions.length/3;
-  const idx=indices?Uint32Array.from(indices):Uint32Array.from({length:numPoints},(_,i)=>i);
+  const welded=weldParaDraco(positions,normals,indices);
+  const numPoints=welded.positions.length/3;
+  const idx=Uint32Array.from(welded.indices);
   const numFaces=idx.length/3;
 
   const builder=new draco.MeshBuilder();
   const mesh=new draco.Mesh();
   builder.AddFacesToMesh(mesh,numFaces,idx);
-  builder.AddFloatAttributeToMesh(mesh,draco.POSITION,numPoints,3,positions);
+  builder.AddFloatAttributeToMesh(mesh,draco.POSITION,numPoints,3,welded.positions);
   let hasNormal=false;
-  if(normals&&normals.length===positions.length){
-    builder.AddFloatAttributeToMesh(mesh,draco.NORMAL,numPoints,3,normals);
+  if(welded.normals&&welded.normals.length===welded.positions.length){
+    builder.AddFloatAttributeToMesh(mesh,draco.NORMAL,numPoints,3,welded.normals);
     hasNormal=true;
   }
 
   const encoder=new draco.Encoder();
   encoder.SetAttributeQuantization(draco.POSITION,14);
   if(hasNormal)encoder.SetAttributeQuantization(draco.NORMAL,10);
-  encoder.SetSpeedOptions(1,1); // priorizar mejor compresión sobre velocidad
+  // EDGEBREAKER explota la conectividad entre triángulos vecinos (mucho
+  // más chico que SEQUENTIAL en mallas soldadas) y SetSpeedOptions(0,0)
+  // le pide al encoder el esfuerzo más exhaustivo posible (más lento,
+  // pero es exactamente lo que se pidió: la compresión más fuerte
+  // disponible, no la más rápida).
+  encoder.SetEncodingMethod(draco.MESH_EDGEBREAKER_ENCODING);
+  encoder.SetSpeedOptions(0,0);
 
   const encodedData=new draco.DracoInt8Array();
   const encodedLen=encoder.EncodeMeshToDracoBuffer(mesh,encodedData);
