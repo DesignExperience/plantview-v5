@@ -3731,6 +3731,138 @@ function decodeDracoBufferToArrays(draco,dracoData){
 // SEQUENTIAL de una herramienta externa). Arma un GLB nuevo con
 // KHR_draco_mesh_compression; el resto del binario (imágenes, otros
 // buffers) se copia tal cual al final del nuevo BIN chunk.
+// ── Aplanar la jerarquía de nodos ─────────────────────────────────────
+// En archivos exportados desde SolidWorks/PDM, el árbol de nodos suele
+// tener MUCHOS niveles intermedios que solo aplican una transformación
+// y no ramifican nada (una "configuración"/"instancia"/carpeta por
+// nivel) — en un archivo real de referencia, 680 mallas terminaron
+// generando 20.937 nodos, y el JSON de esos nodos solo (sin tocar la
+// geometría) pesaba 4.1 MB, más de la mitad del archivo. Draco NUNCA
+// toca esto: comprime mallas, no la jerarquía de la escena.
+//
+// Esta función colapsa cualquier nodo sin malla propia que tenga
+// EXACTAMENTE un hijo (un "pasamanos" puro) fusionando su transformación
+// en la del hijo y ocupando su lugar en el árbol — nunca toca nodos con
+// 0 o 2+ hijos (esos sí son significativos: hoja o punto de ramificación
+// real). El nombre y los extras se heredan hacia el hijo sobreviviente
+// si este no tenía nombre propio — exactamente el mismo criterio de
+// herencia que ya usa buildNode() en tiempo de ejecución (ver
+// objNamePropio/extrasPropios en parseGLBFull), así que el resultado de
+// "qué pieza es cuál" no cambia en absoluto para el resto de la app
+// (selector de zonas, ficha técnica, notas 3D).
+//
+// Protegidos (nunca se eliminan ni se reemplazan, aunque sean
+// pasamanos): las raíces de escena y sus hijos directos — ahí vive la
+// identidad de "subensamblaje" que usa el resto de PlantView
+// (parseGLBFull busca exactamente root.children para armar la lista de
+// zonas), y tocarla podría desalinear zonas ya guardadas por nombre.
+function aplanarJerarquiaGLB(gltf){
+  const nodes=gltf.nodes;
+  if(!nodes||!nodes.length)return{removedCount:0};
+  const scenes=gltf.scenes||[];
+
+  const protegidos=new Set();
+  scenes.forEach(sc=>(sc.nodes||[]).forEach(i=>protegidos.add(i)));
+  const sceneRootIdxs=(scenes[gltf.scene||0]&&scenes[gltf.scene||0].nodes)||[];
+  let rootIdx=-1;
+  for(const ri of sceneRootIdxs){
+    const n=nodes[ri];
+    if(n&&n.mesh===undefined&&(n.children||[]).length>0&&n.name&&n.name!=='current camera'){rootIdx=ri;break;}
+  }
+  if(rootIdx!==-1)(nodes[rootIdx].children||[]).forEach(ci=>protegidos.add(ci));
+
+  function trsAMatriz(n){
+    if(n.matrix)return n.matrix;
+    const t=n.translation||[0,0,0],r=n.rotation||[0,0,0,1],s=n.scale||[1,1,1];
+    const[x,y,z,w]=r;
+    const x2=x+x,y2=y+y,z2=z+z;
+    const xx=x*x2,xy=x*y2,xz=x*z2,yy=y*y2,yz=y*z2,zz=z*z2,wx=w*x2,wy=w*y2,wz=w*z2;
+    const sx=s[0],sy=s[1],sz=s[2];
+    return[
+      (1-(yy+zz))*sx,(xy+wz)*sx,(xz-wy)*sx,0,
+      (xy-wz)*sy,(1-(xx+zz))*sy,(yz+wx)*sy,0,
+      (xz+wy)*sz,(yz-wx)*sz,(1-(xx+yy))*sz,0,
+      t[0],t[1],t[2],1
+    ];
+  }
+  function multiplicarMat4(a,b){
+    const out=new Array(16);
+    for(let col=0;col<4;col++)for(let row=0;row<4;row++){
+      let sum=0;
+      for(let k=0;k<4;k++)sum+=a[k*4+row]*b[col*4+k];
+      out[col*4+row]=sum;
+    }
+    return out;
+  }
+  function fusionarTransform(padre,hijo){
+    const esIdentidadPadre=!padre.matrix&&!padre.translation&&!padre.rotation&&!padre.scale;
+    if(esIdentidadPadre)return; // nada que fusionar, el hijo ya está bien como está
+    const merged=multiplicarMat4(trsAMatriz(padre),trsAMatriz(hijo));
+    hijo.matrix=merged;
+    delete hijo.translation;delete hijo.rotation;delete hijo.scale;
+  }
+
+  // Nodos con extensiones (luces, GPU instancing, etc.) se dejan intactos
+  // por las dudas — no vale la pena arriesgar romper algo que no
+  // esperamos ver en un export CAD típico por ahorrar un puñado de nodos.
+  function esColapsable(idx){
+    if(protegidos.has(idx))return false;
+    const n=nodes[idx];
+    if(!n||n.extensions)return false;
+    if(n.mesh!==undefined)return false;
+    return(n.children||[]).length===1;
+  }
+
+  let cambios=true;
+  while(cambios){
+    cambios=false;
+    (function recorrer(listaHijos){
+      for(let i=0;i<listaHijos.length;i++){
+        const idx=listaHijos[i];
+        const n=nodes[idx];
+        if(!n)continue;
+        if(esColapsable(idx)){
+          const hijoIdx=n.children[0];
+          const hijo=nodes[hijoIdx];
+          if(hijo){
+            fusionarTransform(n,hijo);
+            if(!hijo.name&&n.name)hijo.name=n.name;
+            if(!hijo.extras&&n.extras)hijo.extras=n.extras;
+            listaHijos[i]=hijoIdx;
+            cambios=true;
+            continue; // reexaminar esta posición (ahora hijoIdx) en la próxima pasada
+          }
+        }
+        recorrer(n.children||[]);
+      }
+    })(sceneRootIdxs);
+  }
+
+  // Reconstruir gltf.nodes con SOLO los nodos alcanzables (los que
+  // quedaron "desenganchados" del árbol tras los reemplazos de arriba
+  // seguirían pesando en el JSON si no los sacamos), remapeando índices.
+  const alcanzables=[];
+  const vistos=new Set();
+  function visitar(idx){
+    if(vistos.has(idx))return;
+    vistos.add(idx);
+    alcanzables.push(idx);
+    (nodes[idx].children||[]).forEach(visitar);
+  }
+  scenes.forEach(sc=>(sc.nodes||[]).forEach(visitar));
+
+  const remap=new Map();
+  alcanzables.forEach((oldIdx,newIdx)=>remap.set(oldIdx,newIdx));
+  gltf.nodes=alcanzables.map(oldIdx=>{
+    const n={...nodes[oldIdx]};
+    if(n.children)n.children=n.children.map(ci=>remap.get(ci)).filter(v=>v!==undefined);
+    return n;
+  });
+  scenes.forEach(sc=>{if(sc.nodes)sc.nodes=sc.nodes.map(i=>remap.get(i)).filter(v=>v!==undefined);});
+
+  return{removedCount:nodes.length-alcanzables.length};
+}
+
 async function comprimirGLBConDraco(buffer,onProgress){
   const draco=await obtenerDracoEncoder();
   const view=new DataView(buffer);
@@ -3744,6 +3876,7 @@ async function comprimirGLBConDraco(buffer,onProgress){
     binBuf=new Uint8Array(buffer,binOff+8,bl);
   }
   if(!gltf.meshes||!gltf.meshes.length)throw new Error('El GLB no tiene mallas para comprimir');
+  aplanarJerarquiaGLB(gltf); // ver comentario de la función — puede ahorrar más que Draco en archivos CAD con árboles de nodos profundos
 
   const TYPE_SIZE={SCALAR:1,VEC2:2,VEC3:3,VEC4:4,MAT4:16};
   const COMP={5120:Int8Array,5121:Uint8Array,5122:Int16Array,5123:Uint16Array,5125:Uint32Array,5126:Float32Array};
@@ -10382,6 +10515,138 @@ function decodeDracoBufferToArrays(draco,dracoData){
 // SEQUENTIAL de una herramienta externa). Arma un GLB nuevo con
 // KHR_draco_mesh_compression; el resto del binario (imágenes, otros
 // buffers) se copia tal cual al final del nuevo BIN chunk.
+// ── Aplanar la jerarquía de nodos ─────────────────────────────────────
+// En archivos exportados desde SolidWorks/PDM, el árbol de nodos suele
+// tener MUCHOS niveles intermedios que solo aplican una transformación
+// y no ramifican nada (una "configuración"/"instancia"/carpeta por
+// nivel) — en un archivo real de referencia, 680 mallas terminaron
+// generando 20.937 nodos, y el JSON de esos nodos solo (sin tocar la
+// geometría) pesaba 4.1 MB, más de la mitad del archivo. Draco NUNCA
+// toca esto: comprime mallas, no la jerarquía de la escena.
+//
+// Esta función colapsa cualquier nodo sin malla propia que tenga
+// EXACTAMENTE un hijo (un "pasamanos" puro) fusionando su transformación
+// en la del hijo y ocupando su lugar en el árbol — nunca toca nodos con
+// 0 o 2+ hijos (esos sí son significativos: hoja o punto de ramificación
+// real). El nombre y los extras se heredan hacia el hijo sobreviviente
+// si este no tenía nombre propio — exactamente el mismo criterio de
+// herencia que ya usa buildNode() en tiempo de ejecución (ver
+// objNamePropio/extrasPropios en parseGLBFull), así que el resultado de
+// "qué pieza es cuál" no cambia en absoluto para el resto de la app
+// (selector de zonas, ficha técnica, notas 3D).
+//
+// Protegidos (nunca se eliminan ni se reemplazan, aunque sean
+// pasamanos): las raíces de escena y sus hijos directos — ahí vive la
+// identidad de "subensamblaje" que usa el resto de PlantView
+// (parseGLBFull busca exactamente root.children para armar la lista de
+// zonas), y tocarla podría desalinear zonas ya guardadas por nombre.
+function aplanarJerarquiaGLB(gltf){
+  const nodes=gltf.nodes;
+  if(!nodes||!nodes.length)return{removedCount:0};
+  const scenes=gltf.scenes||[];
+
+  const protegidos=new Set();
+  scenes.forEach(sc=>(sc.nodes||[]).forEach(i=>protegidos.add(i)));
+  const sceneRootIdxs=(scenes[gltf.scene||0]&&scenes[gltf.scene||0].nodes)||[];
+  let rootIdx=-1;
+  for(const ri of sceneRootIdxs){
+    const n=nodes[ri];
+    if(n&&n.mesh===undefined&&(n.children||[]).length>0&&n.name&&n.name!=='current camera'){rootIdx=ri;break;}
+  }
+  if(rootIdx!==-1)(nodes[rootIdx].children||[]).forEach(ci=>protegidos.add(ci));
+
+  function trsAMatriz(n){
+    if(n.matrix)return n.matrix;
+    const t=n.translation||[0,0,0],r=n.rotation||[0,0,0,1],s=n.scale||[1,1,1];
+    const[x,y,z,w]=r;
+    const x2=x+x,y2=y+y,z2=z+z;
+    const xx=x*x2,xy=x*y2,xz=x*z2,yy=y*y2,yz=y*z2,zz=z*z2,wx=w*x2,wy=w*y2,wz=w*z2;
+    const sx=s[0],sy=s[1],sz=s[2];
+    return[
+      (1-(yy+zz))*sx,(xy+wz)*sx,(xz-wy)*sx,0,
+      (xy-wz)*sy,(1-(xx+zz))*sy,(yz+wx)*sy,0,
+      (xz+wy)*sz,(yz-wx)*sz,(1-(xx+yy))*sz,0,
+      t[0],t[1],t[2],1
+    ];
+  }
+  function multiplicarMat4(a,b){
+    const out=new Array(16);
+    for(let col=0;col<4;col++)for(let row=0;row<4;row++){
+      let sum=0;
+      for(let k=0;k<4;k++)sum+=a[k*4+row]*b[col*4+k];
+      out[col*4+row]=sum;
+    }
+    return out;
+  }
+  function fusionarTransform(padre,hijo){
+    const esIdentidadPadre=!padre.matrix&&!padre.translation&&!padre.rotation&&!padre.scale;
+    if(esIdentidadPadre)return; // nada que fusionar, el hijo ya está bien como está
+    const merged=multiplicarMat4(trsAMatriz(padre),trsAMatriz(hijo));
+    hijo.matrix=merged;
+    delete hijo.translation;delete hijo.rotation;delete hijo.scale;
+  }
+
+  // Nodos con extensiones (luces, GPU instancing, etc.) se dejan intactos
+  // por las dudas — no vale la pena arriesgar romper algo que no
+  // esperamos ver en un export CAD típico por ahorrar un puñado de nodos.
+  function esColapsable(idx){
+    if(protegidos.has(idx))return false;
+    const n=nodes[idx];
+    if(!n||n.extensions)return false;
+    if(n.mesh!==undefined)return false;
+    return(n.children||[]).length===1;
+  }
+
+  let cambios=true;
+  while(cambios){
+    cambios=false;
+    (function recorrer(listaHijos){
+      for(let i=0;i<listaHijos.length;i++){
+        const idx=listaHijos[i];
+        const n=nodes[idx];
+        if(!n)continue;
+        if(esColapsable(idx)){
+          const hijoIdx=n.children[0];
+          const hijo=nodes[hijoIdx];
+          if(hijo){
+            fusionarTransform(n,hijo);
+            if(!hijo.name&&n.name)hijo.name=n.name;
+            if(!hijo.extras&&n.extras)hijo.extras=n.extras;
+            listaHijos[i]=hijoIdx;
+            cambios=true;
+            continue; // reexaminar esta posición (ahora hijoIdx) en la próxima pasada
+          }
+        }
+        recorrer(n.children||[]);
+      }
+    })(sceneRootIdxs);
+  }
+
+  // Reconstruir gltf.nodes con SOLO los nodos alcanzables (los que
+  // quedaron "desenganchados" del árbol tras los reemplazos de arriba
+  // seguirían pesando en el JSON si no los sacamos), remapeando índices.
+  const alcanzables=[];
+  const vistos=new Set();
+  function visitar(idx){
+    if(vistos.has(idx))return;
+    vistos.add(idx);
+    alcanzables.push(idx);
+    (nodes[idx].children||[]).forEach(visitar);
+  }
+  scenes.forEach(sc=>(sc.nodes||[]).forEach(visitar));
+
+  const remap=new Map();
+  alcanzables.forEach((oldIdx,newIdx)=>remap.set(oldIdx,newIdx));
+  gltf.nodes=alcanzables.map(oldIdx=>{
+    const n={...nodes[oldIdx]};
+    if(n.children)n.children=n.children.map(ci=>remap.get(ci)).filter(v=>v!==undefined);
+    return n;
+  });
+  scenes.forEach(sc=>{if(sc.nodes)sc.nodes=sc.nodes.map(i=>remap.get(i)).filter(v=>v!==undefined);});
+
+  return{removedCount:nodes.length-alcanzables.length};
+}
+
 async function comprimirGLBConDraco(buffer,onProgress){
   const draco=await obtenerDracoEncoder();
   const view=new DataView(buffer);
@@ -10395,6 +10660,7 @@ async function comprimirGLBConDraco(buffer,onProgress){
     binBuf=new Uint8Array(buffer,binOff+8,bl);
   }
   if(!gltf.meshes||!gltf.meshes.length)throw new Error('El GLB no tiene mallas para comprimir');
+  aplanarJerarquiaGLB(gltf); // ver comentario de la función — puede ahorrar más que Draco en archivos CAD con árboles de nodos profundos
 
   const TYPE_SIZE={SCALAR:1,VEC2:2,VEC3:3,VEC4:4,MAT4:16};
   const COMP={5120:Int8Array,5121:Uint8Array,5122:Int16Array,5123:Uint16Array,5125:Uint32Array,5126:Float32Array};
