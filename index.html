@@ -1825,6 +1825,10 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
               </button>
               <button class="btn-upload-sm" id="btn-cancelar-seleccion" type="button">Cancelar</button>
             </div>
+            <label style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--muted);padding:2px 4px 6px;cursor:pointer">
+              <input type="checkbox" id="compressSimplifyCheck">
+              Al comprimir GLB, reducir triángulos (agresivo, ~85% menos) — cambia la geometría
+            </label>
             <div class="file-list" id="file-list"></div>
           </div>
         </div>
@@ -3433,9 +3437,10 @@ function renderArchivos(filtro) {
       if (progressEl) { progressEl.style.display = "block"; progressEl.textContent = "Comprimiendo…"; }
       try {
         const buffer = await obtenerBytesArchivo(f);
+        const simplificar = document.getElementById('compressSimplifyCheck').checked;
         const compressed = await comprimirGLBConDraco(buffer, (done, total) => {
           if (progressEl) progressEl.textContent = `Comprimiendo… malla ${done} de ${total}`;
-        });
+        }, { simplificarRatio: simplificar ? 0.15 : null });
         const originalSize = buffer.byteLength;
         const newSize = compressed.byteLength;
         const pct = Math.round((1 - newSize / originalSize) * 100);
@@ -3863,7 +3868,66 @@ function aplanarJerarquiaGLB(gltf){
   return{removedCount:nodes.length-alcanzables.length};
 }
 
-async function comprimirGLBConDraco(buffer,onProgress){
+// ── Reducción de triángulos (decimación) — opcional, agresiva ─────────
+// Draco y el aplanado de nodos no tocan la cantidad de triángulos —
+// comprimen lo que ya existe. Para un archivo con decenas de millones
+// de triángulos (caso real: un usuario reportó 66.9M triángulos en un
+// export bruto de SolidWorks), la única forma de bajar el tamaño en
+// serio es reducir la malla en sí. meshoptimizer (la misma librería
+// que usa gltf-transform's `simplify`, de Arseny Kapoulkine/zeux) hace
+// decimación por colapso de aristas con métrica de error cuadrático —
+// binario chico (WASM inlineado en el JS, no hay .wasm aparte que
+// pedir) y cargado por CDN bajo demanda, igual que el resto de las
+// dependencias pesadas de este archivo.
+//
+// Es EXPLÍCITAMENTE lossy: borra triángulos reales, no solo los
+// comprime — por eso es opt-in (checkbox en la UI), nunca automático.
+let meshoptSimplifierPromise=null;
+function obtenerMeshoptSimplifier(){
+  if(!meshoptSimplifierPromise){
+    meshoptSimplifierPromise=import('https://cdn.jsdelivr.net/npm/meshoptimizer@1.2.0/meshopt_simplifier.js')
+      .then(async mod=>{await mod.MeshoptSimplifier.ready;return mod.MeshoptSimplifier;});
+  }
+  return meshoptSimplifierPromise;
+}
+
+// Decima una primitiva a (aprox.) ratioObjetivo de sus triángulos
+// originales (0.15 = te quedás con ~15%). Necesita conectividad
+// (índices) — si la primitiva no viene indexada, se suelda primero
+// (mismo criterio que encodeMeshToDraco). Las posiciones de los
+// vértices que sobreviven NO se mueven (meshoptimizer colapsa aristas
+// hacia vértices existentes, no interpola posiciones nuevas), así que
+// las normales originales en esos vértices siguen siendo válidas — no
+// hace falta recalcularlas.
+async function simplificarPrimitiva(positions,normals,indices,ratioObjetivo){
+  const base=indices?{positions,indices}:weldParaDraco(positions,null,null);
+  const simp=await obtenerMeshoptSimplifier();
+  const idxIn=Uint32Array.from(base.indices);
+  const triCount=idxIn.length/3;
+  const targetTris=Math.max(1,Math.round(triCount*ratioObjetivo));
+  const targetIndexCount=targetTris*3;
+  // target_error alto (1 = ~sin límite práctico) para que el ratio de
+  // triángulos pedido mande, no un umbral de error — es justamente el
+  // modo "agresivo": bajar al ratio pedido cueste lo que cueste.
+  const[newIdx]=simp.simplify(idxIn,base.positions,3,targetIndexCount,1,['LockBorder']);
+  // compactMesh muta newIdx a índices compactos y devuelve el remap
+  // viejo→nuevo — así los vértices que quedaron sin uso tras decimar no
+  // se arrastran (sin esto, Draco seguiría codificando vértices muertos).
+  const[remap,uniqueCount]=simp.compactMesh(newIdx);
+  const newPos=new Float32Array(uniqueCount*3);
+  const newNor=normals?new Float32Array(uniqueCount*3):null;
+  const MISSING=0xFFFFFFFF;
+  for(let i=0;i<remap.length;i++){
+    const ni=remap[i];
+    if(ni===MISSING)continue;
+    newPos[ni*3]=base.positions[i*3];newPos[ni*3+1]=base.positions[i*3+1];newPos[ni*3+2]=base.positions[i*3+2];
+    if(normals){newNor[ni*3]=normals[i*3];newNor[ni*3+1]=normals[i*3+1];newNor[ni*3+2]=normals[i*3+2];}
+  }
+  return{positions:newPos,normals:newNor,indices:Array.from(newIdx)};
+}
+
+async function comprimirGLBConDraco(buffer,onProgress,opciones){
+  const simplificarRatio=opciones&&opciones.simplificarRatio;
   const draco=await obtenerDracoEncoder();
   const view=new DataView(buffer);
   if(view.getUint32(0,true)!==0x46546C67)throw new Error('No es un GLB válido');
@@ -3934,6 +3998,11 @@ async function comprimirGLBConDraco(buffer,onProgress){
       positions=Float32Array.from(readAccessor(prim.attributes.POSITION));
       normals=prim.attributes.NORMAL!==undefined?Float32Array.from(readAccessor(prim.attributes.NORMAL)):null;
       indices=prim.indices!==undefined?Array.from(readAccessor(prim.indices)):null;
+    }
+
+    if(simplificarRatio){
+      const simplificado=await simplificarPrimitiva(positions,normals,indices,simplificarRatio);
+      positions=simplificado.positions;normals=simplificado.normals;indices=simplificado.indices;
     }
 
     const {data,hasNormal}=encodeMeshToDraco(draco,positions,normals,indices);
@@ -10145,6 +10214,10 @@ window.onerror=function(msg,src,line){
       </div>
       <!-- Comprimir con Draco: solo visible para GLB sin Draco ya aplicado -->
       <div id="importCompressRow" style="display:none;margin:10px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);width:100%;cursor:pointer">
+          <input type="checkbox" id="importSimplifyCheck">
+          Reducir triángulos (agresivo, ~85% menos) — cambia la geometría, no solo el peso
+        </label>
         <button class="import-btn" id="importCompressBtn" style="flex:1;min-width:200px">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>
           <span id="importCompressLabel">Comprimir con Draco</span>
@@ -10647,7 +10720,66 @@ function aplanarJerarquiaGLB(gltf){
   return{removedCount:nodes.length-alcanzables.length};
 }
 
-async function comprimirGLBConDraco(buffer,onProgress){
+// ── Reducción de triángulos (decimación) — opcional, agresiva ─────────
+// Draco y el aplanado de nodos no tocan la cantidad de triángulos —
+// comprimen lo que ya existe. Para un archivo con decenas de millones
+// de triángulos (caso real: un usuario reportó 66.9M triángulos en un
+// export bruto de SolidWorks), la única forma de bajar el tamaño en
+// serio es reducir la malla en sí. meshoptimizer (la misma librería
+// que usa gltf-transform's `simplify`, de Arseny Kapoulkine/zeux) hace
+// decimación por colapso de aristas con métrica de error cuadrático —
+// binario chico (WASM inlineado en el JS, no hay .wasm aparte que
+// pedir) y cargado por CDN bajo demanda, igual que el resto de las
+// dependencias pesadas de este archivo.
+//
+// Es EXPLÍCITAMENTE lossy: borra triángulos reales, no solo los
+// comprime — por eso es opt-in (checkbox en la UI), nunca automático.
+let meshoptSimplifierPromise=null;
+function obtenerMeshoptSimplifier(){
+  if(!meshoptSimplifierPromise){
+    meshoptSimplifierPromise=import('https://cdn.jsdelivr.net/npm/meshoptimizer@1.2.0/meshopt_simplifier.js')
+      .then(async mod=>{await mod.MeshoptSimplifier.ready;return mod.MeshoptSimplifier;});
+  }
+  return meshoptSimplifierPromise;
+}
+
+// Decima una primitiva a (aprox.) ratioObjetivo de sus triángulos
+// originales (0.15 = te quedás con ~15%). Necesita conectividad
+// (índices) — si la primitiva no viene indexada, se suelda primero
+// (mismo criterio que encodeMeshToDraco). Las posiciones de los
+// vértices que sobreviven NO se mueven (meshoptimizer colapsa aristas
+// hacia vértices existentes, no interpola posiciones nuevas), así que
+// las normales originales en esos vértices siguen siendo válidas — no
+// hace falta recalcularlas.
+async function simplificarPrimitiva(positions,normals,indices,ratioObjetivo){
+  const base=indices?{positions,indices}:weldParaDraco(positions,null,null);
+  const simp=await obtenerMeshoptSimplifier();
+  const idxIn=Uint32Array.from(base.indices);
+  const triCount=idxIn.length/3;
+  const targetTris=Math.max(1,Math.round(triCount*ratioObjetivo));
+  const targetIndexCount=targetTris*3;
+  // target_error alto (1 = ~sin límite práctico) para que el ratio de
+  // triángulos pedido mande, no un umbral de error — es justamente el
+  // modo "agresivo": bajar al ratio pedido cueste lo que cueste.
+  const[newIdx]=simp.simplify(idxIn,base.positions,3,targetIndexCount,1,['LockBorder']);
+  // compactMesh muta newIdx a índices compactos y devuelve el remap
+  // viejo→nuevo — así los vértices que quedaron sin uso tras decimar no
+  // se arrastran (sin esto, Draco seguiría codificando vértices muertos).
+  const[remap,uniqueCount]=simp.compactMesh(newIdx);
+  const newPos=new Float32Array(uniqueCount*3);
+  const newNor=normals?new Float32Array(uniqueCount*3):null;
+  const MISSING=0xFFFFFFFF;
+  for(let i=0;i<remap.length;i++){
+    const ni=remap[i];
+    if(ni===MISSING)continue;
+    newPos[ni*3]=base.positions[i*3];newPos[ni*3+1]=base.positions[i*3+1];newPos[ni*3+2]=base.positions[i*3+2];
+    if(normals){newNor[ni*3]=normals[i*3];newNor[ni*3+1]=normals[i*3+1];newNor[ni*3+2]=normals[i*3+2];}
+  }
+  return{positions:newPos,normals:newNor,indices:Array.from(newIdx)};
+}
+
+async function comprimirGLBConDraco(buffer,onProgress,opciones){
+  const simplificarRatio=opciones&&opciones.simplificarRatio;
   const draco=await obtenerDracoEncoder();
   const view=new DataView(buffer);
   if(view.getUint32(0,true)!==0x46546C67)throw new Error('No es un GLB válido');
@@ -10718,6 +10850,11 @@ async function comprimirGLBConDraco(buffer,onProgress){
       positions=Float32Array.from(readAccessor(prim.attributes.POSITION));
       normals=prim.attributes.NORMAL!==undefined?Float32Array.from(readAccessor(prim.attributes.NORMAL)):null;
       indices=prim.indices!==undefined?Array.from(readAccessor(prim.indices)):null;
+    }
+
+    if(simplificarRatio){
+      const simplificado=await simplificarPrimitiva(positions,normals,indices,simplificarRatio);
+      positions=simplificado.positions;normals=simplificado.normals;indices=simplificado.indices;
     }
 
     const {data,hasNormal}=encodeMeshToDraco(draco,positions,normals,indices);
@@ -14820,10 +14957,11 @@ document.getElementById('importCompressBtn').addEventListener('click',async()=>{
   const originalLabel=label.textContent;
   btn.setAttribute('disabled','');
   label.textContent='Comprimiendo… (primera vez descarga el motor Draco)';
+  const simplificar=document.getElementById('importSimplifyCheck').checked;
   try{
     const compressed=await comprimirGLBConDraco(importRawData.buffer,(done,total)=>{
       label.textContent=`Comprimiendo… malla ${done} de ${total}`;
-    });
+    },{simplificarRatio:simplificar?0.15:null});
     const originalSize=importRawData.size;
     const newSize=compressed.byteLength;
     const pct=Math.round((1-newSize/originalSize)*100);
