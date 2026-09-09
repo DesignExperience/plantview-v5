@@ -10146,6 +10146,8 @@ window.onerror=function(msg,src,line){
   <div class="fab-sep"></div>
   <button class="fab" id="bExplode" title="Explosión"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h6M4 4v6M4 4l6 6"/><path d="M20 4h-6M20 4v6M20 4l-6 6"/><path d="M4 20h6M4 20v-6M4 20l6-6"/><path d="M20 20h-6M20 20v-6M20 20l-6-6"/></svg><span>Explosión</span></button>
   <div class="fab-sep"></div>
+  <button class="fab" id="bSeccion" title="Vista de sección"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h18v18H3z"/><path d="M3 9h18"/><path d="M9 3v6"/></svg><span>Sección</span></button>
+  <div class="fab-sep"></div>
   <button class="fab" id="bClear" title="Limpiar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg><span>Limpiar</span></button>
 </div>
 
@@ -10154,6 +10156,23 @@ window.onerror=function(msg,src,line){
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none;opacity:.7"><path d="M4 4h6M4 4v6M4 4l6 6"/><path d="M20 4h-6M20 4v6M20 4l-6 6"/></svg>
   <input type="range" id="explodeSlider" min="0" max="100" value="0" step="1" aria-label="Nivel de explosión">
   <span id="explodeLabel">0%</span>
+</div>
+
+<!-- Vista de sección estilo SolidWorks — planos X/Y/Z con offset,
+     corta con clipping planes de three.js (ver activarSeccion). -->
+<div class="explode-bar" id="seccionPanel" style="flex-direction:column;align-items:stretch;gap:8px;width:min(280px,calc(100vw - 32px))">
+  <div style="display:flex;gap:6px">
+    <button type="button" class="sel-level-btn seccion-eje-btn" id="btnSeccionX" style="flex:1">Plano X</button>
+    <button type="button" class="sel-level-btn seccion-eje-btn" id="btnSeccionY" style="flex:1">Plano Y</button>
+    <button type="button" class="sel-level-btn seccion-eje-btn" id="btnSeccionZ" style="flex:1">Plano Z</button>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px">
+    <input type="range" id="seccionOffset" min="0" max="1000" value="500" step="1" aria-label="Posición del plano de corte" style="flex:1" disabled>
+  </div>
+  <div style="display:flex;gap:6px">
+    <button type="button" id="btnSeccionInvertir" class="vista-guardar-btn" style="flex:1;padding:6px 10px;font-size:11px;background:transparent;color:var(--text);border:1px solid var(--border)" disabled>⇄ Invertir</button>
+    <button type="button" id="btnSeccionDesactivar" class="vista-guardar-btn" style="flex:1;padding:6px 10px;font-size:11px;background:transparent;color:var(--text);border:1px solid var(--border)" disabled>Desactivar</button>
+  </div>
 </div>
 
 <div class="sheet-overlay" id="sheetOverlay"></div>
@@ -13221,6 +13240,83 @@ document.getElementById('explodeSlider').addEventListener('input', (e)=>{
   document.getElementById('explodeLabel').textContent=pct+'%';
   setExplode(pct/100);
 });
+
+// ── VISTA DE SECCIÓN (estilo SolidWorks, método "Plano") ───────────────
+// Corta el modelo con un clipping plane de three.js — a diferencia del
+// "resaltado" (que agrega geometría encima), esto directamente no
+// dibuja los triángulos del lado descartado del plano, dejando ver el
+// interior del ensamblaje. Es el método "Plano" de SolidWorks (un eje +
+// offset), no el método "Zonal" (por selección) de la captura que pasó
+// el usuario — ese necesitaría además "tapar" el corte con una malla de
+// relleno por material, bastante más trabajo; se puede sumar después si
+// hace falta.
+renderer.localClippingEnabled=true;
+let seccionActiva=null; // {plane, eje, min, max} o null si está desactivada
+
+function actualizarPanelSeccionBotones(){
+  ['x','y','z'].forEach(eje=>{
+    document.getElementById('btnSeccion'+eje.toUpperCase())
+      .classList.toggle('active', seccionActiva&&seccionActiva.eje===eje);
+  });
+  const on=!!seccionActiva;
+  document.getElementById('seccionOffset').disabled=!on;
+  document.getElementById('btnSeccionInvertir').disabled=!on;
+  document.getElementById('btnSeccionDesactivar').disabled=!on;
+  document.getElementById('bSeccion').classList.toggle('on',on);
+}
+
+function activarSeccion(eje){
+  // Bounding box de TODO lo cargado (no solo lo visible — si hay un
+  // aislamiento activo, el plano igual tiene que cubrir el rango
+  // completo del modelo para que mover el slider tenga sentido si
+  // después se muestra todo de nuevo).
+  const box=new THREE.Box3();
+  allMeshes.forEach(m=>box.expandByObject(m));
+  if(box.isEmpty())return;
+  const min=box.min[eje], max=box.max[eje];
+  const normal=new THREE.Vector3(eje==='x'?1:0, eje==='y'?1:0, eje==='z'?1:0);
+  const centro=(min+max)/2;
+  const plane=new THREE.Plane(normal, -centro);
+  seccionActiva={plane,eje,min,max};
+  renderer.clippingPlanes=[plane];
+
+  const slider=document.getElementById('seccionOffset');
+  slider.min=0;slider.max=1000;
+  slider.value=500; // arranca centrado
+  actualizarPanelSeccionBotones();
+}
+
+function moverPlanoSeccion(valorSlider){
+  if(!seccionActiva)return;
+  const {min,max}=seccionActiva;
+  const t=Number(valorSlider)/1000;
+  const pos=min+t*(max-min);
+  seccionActiva.plane.constant=-pos;
+}
+
+function invertirSeccion(){
+  if(!seccionActiva)return;
+  seccionActiva.plane.negate();
+}
+
+function desactivarSeccion(){
+  seccionActiva=null;
+  renderer.clippingPlanes=[];
+  actualizarPanelSeccionBotones();
+}
+
+document.getElementById('bSeccion').onclick=(e)=>{
+  const panel=document.getElementById('seccionPanel');
+  const abrir=!panel.classList.contains('show');
+  panel.classList.toggle('show',abrir);
+  if(!abrir&&seccionActiva)desactivarSeccion(); // cerrar el panel apaga el corte
+};
+document.getElementById('btnSeccionX').addEventListener('click',()=>activarSeccion('x'));
+document.getElementById('btnSeccionY').addEventListener('click',()=>activarSeccion('y'));
+document.getElementById('btnSeccionZ').addEventListener('click',()=>activarSeccion('z'));
+document.getElementById('seccionOffset').addEventListener('input',(e)=>moverPlanoSeccion(e.target.value));
+document.getElementById('btnSeccionInvertir').addEventListener('click',invertirSeccion);
+document.getElementById('btnSeccionDesactivar').addEventListener('click',desactivarSeccion);
 
 // ── FACE HIGHLIGHT SYSTEM ─────────────────────────────────────────────
 // Stores highlight overlays: [{mesh, origColor, faceIndices}]
