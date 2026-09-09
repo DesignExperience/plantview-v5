@@ -11357,6 +11357,140 @@ function equipoKey(zone,objName){
   return raw.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'');
 }
 
+// \u2500\u2500 MARCAS DE PIEZA (borde / color / transparencia, persistente) \u2500\u2500\u2500\u2500\u2500\u2500
+// A diferencia del resaltado de selecci\u00f3n (temporal, se pierde al
+// cambiar de pieza \u2014 ver SELECCION_COLOR/resaltarNivelSeleccion), esto
+// es una marca que el usuario aplica a prop\u00f3sito desde la ficha t\u00e9cnica
+// y que se guarda en Drive: la pr\u00f3xima vez que alguien abre el modelo,
+// sigue ah\u00ed.
+//
+// equipoKey() sola no alcanza como identidad ac\u00e1: dos subensamblajes
+// distintos pueden tener una pieza con el mismo nombre (ej. "Tornillo"
+// repetido en varias zonas), y marcar una no deber\u00eda marcar la otra.
+function marcaKey(zone,objName){
+  return zone.id+'::'+equipoKey(zone,objName);
+}
+
+let marcasPiezas={};      // marcaKey -> {zoneId, objName, color:'#rrggbb'|null, opacidad:number|null (0-1), borde:bool}
+const marcaOverlays={};   // marcaKey -> THREE.Group (overlays de color/borde para esa marca \u2014 se recrea entero en cada aplicarMarcaPieza)
+const marcaMatOriginal=new WeakMap(); // THREE.Mesh -> material original, para poder revertir/reaplicar sin acumular clones
+
+// Devuelve, para una zona+objName, los meshes "simples" (uno-a-uno, se
+// les puede tocar el material real \u2192 transparencia genuina) y las
+// entradas "fusionadas" (piezas que un mesh pesado combin\u00f3 con otras
+// para ahorrar draw calls \u2014 ver mergearGeometriasSimple/piezas). No hay
+// forma de tocar el material real de UNA sola pieza dentro de un mesh
+// fusionado (todas comparten un \u00fanico material), as\u00ed que esas se marcan
+// con un overlay trasl\u00facido en vez de volverse transparentes de verdad.
+function resolverObjetivoMarca(zone,objName){
+  const simples=[],fusionados=[];
+  allMeshes.forEach(m=>{
+    if(m.userData.zoneId!==zone.id)return;
+    if(m.userData.piezas){
+      (m.userData.piezas||[]).forEach(p=>{
+        if(!objName||p.userData.objName===objName) fusionados.push({mesh:m,pieza:p});
+      });
+    }else if(!objName||m.userData.objName===objName){
+      simples.push(m);
+    }
+  });
+  return {simples,fusionados};
+}
+
+// Aplica (o quita, si marcasPiezas[key] no existe) la marca actual de
+// una pieza/subensamblaje sobre la escena 3D ya construida. Se llama
+// tanto al tocar "Aplicar" en la ficha t\u00e9cnica como al reabrir un
+// modelo (ver reaplicarTodasLasMarcas), as\u00ed que tiene que ser
+// idempotente: repetir la misma marca no debe acumular clones de
+// material ni overlays duplicados.
+function aplicarMarcaPieza(zone,objName){
+  const key=marcaKey(zone,objName);
+  const marca=marcasPiezas[key];
+
+  if(marcaOverlays[key]){ scene.remove(marcaOverlays[key]); delete marcaOverlays[key]; }
+
+  const {simples,fusionados}=resolverObjetivoMarca(zone,objName);
+  const grupoOverlay=new THREE.Group();
+  const tieneColorUOpacidad=marca&&(marca.color||(marca.opacidad!=null&&marca.opacidad<1));
+
+  simples.forEach(mesh=>{
+    if(!marcaMatOriginal.has(mesh)) marcaMatOriginal.set(mesh,mesh.material);
+    const original=marcaMatOriginal.get(mesh);
+    if(tieneColorUOpacidad){
+      const mat=original.clone();
+      if(marca.color) mat.color=new THREE.Color(marca.color);
+      if(marca.opacidad!=null&&marca.opacidad<1){ mat.transparent=true; mat.opacity=marca.opacidad; }
+      mesh.material=mat;
+    }else{
+      mesh.material=original;
+    }
+    if(marca&&marca.borde){
+      const edges=new THREE.EdgesGeometry(mesh.geometry,15);
+      const linea=new THREE.LineSegments(edges,new THREE.LineBasicMaterial({color:marca.color||'#111111'}));
+      linea.matrix.copy(mesh.matrixWorld);linea.matrixAutoUpdate=false;
+      grupoOverlay.add(linea);
+    }
+  });
+
+  const porMeshFusionado=new Map();
+  fusionados.forEach(({mesh,pieza})=>{
+    const lista=porMeshFusionado.get(mesh)||[];
+    for(let i=0;i<pieza.faceCount;i++)lista.push(pieza.faceStart+i);
+    porMeshFusionado.set(mesh,lista);
+  });
+  porMeshFusionado.forEach((faceIndices,mesh)=>{
+    if(tieneColorUOpacidad){
+      const hl=buildFaceHighlightMesh(mesh,faceIndices,marca.color||'#ff3b30');
+      hl.material.opacity=marca.opacidad!=null?marca.opacidad:0.55;
+      grupoOverlay.add(hl);
+    }
+    // Borde en piezas fusionadas: no soportado (requerir\u00eda extraer la
+    // sub-geometr\u00eda de esa pieza puntual cada vez, y son un caso raro \u2014
+    // solo aparece en ensamblajes muy pesados). El color/transparencia
+    // de arriba sigue funcionando igual.
+  });
+
+  if(grupoOverlay.children.length) { scene.add(grupoOverlay); marcaOverlays[key]=grupoOverlay; }
+}
+
+function reaplicarTodasLasMarcas(){
+  Object.values(marcasPiezas).forEach(m=>{
+    const zone=ZONES.find(z=>z.id===m.zoneId);
+    if(zone) aplicarMarcaPieza(zone,m.objName||null);
+  });
+}
+
+function nombreArchivoMarcas(){
+  return archivoDriveIdActual ? `plantview-marcas-${archivoDriveIdActual}.json` : null;
+}
+async function cargarMarcasDrive(){
+  marcasPiezas={};
+  const archivo=nombreArchivoMarcas();
+  if(!archivo||!driveApiKeyActual||!carpetaDriveIdActual||!appBaseUrlActual) return;
+  try{
+    const q=encodeURIComponent(`name='${archivo}' and '${carpetaDriveIdActual}' in parents and trashed=false`);
+    const metaUrl=`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&key=${driveApiKeyActual}`;
+    const meta=await (await fetch(metaUrl)).json();
+    const found=meta.files&&meta.files[0];
+    if(!found)return;
+    const origen=new URL(appBaseUrlActual).origin;
+    const bucket=Math.floor(Date.now()/20000);
+    const proxyUrl=`${origen}/api/drive-proxy?fileId=${found.id}&key=${encodeURIComponent(driveApiKeyActual)}&_=${bucket}`;
+    const res=await fetch(proxyUrl);
+    if(!res.ok)return;
+    const data=await res.json();
+    if(data&&typeof data==='object'&&!Array.isArray(data))marcasPiezas=data;
+  }catch(err){
+    console.warn('No se pudieron cargar las marcas de piezas:',err);
+  }
+}
+function guardarMarcasDrive(){
+  const archivo=nombreArchivoMarcas();
+  if(!archivo)return Promise.reject(new Error('No hay carpeta de Drive asociada a este modelo'));
+  const blob=new Blob([JSON.stringify(marcasPiezas)],{type:'application/json'});
+  return subirArchivoADriveDesdeVisor(archivo,blob,carpetaDriveIdActual);
+}
+
 // ── BUILD SCENE FROM GLB — respeta posiciones originales del ensamblaje ──
 async function buildSceneFromGLB(glbData, selectedIndices){
   [...scene.children].forEach(o=>{
@@ -11511,6 +11645,7 @@ async function buildSceneFromGLB(glbData, selectedIndices){
     cargarNotasDrive();
     cargarAliasesDrive();
     cargarVistasGuardadas();
+    cargarMarcasDrive().then(reaplicarTodasLasMarcas);
 
     if(loadBar) loadBar.style.width='100%';
     await new Promise(r=>setTimeout(r,300));
@@ -12969,8 +13104,11 @@ function getFlatFaceGroup(mesh, hitFaceIndex, normalThresh=0.97){
   return {faceIndices:groupFaces, normal:targetNormal};
 }
 
-// Build a highlight mesh covering only specific face indices
-function buildFaceHighlightMesh(mesh, faceIndices, color){
+// Extrae una BufferGeometry standalone (solo position, sin índice) con
+// las caras pedidas de un mesh — factoreado de buildFaceHighlightMesh
+// para reusarlo también en las marcas persistentes de piezas (ver
+// aplicarMarcaPieza) sin duplicar la lógica de recorrido de índices.
+function extraerGeometriaCaras(mesh, faceIndices){
   const geo=mesh.geometry;
   const posAttr=geo.attributes.position;
   const srcIdx=geo.index;
@@ -12985,9 +13123,15 @@ function buildFaceHighlightMesh(mesh, faceIndices, color){
     }
   }
 
-  const hlGeo=new THREE.BufferGeometry();
-  hlGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
-  hlGeo.computeVertexNormals();
+  const outGeo=new THREE.BufferGeometry();
+  outGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+  outGeo.computeVertexNormals();
+  return outGeo;
+}
+
+// Build a highlight mesh covering only specific face indices
+function buildFaceHighlightMesh(mesh, faceIndices, color){
+  const hlGeo=extraerGeometriaCaras(mesh, faceIndices);
 
   const hlMat=new THREE.MeshStandardMaterial({
     color, transparent:true, opacity:0.55,
@@ -14791,6 +14935,11 @@ function renderSidebarBody(zone,objName){
   const extrasRows=extras?Object.entries(extras).map(([k,v])=>
     `<div class="sb-row"><span class="sb-row-key">${escNota(k)}</span><span class="sb-row-val">${escNota(String(v))}</span></div>`
   ).join(''):'';
+  // Marca persistente de esta pieza/subensamblaje (borde/color/transparencia)
+  // ya guardada, si existe — precarga los controles con lo que ya está
+  // aplicado en vez de arrancar siempre en blanco.
+  const marcaActual=marcasPiezas[marcaKey(zone,objName)]||{};
+  const transparenciaPct=marcaActual.opacidad!=null?Math.round((1-marcaActual.opacidad)*100):0;
   document.getElementById('sb-body').innerHTML=`
     <div class="sb-section">
       <div class="sb-section-hdr"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>Ficha técnica</div>
@@ -14798,6 +14947,31 @@ function renderSidebarBody(zone,objName){
         ${zone.specs.map(s=>`<div class="sb-row"><span class="sb-row-key">${s.k}</span><span class="sb-row-val">${s.v}</span></div>`).join('')}
         ${extrasRows}
         <div style="padding:12px 0">${badge}</div>
+      </div>
+    </div>
+    <div class="sb-section">
+      <div class="sb-section-hdr"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/></svg>Marcar pieza</div>
+      <div class="sb-section-body" style="padding:12px 14px;display:flex;flex-direction:column;gap:12px">
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
+          <input type="checkbox" id="marcaBordeCheck" ${marcaActual.borde?'checked':''}>
+          Borde
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
+          <input type="checkbox" id="marcaColorCheck" ${marcaActual.color?'checked':''}>
+          Color
+          <input type="color" id="marcaColorInput" value="${marcaActual.color||'#ff3b30'}" style="width:32px;height:24px;border:none;background:none;cursor:pointer">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;cursor:pointer">
+          <span style="display:flex;align-items:center;gap:8px">
+            <input type="checkbox" id="marcaOpacidadCheck" ${marcaActual.opacidad!=null?'checked':''}>
+            Transparencia (<span id="marcaOpacidadVal">${transparenciaPct}</span>%)
+          </span>
+          <input type="range" id="marcaOpacidadInput" min="0" max="90" value="${transparenciaPct}" style="width:100%">
+        </label>
+        <div style="display:flex;gap:8px">
+          <button id="marcaAplicarBtn" type="button" class="import-btn" style="flex:1">Aplicar</button>
+          <button id="marcaQuitarBtn" type="button" class="import-btn" style="flex:1;background:var(--surf2);color:var(--text)">Quitar</button>
+        </div>
       </div>
     </div>
     <div class="sb-section">
@@ -14830,6 +15004,7 @@ function renderSidebarBody(zone,objName){
       </div>
     </div>`;
   bindUploadZone(key);
+  wireMarcaPiezaForm(zone,objName);
   document.querySelectorAll('.doc-row[data-row-index]').forEach(el=>{
     el.addEventListener('click',e=>{
       const idx=parseInt(el.dataset.rowIndex);
@@ -14848,6 +15023,47 @@ function renderSidebarBody(zone,objName){
   wireNotaSbEditForm(zone);
   const btnAgregarNota=document.getElementById('sbNotaAgregar');
   if(btnAgregarNota) btnAgregarNota.addEventListener('click',()=>agregarNotaParaZona(zone));
+}
+
+// Sección "Marcar pieza" de la ficha técnica — Aplicar arma la marca a
+// partir de los 3 controles independientes (borde/color/transparencia,
+// cada uno con su propio checkbox) y la persiste en Drive; Quitar borra
+// la marca entera y revierte el material/overlay a como estaba.
+function wireMarcaPiezaForm(zone,objName){
+  const bordeCheck=document.getElementById('marcaBordeCheck');
+  const colorCheck=document.getElementById('marcaColorCheck');
+  const colorInput=document.getElementById('marcaColorInput');
+  const opacidadCheck=document.getElementById('marcaOpacidadCheck');
+  const opacidadInput=document.getElementById('marcaOpacidadInput');
+  const opacidadVal=document.getElementById('marcaOpacidadVal');
+  const btnAplicar=document.getElementById('marcaAplicarBtn');
+  const btnQuitar=document.getElementById('marcaQuitarBtn');
+  if(!btnAplicar||!btnQuitar) return;
+
+  opacidadInput.addEventListener('input',()=>{ opacidadVal.textContent=opacidadInput.value; });
+
+  btnAplicar.addEventListener('click',()=>{
+    const key=marcaKey(zone,objName);
+    const borde=bordeCheck.checked;
+    const color=colorCheck.checked?colorInput.value:null;
+    const opacidad=opacidadCheck.checked?(1-(Number(opacidadInput.value)/100)):null;
+    if(!borde&&!color&&opacidad==null){
+      delete marcasPiezas[key];
+    }else{
+      marcasPiezas[key]={zoneId:zone.id,objName:objName||null,color,opacidad,borde};
+    }
+    aplicarMarcaPieza(zone,objName);
+    guardarMarcasDrive().then(()=>toast('✅ Marca guardada')).catch(err=>toast('❌ '+err.message));
+  });
+
+  btnQuitar.addEventListener('click',()=>{
+    const key=marcaKey(zone,objName);
+    delete marcasPiezas[key];
+    aplicarMarcaPieza(zone,objName);
+    bordeCheck.checked=false;colorCheck.checked=false;opacidadCheck.checked=false;
+    opacidadInput.value=0;opacidadVal.textContent='0';
+    guardarMarcasDrive().then(()=>toast('🗑️ Marca quitada')).catch(err=>toast('❌ '+err.message));
+  });
 }
 
 // "+" en la sección Notas del sidebar (modo Selección): abre el formulario
