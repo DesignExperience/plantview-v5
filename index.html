@@ -10173,6 +10173,7 @@ window.onerror=function(msg,src,line){
     <button type="button" id="btnSeccionInvertir" class="vista-guardar-btn" style="flex:1;padding:6px 10px;font-size:11px;background:transparent;color:var(--text);border:1px solid var(--border)" disabled>⇄ Invertir</button>
     <button type="button" id="btnSeccionDesactivar" class="vista-guardar-btn" style="flex:1;padding:6px 10px;font-size:11px;background:transparent;color:var(--text);border:1px solid var(--border)" disabled>Desactivar</button>
   </div>
+  <button type="button" id="btnSeccionOk" class="vista-guardar-btn" style="padding:6px 10px;font-size:11px" disabled title="Confirmar y seguir navegando con el corte aplicado">✓ OK — navegar con el corte</button>
 </div>
 
 <div class="sheet-overlay" id="sheetOverlay"></div>
@@ -12934,6 +12935,11 @@ document.getElementById('btnVistaGuardar').addEventListener('click', async () =>
       // usuario "guardar este aislamiento como estado de visualización" y
       // volver a él después (ver aplicarVistaGuardada).
       aislamiento: aislamientoActivo ? Array.from(aislamientoActivo.values()) : null,
+      // Vista de sección activa (ver activarSeccion) — se guarda el eje,
+      // la posición del slider (0-1000) y el lado (signo) en vez del
+      // plano en sí, porque min/max dependen del bounding box calculado
+      // en el momento y se recalculan de cero al reaplicar.
+      seccion: seccionActiva ? { eje: seccionActiva.eje, offset: Number(document.getElementById('seccionOffset').value), signo: seccionActiva.signo } : null,
     });
     await guardarVistasGuardadasDrive();
     actualizarBadgeVistas();
@@ -12973,6 +12979,17 @@ function aplicarVistaGuardada(v) {
     aplicarAislamiento(seleccion);
   } else {
     restaurarVisibilidadTotal();
+  }
+  // Restaurar la vista de sección guardada (mismo criterio que el
+  // aislamiento arriba — si esta vista no tenía corte, se desactiva el
+  // que hubiera quedado activo de antes en vez de dejarlo "pegado").
+  if (v.seccion) {
+    activarSeccion(v.seccion.eje);
+    seccionActiva.signo = v.seccion.signo || 1;
+    document.getElementById('seccionOffset').value = v.seccion.offset;
+    moverPlanoSeccion(v.seccion.offset);
+  } else {
+    desactivarSeccion();
   }
 }
 
@@ -13019,7 +13036,7 @@ function abrirListaVistas() {
       texto.className = 'lvi-texto';
       // Badge "🎯 aislado" para distinguir de un vistazo los estados de
       // visualización con aislamiento de las vistas de cámara comunes.
-      texto.textContent = (v.aislamiento && v.aislamiento.length ? '🎯 ' : '') + (v.texto || 'Vista sin nota');
+      texto.textContent = (v.aislamiento && v.aislamiento.length ? '🎯 ' : '') + (v.seccion ? '✂️ ' : '') + (v.texto || 'Vista sin nota');
       const fecha = document.createElement('span');
       fecha.className = 'lvi-fecha';
       fecha.textContent = v.fecha || '';
@@ -13251,7 +13268,7 @@ document.getElementById('explodeSlider').addEventListener('input', (e)=>{
 // relleno por material, bastante más trabajo; se puede sumar después si
 // hace falta.
 renderer.localClippingEnabled=true;
-let seccionActiva=null; // {plane, eje, min, max} o null si está desactivada
+let seccionActiva=null; // {plane, eje, min, max, signo} o null si está desactivada — signo:1|-1 es el lado del corte (ver invertirSeccion)
 
 function actualizarPanelSeccionBotones(){
   ['x','y','z'].forEach(eje=>{
@@ -13262,6 +13279,7 @@ function actualizarPanelSeccionBotones(){
   document.getElementById('seccionOffset').disabled=!on;
   document.getElementById('btnSeccionInvertir').disabled=!on;
   document.getElementById('btnSeccionDesactivar').disabled=!on;
+  document.getElementById('btnSeccionOk').disabled=!on;
   document.getElementById('bSeccion').classList.toggle('on',on);
 }
 
@@ -13274,29 +13292,34 @@ function activarSeccion(eje){
   allMeshes.forEach(m=>box.expandByObject(m));
   if(box.isEmpty())return;
   const min=box.min[eje], max=box.max[eje];
-  const normal=new THREE.Vector3(eje==='x'?1:0, eje==='y'?1:0, eje==='z'?1:0);
-  const centro=(min+max)/2;
-  const plane=new THREE.Plane(normal, -centro);
-  seccionActiva={plane,eje,min,max};
+  const plane=new THREE.Plane(new THREE.Vector3(), 0);
+  seccionActiva={plane,eje,min,max,signo:1};
   renderer.clippingPlanes=[plane];
 
   const slider=document.getElementById('seccionOffset');
   slider.min=0;slider.max=1000;
   slider.value=500; // arranca centrado
+  moverPlanoSeccion(500);
   actualizarPanelSeccionBotones();
 }
 
+// pos = min+t*(max-min) es el punto sobre el eje donde se corta — se
+// mantiene el mismo significado esté invertido o no (recalcula normal+
+// constant desde cero a partir de signo, en vez de solo tocar constant,
+// para que Invertir no dependa de negar bien un estado previo).
 function moverPlanoSeccion(valorSlider){
   if(!seccionActiva)return;
-  const {min,max}=seccionActiva;
+  const {min,max,eje,signo}=seccionActiva;
   const t=Number(valorSlider)/1000;
   const pos=min+t*(max-min);
-  seccionActiva.plane.constant=-pos;
+  seccionActiva.plane.normal.set(eje==='x'?signo:0, eje==='y'?signo:0, eje==='z'?signo:0);
+  seccionActiva.plane.constant=-signo*pos;
 }
 
 function invertirSeccion(){
   if(!seccionActiva)return;
-  seccionActiva.plane.negate();
+  seccionActiva.signo*=-1;
+  moverPlanoSeccion(document.getElementById('seccionOffset').value);
 }
 
 function desactivarSeccion(){
@@ -13305,12 +13328,16 @@ function desactivarSeccion(){
   actualizarPanelSeccionBotones();
 }
 
-document.getElementById('bSeccion').onclick=(e)=>{
-  const panel=document.getElementById('seccionPanel');
-  const abrir=!panel.classList.contains('show');
-  panel.classList.toggle('show',abrir);
-  if(!abrir&&seccionActiva)desactivarSeccion(); // cerrar el panel apaga el corte
+// Abrir/cerrar el panel ya NO apaga el corte — separado a propósito de
+// "Desactivar", así se puede confirmar con OK y seguir navegando
+// (orbitar/hacer zoom) con el corte aplicado, y volver a abrir el panel
+// después para seguir ajustando sin perder nada.
+document.getElementById('bSeccion').onclick=()=>{
+  document.getElementById('seccionPanel').classList.toggle('show');
 };
+document.getElementById('btnSeccionOk').addEventListener('click',()=>{
+  document.getElementById('seccionPanel').classList.remove('show');
+});
 document.getElementById('btnSeccionX').addEventListener('click',()=>activarSeccion('x'));
 document.getElementById('btnSeccionY').addEventListener('click',()=>activarSeccion('y'));
 document.getElementById('btnSeccionZ').addEventListener('click',()=>activarSeccion('z'));
