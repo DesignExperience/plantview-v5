@@ -12464,7 +12464,7 @@ cvwrap.addEventListener('mousedown',e=>{
   isDragging=true; didMove=false; ox=e.clientX; oy=e.clientY;
 });
 window.addEventListener('mouseup',e=>{
-  if(isDragging&&!didMove&&dragButton===0) handleClick(e.clientX,e.clientY);
+  if(isDragging&&!didMove&&dragButton===0) handleClick(e.clientX,e.clientY,{ctrl:e.ctrlKey||e.metaKey,shift:e.shiftKey});
   isDragging=false;
 });
 window.addEventListener('mousemove',e=>{
@@ -14618,7 +14618,7 @@ document.getElementById('notaBorrar3D').addEventListener('click', async ()=>{
 let measurePts=[];    // world-space THREE.Vector3 points (max 2)
 let measureHits=[];   // raw hit objects for face re-highlight on replace
 
-function handleClick(cx,cy){
+function handleClick(cx,cy,mod){
   const el=document.elementFromPoint(cx,cy);
   if(el&&el.closest('.fab-dock,.topbar,.sheet,.msr-panel,.compass,#panelNota,#btnNotas3D,#btnGuardarVista,#modalVista,#panelListaNotas,#panelListaVistas,#selLevelPopup'))return;
   const hits=getIntersects(cx,cy);
@@ -14629,6 +14629,23 @@ function handleClick(cx,cy){
   if(mode==='notas'){
     if(hits.length===0){ toast('Tocá sobre una pieza del modelo'); return; }
     abrirFormNota3D(hits[0]);
+    return;
+  }
+
+  // Ctrl/Shift+click en desktop, atajo directo para armar la selección de
+  // "Aislar" sin pasar por el popup — mismo destino que "Agregar a
+  // aislar" (toggleAislarSeleccion), pero de un solo click. Ctrl agrega
+  // la PIEZA puntual tocada, Shift agrega el SUBENSAMBLAJE entero —
+  // mismo criterio que el popup (Pieza/Subensamblaje), solo que sin
+  // tener que abrirlo. Solo aplica en modo Selección: en órbita, Ctrl/
+  // Shift+click no tiene ningún significado especial en esta app.
+  if(mode==='select'&&mod&&(mod.ctrl||mod.shift)){
+    if(hits.length===0)return;
+    const piezaUd=resolverPiezaDeHit(hits[0]);
+    const zone=ZONES.find(z=>z.id===piezaUd.zoneId);
+    if(!zone)return;
+    const objName=mod.ctrl?piezaUd.objName:null;
+    toggleAislarSeleccion(zone,objName);
     return;
   }
 
