@@ -9889,6 +9889,19 @@ window.onerror=function(msg,src,line){
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="8" r="0.5" fill="currentColor"/></svg>
     Ver ficha técnica
   </button>
+  <button type="button" class="sel-level-popup-ficha" id="btnSelLevelAislar" disabled title="Elegí Pieza o Subensamblaje primero" style="margin-top:6px;background:var(--surf2,#e8eaef);color:var(--text)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+    Agregar a aislar
+  </button>
+</div>
+<!-- Barra de aislamiento — dos estados: "armando" (piezas tocadas
+     esperando confirmar) y "aislado" (ya aplicado, ofrece volver a ver
+     todo) — ver toggleAislarSeleccion/aplicarAislamiento. -->
+<div class="explode-bar" id="aislarBar" style="bottom:calc(140px + var(--safe-bottom))">
+  <span id="aislarBarCount" style="flex:1;font-size:12px">0 piezas seleccionadas</span>
+  <button type="button" id="btnAislarConfirmar" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px">Aislar</button>
+  <button type="button" id="btnAislarCancelar" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;background:transparent;color:var(--text);border:1px solid var(--border)">Cancelar</button>
+  <button type="button" id="btnMostrarTodo" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none">👁 Mostrar todo</button>
 </div>
 <div id="canvas-wrap"><canvas id="cv"></canvas></div>
 <svg id="badges-svg" style="position:fixed;inset:0;pointer-events:none;z-index:85;overflow:visible"></svg>
@@ -11491,6 +11504,127 @@ function guardarMarcasDrive(){
   return subirArchivoADriveDesdeVisor(archivo,blob,carpetaDriveIdActual);
 }
 
+// ── AISLAR (estilo SolidWorks) ──────────────────────────────────────
+// Flujo: en modo Selección, tocás una o varias piezas/subensamblajes y
+// las vas agregando con "Agregar a aislar" (botón nuevo del popup de
+// nivel — ver btnSelLevelAislar) — cada una queda resaltada en ámbar
+// mientras se arma la selección (aislarSeleccionTemp). Al confirmar con
+// "Aislar" en la barra flotante, se ocultan todos los meshes que NO
+// están en la selección (aplicarAislamiento). "Mostrar todo" revierte
+// (restaurarVisibilidadTotal). El estado de aislamiento actual se puede
+// guardar como parte de una vista guardada (ver btnVistaGuardar/
+// aplicarVistaGuardada) para volver a él más adelante.
+let aislamientoActivo=null;         // Map key->{zoneId,objName} actualmente aislado, o null si se ve todo
+let aislarSeleccionTemp=new Map();  // key->{zoneId,objName} en construcción, antes de confirmar "Aislar"
+const aislarStagedOverlays={};      // key -> THREE.Group (resaltado ámbar temporal de "agregado a la selección")
+const AISLAR_STAGE_COLOR='#ffaa00';
+
+// Devuelve true si el mesh pertenece a alguna de las piezas/subensamblajes
+// de la selección — mismo criterio de "toda la zona si objName es null,
+// una pieza puntual si no" que resolverObjetivoMarca. Para un mesh
+// fusionado (ver mergearGeometriasSimple), no se puede ocultar solo una
+// pieza puntual dentro de él — si CUALQUIERA de sus piezas combinadas
+// está en la selección, se muestra el mesh fusionado entero (mismo
+// límite documentado en aplicarMarcaPieza).
+function coincideConAislamiento(mesh,seleccion){
+  for(const {zoneId,objName} of seleccion.values()){
+    if(mesh.userData.zoneId!==zoneId)continue;
+    if(!objName)return true;
+    if(mesh.userData.objName===objName)return true;
+    if(mesh.userData.piezas&&mesh.userData.piezas.some(p=>p.userData.objName===objName))return true;
+  }
+  return false;
+}
+
+// La barra tiene dos estados excluyentes — "armando selección" (Aislar/
+// Cancelar) mientras aislarSeleccionTemp tiene algo, o "ya aislado"
+// (Mostrar todo) mientras aislamientoActivo esté seteado. Nunca los dos
+// a la vez: confirmar/cancelar siempre vacía la selección en construcción
+// antes de que el aislamiento pueda quedar activo.
+function actualizarBarraAislar(){
+  const bar=document.getElementById('aislarBar');
+  const count=aislarSeleccionTemp.size;
+  const btnConfirmar=document.getElementById('btnAislarConfirmar');
+  const btnCancelar=document.getElementById('btnAislarCancelar');
+  const btnMostrarTodo=document.getElementById('btnMostrarTodo');
+  if(count>0){
+    bar.classList.add('show');
+    document.getElementById('aislarBarCount').textContent=count+(count===1?' pieza seleccionada':' piezas seleccionadas');
+    btnConfirmar.style.display='';btnCancelar.style.display='';btnMostrarTodo.style.display='none';
+  }else if(aislamientoActivo){
+    bar.classList.add('show');
+    const n=aislamientoActivo.size;
+    document.getElementById('aislarBarCount').textContent='Aislado — '+n+(n===1?' selección':' selecciones');
+    btnConfirmar.style.display='none';btnCancelar.style.display='none';btnMostrarTodo.style.display='';
+  }else{
+    bar.classList.remove('show');
+  }
+}
+
+function aplicarAislamiento(seleccion){
+  if(!seleccion||seleccion.size===0){ restaurarVisibilidadTotal(); return; }
+  allMeshes.forEach(mesh=>{ mesh.visible=coincideConAislamiento(mesh,seleccion); });
+  aislamientoActivo=seleccion;
+  actualizarBarraAislar();
+}
+
+function restaurarVisibilidadTotal(){
+  allMeshes.forEach(mesh=>{ mesh.visible=true; });
+  aislamientoActivo=null;
+  actualizarBarraAislar();
+}
+
+function limpiarOverlayStaged(key){
+  if(aislarStagedOverlays[key]){ scene.remove(aislarStagedOverlays[key]); delete aislarStagedOverlays[key]; }
+}
+function limpiarSeleccionTempAislar(){
+  Object.keys(aislarStagedOverlays).forEach(limpiarOverlayStaged);
+  aislarSeleccionTemp.clear();
+  actualizarBarraAislar();
+}
+// Agrega o quita (toggle) una pieza/subensamblaje de la selección en
+// construcción — reusa resolverObjetivoMarca (misma resolución
+// simples/fusionados que las marcas) para armar el resaltado ámbar.
+function toggleAislarSeleccion(zone,objName){
+  const key=marcaKey(zone,objName);
+  if(aislarSeleccionTemp.has(key)){
+    aislarSeleccionTemp.delete(key);
+    limpiarOverlayStaged(key);
+  }else{
+    aislarSeleccionTemp.set(key,{zoneId:zone.id,objName});
+    const {simples,fusionados}=resolverObjetivoMarca(zone,objName);
+    const grupo=new THREE.Group();
+    simples.forEach(mesh=>{
+      const geo=mesh.geometry;
+      const faceCount=geo.index?geo.index.count/3:geo.attributes.position.count/3;
+      const faceIndices=Array.from({length:faceCount},(_,i)=>i);
+      grupo.add(buildFaceHighlightMesh(mesh,faceIndices,AISLAR_STAGE_COLOR));
+    });
+    const porMesh=new Map();
+    fusionados.forEach(({mesh,pieza})=>{
+      const lista=porMesh.get(mesh)||[];
+      for(let i=0;i<pieza.faceCount;i++)lista.push(pieza.faceStart+i);
+      porMesh.set(mesh,lista);
+    });
+    porMesh.forEach((faceIndices,mesh)=>grupo.add(buildFaceHighlightMesh(mesh,faceIndices,AISLAR_STAGE_COLOR)));
+    scene.add(grupo);
+    aislarStagedOverlays[key]=grupo;
+  }
+  actualizarBarraAislar();
+}
+
+document.getElementById('btnAislarConfirmar').addEventListener('click',()=>{
+  if(aislarSeleccionTemp.size===0)return;
+  aplicarAislamiento(new Map(aislarSeleccionTemp));
+  limpiarSeleccionTempAislar();
+});
+document.getElementById('btnAislarCancelar').addEventListener('click',()=>{
+  limpiarSeleccionTempAislar();
+});
+document.getElementById('btnMostrarTodo').addEventListener('click',()=>{
+  restaurarVisibilidadTotal();
+});
+
 // ── BUILD SCENE FROM GLB — respeta posiciones originales del ensamblaje ──
 async function buildSceneFromGLB(glbData, selectedIndices){
   [...scene.children].forEach(o=>{
@@ -12759,6 +12893,11 @@ document.getElementById('btnVistaGuardar').addEventListener('click', async () =>
       camTarget: [target.x, target.y, target.z],
       explode: exPct,
       thumbFileId: fileId,
+      // Estado de aislamiento actual (ver aplicarAislamiento) — null si se
+      // está viendo todo el modelo. Guardarlo acá es lo que le permite al
+      // usuario "guardar este aislamiento como estado de visualización" y
+      // volver a él después (ver aplicarVistaGuardada).
+      aislamiento: aislamientoActivo ? Array.from(aislamientoActivo.values()) : null,
     });
     await guardarVistasGuardadasDrive();
     actualizarBadgeVistas();
@@ -12786,6 +12925,18 @@ function aplicarVistaGuardada(v) {
     if (label) label.textContent = exPct + '%';
     document.getElementById('explodeBar')?.classList.add('show');
     document.getElementById('bExplode')?.classList.add('on');
+  }
+  // Restaurar el estado de aislamiento guardado con la vista (si esta
+  // vista no tenía ninguno, v.aislamiento es null/undefined y esto
+  // simplemente vuelve a mostrar todo — evita que quede "pegado" el
+  // aislamiento de la vista anterior al cambiar entre vistas guardadas).
+  limpiarSeleccionTempAislar();
+  if (v.aislamiento && v.aislamiento.length) {
+    const seleccion = new Map();
+    v.aislamiento.forEach(entry => seleccion.set(marcaKey({ id: entry.zoneId }, entry.objName), entry));
+    aplicarAislamiento(seleccion);
+  } else {
+    restaurarVisibilidadTotal();
   }
 }
 
@@ -13262,6 +13413,9 @@ function mostrarSelLevelPopup(cx,cy,hit,piezaUd,zone){
   const btnFicha=document.getElementById('btnSelLevelFicha');
   btnFicha.disabled=true;
   btnFicha.title='Elegí Pieza o Subensamblaje primero';
+  const btnAislar=document.getElementById('btnSelLevelAislar');
+  btnAislar.disabled=true;
+  btnAislar.title='Elegí Pieza o Subensamblaje primero';
   popup.style.display='flex';
 
   // Clamp para que no se salga de la pantalla cerca de los bordes —
@@ -13291,6 +13445,9 @@ function elegirNivelDesdePopup(nivel){
   const btnFicha=document.getElementById('btnSelLevelFicha');
   btnFicha.disabled=false;
   btnFicha.title='';
+  const btnAislar=document.getElementById('btnSelLevelAislar');
+  btnAislar.disabled=false;
+  btnAislar.title='';
   resaltarNivelSeleccion(selPopupPendiente.hit,nivel);
 }
 document.getElementById('btnNivelPieza').addEventListener('click',()=>elegirNivelDesdePopup('pieza'));
@@ -13305,6 +13462,13 @@ function abrirFichaDesdePopup(){
   ocultarSelLevelPopup();
 }
 document.getElementById('btnSelLevelFicha').addEventListener('click',abrirFichaDesdePopup);
+document.getElementById('btnSelLevelAislar').addEventListener('click',()=>{
+  if(!selPopupPendiente||!selPopupPendiente.nivel) return;
+  const {piezaUd,zone,nivel}=selPopupPendiente;
+  const objName=nivel==='pieza'?piezaUd.objName:null;
+  toggleAislarSeleccion(zone,objName);
+  ocultarSelLevelPopup();
+});
 
 // ── NOTAS 3D (compartidas por Drive, un pin por nota) ─────────────────
 // Marcadores como overlay SVG en pantalla (mismo patrón que los badges de
