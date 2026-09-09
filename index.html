@@ -9901,6 +9901,8 @@ window.onerror=function(msg,src,line){
   <span id="aislarBarCount" style="flex:1;font-size:12px">0 piezas seleccionadas</span>
   <button type="button" id="btnAislarConfirmar" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px">Aislar</button>
   <button type="button" id="btnAislarCancelar" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;background:transparent;color:var(--text);border:1px solid var(--border)">Cancelar</button>
+  <button type="button" id="btnAislarGuardarEstado" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none;background:transparent;color:var(--text);border:1px solid var(--border)" title="Guardar este aislamiento como estado de visualización">💾 Guardar estado</button>
+  <button type="button" id="btnAislarVerEstados" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none;background:transparent;color:var(--text);border:1px solid var(--border)" title="Ver estados de visualización guardados">📂 Ver estados</button>
   <button type="button" id="btnMostrarTodo" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none">👁 Mostrar todo</button>
 </div>
 <div id="canvas-wrap"><canvas id="cv"></canvas></div>
@@ -11547,15 +11549,19 @@ function actualizarBarraAislar(){
   const btnConfirmar=document.getElementById('btnAislarConfirmar');
   const btnCancelar=document.getElementById('btnAislarCancelar');
   const btnMostrarTodo=document.getElementById('btnMostrarTodo');
+  const btnGuardarEstado=document.getElementById('btnAislarGuardarEstado');
+  const btnVerEstados=document.getElementById('btnAislarVerEstados');
   if(count>0){
     bar.classList.add('show');
     document.getElementById('aislarBarCount').textContent=count+(count===1?' pieza seleccionada':' piezas seleccionadas');
-    btnConfirmar.style.display='';btnCancelar.style.display='';btnMostrarTodo.style.display='none';
+    btnConfirmar.style.display='';btnCancelar.style.display='';
+    btnMostrarTodo.style.display='none';btnGuardarEstado.style.display='none';btnVerEstados.style.display='none';
   }else if(aislamientoActivo){
     bar.classList.add('show');
     const n=aislamientoActivo.size;
     document.getElementById('aislarBarCount').textContent='Aislado — '+n+(n===1?' selección':' selecciones');
-    btnConfirmar.style.display='none';btnCancelar.style.display='none';btnMostrarTodo.style.display='';
+    btnConfirmar.style.display='none';btnCancelar.style.display='none';
+    btnMostrarTodo.style.display='';btnGuardarEstado.style.display='';btnVerEstados.style.display='';
   }else{
     bar.classList.remove('show');
   }
@@ -11623,6 +11629,17 @@ document.getElementById('btnAislarCancelar').addEventListener('click',()=>{
 });
 document.getElementById('btnMostrarTodo').addEventListener('click',()=>{
   restaurarVisibilidadTotal();
+});
+// Atajos directos desde la barra de aislar — mismo destino que el botón
+// "Guardar vista"/lista del topbar (ver abrirModalNuevaVista/
+// abrirListaVistas), sin tener que ir a buscarlos: guardar YA captura el
+// aislamiento actual (ver vistasGuardadas.push más abajo), así que
+// tocarlo justo después de aislar es el caso de uso normal.
+document.getElementById('btnAislarGuardarEstado').addEventListener('click',()=>{
+  abrirModalNuevaVista();
+});
+document.getElementById('btnAislarVerEstados').addEventListener('click',()=>{
+  abrirListaVistas();
 });
 
 // ── BUILD SCENE FROM GLB — respeta posiciones originales del ensamblaje ──
@@ -12981,7 +12998,9 @@ function abrirListaVistas() {
       info.className = 'lvi-info';
       const texto = document.createElement('span');
       texto.className = 'lvi-texto';
-      texto.textContent = v.texto || 'Vista sin nota';
+      // Badge "🎯 aislado" para distinguir de un vistazo los estados de
+      // visualización con aislamiento de las vistas de cámara comunes.
+      texto.textContent = (v.aislamiento && v.aislamiento.length ? '🎯 ' : '') + (v.texto || 'Vista sin nota');
       const fecha = document.createElement('span');
       fecha.className = 'lvi-fecha';
       fecha.textContent = v.fecha || '';
