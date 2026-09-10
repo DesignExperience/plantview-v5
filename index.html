@@ -3676,7 +3676,7 @@ function encodeMeshToDraco(draco,positions,normals,indices){
   for(let i=0;i<encodedLen;i++)out[i]=encodedData.GetValue(i);
 
   draco.destroy(mesh);draco.destroy(builder);draco.destroy(encoder);draco.destroy(encodedData);
-  return {data:out,hasNormal,numFaces};
+  return {data:out,hasNormal,numFaces,numPoints};
 }
 
 // Decodifica un buffer Draco crudo a arrays planos (sin depender de
@@ -4005,7 +4005,7 @@ async function comprimirGLBConDraco(buffer,onProgress,opciones){
       positions=simplificado.positions;normals=simplificado.normals;indices=simplificado.indices;
     }
 
-    const {data,hasNormal}=encodeMeshToDraco(draco,positions,normals,indices);
+    const {data,hasNormal,numFaces,numPoints}=encodeMeshToDraco(draco,positions,normals,indices);
 
     const attrIds={POSITION:0};
     if(hasNormal)attrIds.NORMAL=1;
@@ -4017,20 +4017,36 @@ async function comprimirGLBConDraco(buffer,onProgress,opciones){
     // usedOldBv más abajo).
     extraBlobs.push({prim,attrIds,data});
 
-    // Los accessors referenciados por la primitiva se mantienen (count/
-    // type/componentType siguen siendo válidos y algunos lectores los
-    // usan para saber cuántos vértices/índices hay) pero ya no deben
-    // apuntar a un bufferView propio — los datos reales viven en el
-    // blob Draco de arriba.
+    // Los accessors referenciados por la primitiva se mantienen (siguen
+    // haciendo falta: la spec de KHR_draco_mesh_compression exige que
+    // POSITION/NORMAL/indices apunten a accessors válidos con count/type
+    // correctos, aunque ya no tengan bufferView propio) pero su count
+    // tiene que reflejar el resultado REAL después de soldar/decimar —
+    // dejarlo con el count original (de antes de comprimir) deja el
+    // archivo con datos inconsistentes para cualquier lector que sí
+    // valide accessor.count contra lo decodificado (nuestro propio
+    // parser no lo hace — usa directamente num_points()/num_faces() del
+    // decoder Draco — pero no hay garantía de que sea el único que
+    // alguna vez abra este archivo).
+    gltf.accessors[prim.attributes.POSITION].count=numPoints;
     delete gltf.accessors[prim.attributes.POSITION].bufferView;
     delete gltf.accessors[prim.attributes.POSITION].byteOffset;
     if(prim.attributes.NORMAL!==undefined){
+      gltf.accessors[prim.attributes.NORMAL].count=numPoints;
       delete gltf.accessors[prim.attributes.NORMAL].bufferView;
       delete gltf.accessors[prim.attributes.NORMAL].byteOffset;
     }
     if(prim.indices!==undefined){
+      gltf.accessors[prim.indices].count=numFaces*3;
       delete gltf.accessors[prim.indices].bufferView;
       delete gltf.accessors[prim.indices].byteOffset;
+    }else{
+      // La primitiva no venía indexada — Draco SIEMPRE codifica
+      // conectividad (índices), así que ahora sí hace falta declarar un
+      // accessor de índices (la spec lo exige para primitivas con esta
+      // extensión, indexadas originalmente o no).
+      gltf.accessors.push({componentType:5125,count:numFaces*3,type:'SCALAR'});
+      prim.indices=gltf.accessors.length-1;
     }
     compressedCount++;
   }
@@ -10563,7 +10579,7 @@ function encodeMeshToDraco(draco,positions,normals,indices){
   for(let i=0;i<encodedLen;i++)out[i]=encodedData.GetValue(i);
 
   draco.destroy(mesh);draco.destroy(builder);draco.destroy(encoder);draco.destroy(encodedData);
-  return {data:out,hasNormal,numFaces};
+  return {data:out,hasNormal,numFaces,numPoints};
 }
 
 // Decodifica un buffer Draco crudo a arrays planos (sin depender de
@@ -10892,7 +10908,7 @@ async function comprimirGLBConDraco(buffer,onProgress,opciones){
       positions=simplificado.positions;normals=simplificado.normals;indices=simplificado.indices;
     }
 
-    const {data,hasNormal}=encodeMeshToDraco(draco,positions,normals,indices);
+    const {data,hasNormal,numFaces,numPoints}=encodeMeshToDraco(draco,positions,normals,indices);
 
     const attrIds={POSITION:0};
     if(hasNormal)attrIds.NORMAL=1;
@@ -10904,20 +10920,36 @@ async function comprimirGLBConDraco(buffer,onProgress,opciones){
     // usedOldBv más abajo).
     extraBlobs.push({prim,attrIds,data});
 
-    // Los accessors referenciados por la primitiva se mantienen (count/
-    // type/componentType siguen siendo válidos y algunos lectores los
-    // usan para saber cuántos vértices/índices hay) pero ya no deben
-    // apuntar a un bufferView propio — los datos reales viven en el
-    // blob Draco de arriba.
+    // Los accessors referenciados por la primitiva se mantienen (siguen
+    // haciendo falta: la spec de KHR_draco_mesh_compression exige que
+    // POSITION/NORMAL/indices apunten a accessors válidos con count/type
+    // correctos, aunque ya no tengan bufferView propio) pero su count
+    // tiene que reflejar el resultado REAL después de soldar/decimar —
+    // dejarlo con el count original (de antes de comprimir) deja el
+    // archivo con datos inconsistentes para cualquier lector que sí
+    // valide accessor.count contra lo decodificado (nuestro propio
+    // parser no lo hace — usa directamente num_points()/num_faces() del
+    // decoder Draco — pero no hay garantía de que sea el único que
+    // alguna vez abra este archivo).
+    gltf.accessors[prim.attributes.POSITION].count=numPoints;
     delete gltf.accessors[prim.attributes.POSITION].bufferView;
     delete gltf.accessors[prim.attributes.POSITION].byteOffset;
     if(prim.attributes.NORMAL!==undefined){
+      gltf.accessors[prim.attributes.NORMAL].count=numPoints;
       delete gltf.accessors[prim.attributes.NORMAL].bufferView;
       delete gltf.accessors[prim.attributes.NORMAL].byteOffset;
     }
     if(prim.indices!==undefined){
+      gltf.accessors[prim.indices].count=numFaces*3;
       delete gltf.accessors[prim.indices].bufferView;
       delete gltf.accessors[prim.indices].byteOffset;
+    }else{
+      // La primitiva no venía indexada — Draco SIEMPRE codifica
+      // conectividad (índices), así que ahora sí hace falta declarar un
+      // accessor de índices (la spec lo exige para primitivas con esta
+      // extensión, indexadas originalmente o no).
+      gltf.accessors.push({componentType:5125,count:numFaces*3,type:'SCALAR'});
+      prim.indices=gltf.accessors.length-1;
     }
     compressedCount++;
   }
