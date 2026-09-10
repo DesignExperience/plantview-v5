@@ -2926,17 +2926,6 @@ function renderCarpetas(filtro) {
   const btnDesvincular = document.getElementById("btn-desvincular-carpeta");
   if (btnDesvincular) btnDesvincular.style.display = carpetasOrden.length ? "flex" : "none";
 
-  // Punto de estado en el ícono colapsado del menú "Fuente de datos" —
-  // mismo criterio que btnDesvincular de arriba (¿hay alguna carpeta
-  // conectada, local o Drive?), así se ve sin tener que abrir el menú.
-  const fuenteDot = document.getElementById("fuenteStatusDot");
-  if (fuenteDot) {
-    const conectado = carpetasOrden.length > 0;
-    const color = conectado ? "#3ddc84" : "#e0505b";
-    fuenteDot.style.background = color;
-    fuenteDot.style.boxShadow = `0 0 3px ${color}b3`;
-  }
-
   if (!carpetasOrden.length) {
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1; padding:32px 20px">
       <div class="empty-icon" style="width:56px;height:56px">
@@ -6151,9 +6140,9 @@ function desconectarEscrituraDrive() {
 }
 
 function actualizarUIEscrituraDrive() {
+  const conectado = driveEscrituraConectada();
   const btn = document.getElementById("btn-drive-escritura");
   if (btn) {
-    const conectado = driveEscrituraConectada();
     btn.classList.toggle("activo", conectado);
     const label = btn.querySelector("span:last-child");
     if (label) label.textContent = conectado ? "Edición: conectada ✓" : "Conectar edición (Drive)";
@@ -6163,6 +6152,16 @@ function actualizarUIEscrituraDrive() {
       dot.style.background = color;
       dot.style.boxShadow = `0 0 4px ${color}b3`; // b3 = ~70% alpha en hex
     }
+  }
+  // El ícono colapsado de "Fuente de datos" repite el MISMO estado que
+  // "Conectar edición" (no si hay una carpeta conectada — eso es otra
+  // cosa) para que el usuario vea de un vistazo, sin abrir el menú, si
+  // está logueado y puede guardar/editar en Drive.
+  const fuenteDot = document.getElementById("fuenteStatusDot");
+  if (fuenteDot) {
+    const color = conectado ? "#3ddc84" : "#e0505b";
+    fuenteDot.style.background = color;
+    fuenteDot.style.boxShadow = `0 0 3px ${color}b3`;
   }
   actualizarLoginTarea();
 }
