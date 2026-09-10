@@ -15833,8 +15833,29 @@ let archivoDriveIdActual = null;
 let carpetaDriveIdActual = null;
 let archivoNombreActual = null; // para nombrar la carpeta "<glb> - vistas guardadas"
 
+// Si llega un segundo 'abrirGLB' mientras el primero sigue en vuelo
+// (ej. el usuario ve que se traba, vuelve atrás y toca OTRO archivo,
+// o toca dos veces por las dudas) — ambas ejecuciones del handler de
+// abajo compartían el mismo estado global (importRawData,
+// currentGlbData, el flag importStep2, glbSelectedZones) sin ningún
+// aislamiento entre sí. Si la primera carga (la trabada) recién
+// terminaba de parsear DESPUÉS de que la segunda ya arrancó, el poll
+// del handler viejo veía "importStep2 en pantalla" (puesto ahí por el
+// archivo NUEVO) y confirmaba la importación usando currentGlbData —
+// que para ese entonces ya apuntaba al archivo nuevo, no al que ese
+// handler estaba esperando. Resultado: "se traba con el archivo A,
+// pero abre el archivo B" tal como lo reportó el usuario.
+//
+// _cargaGlbSeq es un número de secuencia: cada 'abrirGLB' se queda con
+// su propio número al arrancar, y antes de cualquier paso que TOQUE
+// estado compartido o la UI (overlay, click de confirmar) verifica que
+// siga siendo la carga más nueva — si no, se abandona en silencio (un
+// `return` simple, sin tocar nada que ya no le pertenece).
+let _cargaGlbSeq = 0;
+
 window.addEventListener('message', async (e) => {
   if (!e.data || e.data.tipo !== 'abrirGLB') return;
+  const miCargaSeq = ++_cargaGlbSeq;
   const { url, nombre, fileId, appBaseUrl, camPos, camTarget, explode, driveApiKey, archivoDriveId, carpetaDriveId } = e.data;
   archivoActualFileId = fileId || null;
   appBaseUrlActual = appBaseUrl || null;
@@ -15859,8 +15880,10 @@ window.addEventListener('message', async (e) => {
     if (!buffer) {
       // Sin buffer directo (p.ej. viene de Drive u otra fuente remota) — bajar por URL
       const resp = await fetch(url);
+      if (miCargaSeq !== _cargaGlbSeq) return; // una carga más nueva ya reemplazó esta — abandonar en silencio
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       buffer = await resp.arrayBuffer();
+      if (miCargaSeq !== _cargaGlbSeq) return;
     }
     const ext = (nombre || url || '').split('.').pop().toLowerCase();
     if (!['glb', 'stl', 'step', 'stp'].includes(ext)) throw new Error('Formato no soportado: .' + ext);
@@ -15886,8 +15909,10 @@ window.addEventListener('message', async (e) => {
     const timeoutMs = (ext === 'step' || ext === 'stp') ? 180000 : 90000;
     const t0 = Date.now();
     while (step2.style.display !== 'block' && Date.now() - t0 < timeoutMs) {
+      if (miCargaSeq !== _cargaGlbSeq) return; // otra carga más nueva tomó la posta — no seguir esperando ni tocar nada de la suya
       await new Promise(r => setTimeout(r, 50));
     }
+    if (miCargaSeq !== _cargaGlbSeq) return;
     if (step2.style.display !== 'block') {
       throw new Error('Tiempo de espera agotado al procesar el archivo (puede ser muy grande para este dispositivo)');
     }
@@ -15918,6 +15943,7 @@ window.addEventListener('message', async (e) => {
       }
     }
   } catch (err) {
+    if (miCargaSeq !== _cargaGlbSeq) return; // una carga más nueva ya está al mando — no pisarle el overlay con el error de esta
     console.error('Error cargando modelo desde PlantView:', err);
     // Antes se ocultaba en 2.5s — muy poco para leerlo, quedaba una pantalla
     // vacía sin pista de qué pasó. Se deja más tiempo en pantalla.
