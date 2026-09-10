@@ -1480,11 +1480,12 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
       <!-- Fuente de datos: agrupa conectar carpeta local / Drive / desvincular.
            Desvincular (destructivo) ya no convive al lado de refresh (frecuente). -->
       <div id="fuente-menu-wrap" style="position:relative;flex:none">
-      <button class="btn-icon" id="btn-fuente-menu" type="button" aria-label="Fuente de datos" aria-haspopup="true" aria-expanded="false" title="Fuente de datos">
+      <button class="btn-icon" id="btn-fuente-menu" type="button" aria-label="Fuente de datos" aria-haspopup="true" aria-expanded="false" title="Fuente de datos" style="position:relative">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
           <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
           <line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/>
         </svg>
+        <span id="fuenteStatusDot" style="position:absolute;top:2px;right:2px;width:6px;height:6px;border-radius:50%;background:#e0505b;box-shadow:0 0 3px rgba(224,80,91,.7)"></span>
       </button>
       <div id="fuente-menu">
       <button id="btn-elegir-carpeta" type="button" style="
@@ -2924,6 +2925,17 @@ function renderCarpetas(filtro) {
 
   const btnDesvincular = document.getElementById("btn-desvincular-carpeta");
   if (btnDesvincular) btnDesvincular.style.display = carpetasOrden.length ? "flex" : "none";
+
+  // Punto de estado en el ícono colapsado del menú "Fuente de datos" —
+  // mismo criterio que btnDesvincular de arriba (¿hay alguna carpeta
+  // conectada, local o Drive?), así se ve sin tener que abrir el menú.
+  const fuenteDot = document.getElementById("fuenteStatusDot");
+  if (fuenteDot) {
+    const conectado = carpetasOrden.length > 0;
+    const color = conectado ? "#3ddc84" : "#e0505b";
+    fuenteDot.style.background = color;
+    fuenteDot.style.boxShadow = `0 0 3px ${color}b3`;
+  }
 
   if (!carpetasOrden.length) {
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1; padding:32px 20px">
