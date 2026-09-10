@@ -11315,6 +11315,27 @@ function formatBytes(b){if(b<1024)return b+'B';if(b<1048576)return(b/1024).toFix
 
 // ── THREE.JS SETUP ───────────────────────────────────────────────────
 const _isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)&&!window.MSStream;
+const _esMovil=/Android|iPad|iPhone|iPod|Mobile/i.test(navigator.userAgent);
+
+// Cuenta triángulos de un glTF ya parseado (JSON puro, sin decodificar
+// ni Draco ni geometría — usa el count de los accessors, que existe
+// aunque la primitiva esté comprimida). Sirve para avisar ANTES de
+// intentar construir la escena si el modelo es tan pesado que puede
+// colgarse por falta de memoria en el dispositivo — ver el chequeo en
+// el handler de importConfirmBtn.
+function contarTrianglosGLB(gltf){
+  let total=0;
+  (gltf.meshes||[]).forEach(mesh=>{
+    (mesh.primitives||[]).forEach(prim=>{
+      if(prim.mode!==undefined&&prim.mode!==4)return; // solo TRIANGLES
+      const idxAcc=prim.indices!==undefined?gltf.accessors[prim.indices]:null;
+      const posAcc=prim.attributes&&prim.attributes.POSITION!==undefined?gltf.accessors[prim.attributes.POSITION]:null;
+      const count=idxAcc?idxAcc.count:(posAcc?posAcc.count:0);
+      total+=Math.floor(count/3);
+    });
+  });
+  return total;
+}
 const renderer=new THREE.WebGLRenderer({
   canvas:document.getElementById('cv'),
   antialias:true,
@@ -15663,6 +15684,23 @@ document.getElementById('importConfirmBtn').addEventListener('click', async ()=>
   if(!importRawData?.glbParsed||glbSelectedZones.size===0)return;
   currentGlbData=importRawData.glbParsed;
   const selectedIndices=[...glbSelectedZones];
+
+  // Aviso preventivo en mobile: un modelo con millones de triángulos
+  // puede directamente colgar el dispositivo al decodificar/construir
+  // la geometría (sin ni siquiera tirar un error JS atrapable — a
+  // veces el sistema operativo mata la pestaña por memoria antes de
+  // que el catch de abajo llegue a correr). Mejor avisar ANTES de
+  // arrancar que dejar al usuario mirando el visor vacío para siempre.
+  const totalTris=contarTrianglosGLB(currentGlbData.gltf);
+  if(_esMovil&&totalTris>5000000){
+    const continuar=confirm(
+      `Este modelo tiene ${(totalTris/1e6).toFixed(1)} millones de triángulos — en este dispositivo puede no llegar a cargar por falta de memoria.\n\n`+
+      `Recomendado: cerrá esto y comprimilo primero con "Reducir triángulos" desde Files (icono de caja en la lista de archivos).\n\n`+
+      `¿Igual querés intentar cargarlo ahora?`
+    );
+    if(!continuar)return;
+  }
+
   closeImport();
   resetImportUI();
 
@@ -15674,7 +15712,18 @@ document.getElementById('importConfirmBtn').addEventListener('click', async ()=>
 
   await waitForDraco();
 
-  buildSceneFromGLB(currentGlbData, selectedIndices);
+  // Watchdog: si buildSceneFromGLB no largó ni un error ni terminó en
+  // varios minutos, algo se colgó (WASM del decoder, memoria, etc.) —
+  // mejor decirlo explícito que dejar el overlay de carga girando para
+  // siempre sin ninguna pista de qué pasó.
+  let terminado=false;
+  buildSceneFromGLB(currentGlbData, selectedIndices).finally(()=>{terminado=true;});
+  setTimeout(()=>{
+    if(terminado)return;
+    if(lm)lm.textContent='⚠️ Esto está tardando demasiado — probablemente el modelo es muy pesado para este dispositivo. Probá comprimirlo con "Reducir triángulos" desde Files.';
+    const loadBar=document.getElementById('loadBar');
+    if(loadBar)loadBar.style.background='#e08030';
+  },120000);
 });
 
 // Confirm STL
