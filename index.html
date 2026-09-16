@@ -1325,6 +1325,14 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 .sketch-tool svg { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .sketch-tool.color-swatch { padding: 0; overflow: hidden; position: relative; }
 .sketch-tool.color-swatch input[type=color] { position: absolute; inset: -4px; width: 46px; height: 46px; border: none; padding: 0; cursor: pointer; }
+.sketch-tool.sketch-select { width: auto; padding: 0 6px; font-size: 11px; -webkit-appearance: none; appearance: none; }
+.sketch-tool:disabled { opacity: .4; }
+.sketch-grid-overlay {
+  position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .15s;
+  background-image: linear-gradient(to right, rgba(128,128,128,.35) 1px, transparent 1px), linear-gradient(to bottom, rgba(128,128,128,.35) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.sketch-grid-overlay.show { opacity: 1; }
 .sketch-footer {
   flex: none; display: flex; gap: 8px; padding: 10px;
   background: var(--surface); border-top: 1px solid var(--line);
@@ -1781,18 +1789,36 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
           </div>
           <div id="sketch-body">
             <canvas id="sketch-canvas"></canvas>
+            <div id="sketch-grid" class="sketch-grid-overlay"></div>
           </div>
           <div class="sketch-toolbar">
             <button class="sketch-tool" data-tool="select" title="Seleccionar / mover vista (arrastrá el fondo)"><svg viewBox="0 0 24 24"><path d="m3 3 7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg></button>
             <button class="sketch-tool" data-tool="pencil" title="Lápiz"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></button>
-            <button class="sketch-tool" data-tool="line" title="Línea"><svg viewBox="0 0 24 24"><line x1="5" y1="19" x2="19" y2="5"/></svg></button>
+            <button class="sketch-tool" data-tool="line" title="Línea (se ajusta a 0°/45°/90°)"><svg viewBox="0 0 24 24"><line x1="5" y1="19" x2="19" y2="5"/></svg></button>
+            <button class="sketch-tool" data-tool="arrow" title="Flecha (se ajusta a 0°/45°/90°)"><svg viewBox="0 0 24 24"><line x1="5" y1="19" x2="19" y2="5"/><path d="M19 5v6M19 5h-6"/></svg></button>
             <button class="sketch-tool" data-tool="rect" title="Rectángulo"><svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="1"/></svg></button>
             <button class="sketch-tool" data-tool="text" title="Texto"><svg viewBox="0 0 24 24"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg></button>
-            <button class="sketch-tool" data-tool="measure" title="Medición"><svg viewBox="0 0 24 24"><path d="M21 6H3M21 12H3M21 18H3"/><line x1="9" y1="3" x2="9" y2="21"/></svg></button>
+            <button class="sketch-tool" data-tool="measure" title="Medición (calculá área en rectángulos ya calibrados)"><svg viewBox="0 0 24 24"><path d="M21 6H3M21 12H3M21 18H3"/><line x1="9" y1="3" x2="9" y2="21"/></svg></button>
             <button class="sketch-tool" data-tool="eraser" title="Goma — tocá o arrastrá sobre lo que quieras borrar"><svg viewBox="0 0 24 24"><path d="M20 20H8L3 15a2 2 0 0 1 0-2.8l8-8a2 2 0 0 1 2.8 0l6 6a2 2 0 0 1 0 2.8L14 19"/><line x1="8" y1="20" x2="14" y2="14"/></svg></button>
             <button class="sketch-tool color-swatch" id="sketch-color-btn" title="Color"><input type="color" id="sketch-color-input" value="#ff3b30"></button>
+            <select class="sketch-tool sketch-select" id="sketch-stroke-width" title="Grosor de línea">
+              <option value="1">1px</option>
+              <option value="2" selected>2px</option>
+              <option value="4">4px</option>
+              <option value="6">6px</option>
+              <option value="10">10px</option>
+            </select>
+            <select class="sketch-tool sketch-select" id="sketch-font-size" title="Tamaño de texto">
+              <option value="14">14</option>
+              <option value="20" selected>20</option>
+              <option value="28">28</option>
+              <option value="36">36</option>
+              <option value="48">48</option>
+            </select>
             <button class="sketch-tool" id="sketch-undo" title="Deshacer"><svg viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M3 13a9 9 0 1 0 3-7.7L3 8"/></svg></button>
+            <button class="sketch-tool" id="sketch-redo" title="Rehacer"><svg viewBox="0 0 24 24"><path d="M21 7v6h-6"/><path d="M21 13a9 9 0 1 1-3-7.7L21 8"/></svg></button>
             <button class="sketch-tool" id="sketch-clear" title="Borrar todo"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
+            <button class="sketch-tool" id="sketch-grid-toggle" title="Grilla de referencia (no se exporta)"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="1"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg></button>
             <button class="sketch-tool" id="sketch-zoom-out" title="Alejar"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
             <button class="sketch-tool" id="sketch-zoom-in" title="Acercar"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
             <button class="sketch-tool" id="sketch-attach" title="Adjuntar imagen / cámara"><svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7l1.5-3h5L16 7"/><circle cx="12" cy="14" r="3.5"/></svg></button>
@@ -9282,19 +9308,31 @@ function toast(msg, dur = 2200) {
 }
 
 // ── CROQUIS (dibujo/anotación sobre imagen o lienzo en blanco) ──────
-// Vive en la pestaña PDF/IMG: permite dibujar líneas, rectángulos, texto,
-// freehand y mediciones calibradas sobre la imagen abierta, o croquizar
-// desde cero cuando no hay ningún archivo cargado — útil para relevamiento
-// en planta sin tener que croquizar en papel.
+// Vive en la pestaña PDF/IMG: permite dibujar líneas, flechas, rectángulos,
+// texto, freehand y mediciones calibradas (con área) sobre la imagen
+// abierta, o croquizar desde cero cuando no hay ningún archivo cargado —
+// útil para relevamiento en planta sin tener que croquizar en papel.
 let sketchCanvasObj = null;
 let sketchTool = "pencil";
 let sketchColor = "#ff3b30";
-let sketchHistory = [];
+let sketchStrokeWidth = 2;
+let sketchFontSize = 20;
 let sketchDrawingShape = null;
 let sketchStartPt = null;
-let sketchScalePxPerUnit = null;
+let sketchScalePxPerUnit = null;   // px en pantalla por unidad real (para esta sesión/zoom)
+let sketchImgPxPerUnit = null;     // normalizado a la imagen de fondo — lo que se persiste
 let sketchUnitLabel = "m";
 let sketchModoImagen = false; // true = guardar reemplaza visor-imagen; false = descarga PNG
+let sketchBgImageScale = 1;   // escala aplicada a la imagen de fondo al ajustarla al canvas
+let sketchDraftId = null;     // clave para persistir/retomar este croquis
+let sketchAttachCount = 0;
+
+// Undo/redo real: pila de snapshots del canvas completo (JSON), no solo
+// "sacar el último objeto agregado" — cubre mover/redimensionar/editar
+// texto y borrar con la goma, y permite Rehacer.
+let sketchStates = [];
+let sketchStateIndex = -1;
+let sketchApplyingHistory = false;
 
 function cargarFabricJS() {
   if (window.fabric) return Promise.resolve();
@@ -9317,7 +9355,7 @@ function sketchSetTool(tool) {
   // Selection rectangle (rubber-band) desactivado: arrastrar sobre el fondo
   // vacío en la herramienta Seleccionar se usa para desplazar la vista (pan).
   sketchCanvasObj.selection = false;
-  sketchCanvasObj.forEachObject(o => o.selectable = (tool === "select"));
+  sketchActualizarSelectable();
   sketchCanvasObj.defaultCursor = (tool === "eraser") ? "crosshair" : "default";
   sketchCanvasObj.hoverCursor = (tool === "eraser") ? "crosshair" : "move";
   if (tool !== "select") {
@@ -9329,29 +9367,124 @@ function sketchSetTool(tool) {
     sketchCanvasObj.discardActiveObject();
   }
   if (tool === "pencil") {
-    sketchCanvasObj.freeDrawingBrush.width = 3;
+    sketchCanvasObj.freeDrawingBrush.width = sketchStrokeWidth;
     sketchCanvasObj.freeDrawingBrush.color = sketchColor;
   }
   sketchCanvasObj.requestRenderAll();
 }
 
-// Borra el objeto tocado con la goma y lo saca también del historial de
-// deshacer (si quedara ahí, "Deshacer" podría volver a agregarlo).
-function sketchBorrarObjeto(obj) {
-  if (!obj || !sketchCanvasObj) return;
-  sketchCanvasObj.remove(obj);
-  const idx = sketchHistory.indexOf(obj);
-  if (idx !== -1) sketchHistory.splice(idx, 1);
+// El fondo (isBg) nunca es seleccionable/evented; el resto sigue la
+// herramienta activa. Se reaplica tras cambiar de herramienta y tras
+// cargar un snapshot de deshacer/rehacer o un borrador guardado.
+function sketchActualizarSelectable() {
+  if (!sketchCanvasObj) return;
+  sketchCanvasObj.forEachObject(o => {
+    if (o.isBg) { o.selectable = false; o.evented = false; }
+    else o.selectable = (sketchTool === "select");
+  });
 }
+
+// Snap a 0°/45°/90°/135°… al dibujar líneas/flechas/mediciones — mucho más
+// fácil de trazar a mano alzada para relevamiento en planta que un ángulo
+// libre exacto.
+function sketchSnapPoint(start, p) {
+  const dx = p.x - start.x, dy = p.y - start.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 1) return p;
+  const step = Math.PI / 4;
+  const angle = Math.round(Math.atan2(dy, dx) / step) * step;
+  return { x: start.x + Math.cos(angle) * dist, y: start.y + Math.sin(angle) * dist };
+}
+
+// ── Deshacer/Rehacer ──────────────────────────────────────────────────
+function sketchSnapshot() {
+  if (!sketchCanvasObj || sketchApplyingHistory) return;
+  const json = JSON.stringify(sketchCanvasObj.toJSON(["selectable", "evented", "isBg"]));
+  if (sketchStates[sketchStateIndex] === json) return;
+  sketchStates = sketchStates.slice(0, sketchStateIndex + 1);
+  sketchStates.push(json);
+  sketchStateIndex = sketchStates.length - 1;
+  sketchActualizarBotonesHistorial();
+  sketchGuardarDraft();
+}
+function sketchActualizarBotonesHistorial() {
+  const undoBtn = document.getElementById("sketch-undo");
+  const redoBtn = document.getElementById("sketch-redo");
+  if (undoBtn) undoBtn.disabled = sketchStateIndex <= 0;
+  if (redoBtn) redoBtn.disabled = sketchStateIndex >= sketchStates.length - 1;
+}
+function sketchCargarEstado(json) {
+  sketchApplyingHistory = true;
+  sketchCanvasObj.loadFromJSON(json, () => {
+    sketchActualizarSelectable();
+    sketchCanvasObj.requestRenderAll();
+    sketchActualizarBotonesHistorial();
+    sketchApplyingHistory = false;
+  });
+}
+function sketchUndo() {
+  if (sketchStateIndex <= 0) return;
+  sketchStateIndex--;
+  sketchCargarEstado(sketchStates[sketchStateIndex]);
+  sketchGuardarDraft();
+}
+function sketchRedo() {
+  if (sketchStateIndex >= sketchStates.length - 1) return;
+  sketchStateIndex++;
+  sketchCargarEstado(sketchStates[sketchStateIndex]);
+  sketchGuardarDraft();
+}
+
+// ── Borrador (retomar edición más tarde) ────────────────────────────
+function sketchDraftKey() { return "pv_croquis_draft::" + (sketchDraftId || "__blank__"); }
+function sketchGuardarDraft() {
+  if (!sketchCanvasObj) return;
+  try {
+    localStorage.setItem(sketchDraftKey(), JSON.stringify({
+      ts: Date.now(),
+      json: sketchStates[sketchStateIndex],
+      imgPxPerUnit: sketchImgPxPerUnit,
+      unidad: sketchUnitLabel,
+    }));
+  } catch (err) { /* localStorage lleno o bloqueado — el croquis sigue funcionando igual */ }
+}
+function sketchBorrarDraft() {
+  try { localStorage.removeItem(sketchDraftKey()); } catch (err) {}
+}
+function sketchLeerDraft() {
+  try {
+    const raw = localStorage.getItem(sketchDraftKey());
+    return raw ? JSON.parse(raw) : null;
+  } catch (err) { return null; }
+}
+
+// ── Escala calibrada persistente por documento ──────────────────────
+function sketchEscalaKey() { return "pv_croquis_escala::" + (sketchDraftId || "__blank__"); }
+function sketchGuardarEscala() {
+  if (!sketchDraftId || sketchImgPxPerUnit == null) return;
+  try { localStorage.setItem(sketchEscalaKey(), JSON.stringify({ imgPxPerUnit: sketchImgPxPerUnit, unidad: sketchUnitLabel })); } catch (err) {}
+}
+function sketchLeerEscala() {
+  if (!sketchDraftId) return null;
+  try {
+    const raw = localStorage.getItem(sketchEscalaKey());
+    return raw ? JSON.parse(raw) : null;
+  } catch (err) { return null; }
+}
+
+function sketchHayTrabajoSinGuardar() { return sketchStateIndex > 0; }
 
 // bgDataUrl null = lienzo en blanco. modoImagen indica si "Guardar" debe
 // reemplazar la imagen del visor (true) o descargar un PNG suelto (false).
 async function abrirCroquis(bgDataUrl, nombre, modoImagen) {
   try { await cargarFabricJS(); } catch (err) { toast("❌ " + err.message); return; }
   sketchModoImagen = !!modoImagen;
-  sketchHistory = [];
   sketchScalePxPerUnit = null;
+  sketchImgPxPerUnit = null;
   sketchAttachCount = 0;
+  sketchDraftId = nombre || null;
+  sketchStates = [];
+  sketchStateIndex = -1;
   document.getElementById("sketch-title").textContent = nombre ? ("Croquis · " + nombre) : "Croquis en blanco";
   const modal = document.getElementById("sketch-modal");
   modal.classList.add("show");
@@ -9368,22 +9501,47 @@ async function abrirCroquis(bgDataUrl, nombre, modoImagen) {
   fabric.Object.prototype.padding = 8;
   sketchCanvasObj.setWidth(w);
   sketchCanvasObj.setHeight(h);
-  if (bgDataUrl) {
+
+  const draft = sketchLeerDraft();
+  let resumido = false;
+  if (draft && draft.json && confirm("Hay un croquis sin terminar para este archivo — ¿querés continuarlo donde lo dejaste?")) {
+    await new Promise(resolve => sketchCanvasObj.loadFromJSON(draft.json, resolve));
+    sketchActualizarSelectable();
+    sketchImgPxPerUnit = draft.imgPxPerUnit || null;
+    sketchUnitLabel = draft.unidad || "m";
+    const bg = sketchCanvasObj.getObjects().find(o => o.isBg);
+    if (bg) sketchBgImageScale = bg.scaleX || 1;
+    resumido = true;
+  } else if (bgDataUrl) {
     await new Promise(resolve => {
       fabric.Image.fromURL(bgDataUrl, (img) => {
         const scale = Math.min(w / img.width, h / img.height, 1);
-        img.set({ left: (w - img.width * scale) / 2, top: (h - img.height * scale) / 2, scaleX: scale, scaleY: scale, selectable: false, evented: false });
+        sketchBgImageScale = scale;
+        img.set({ left: (w - img.width * scale) / 2, top: (h - img.height * scale) / 2, scaleX: scale, scaleY: scale, selectable: false, evented: false, isBg: true });
         sketchCanvasObj.add(img);
         sketchCanvasObj.sendToBack(img);
         resolve();
       }, { crossOrigin: "anonymous" });
     });
   }
-  sketchCanvasObj.on("object:added", (e) => {
-    if (e.target && e.target !== sketchCanvasObj.backgroundImage) sketchHistory.push(e.target);
-  });
+
+  // Escala ya calibrada antes para este mismo documento — evita tener que
+  // recalibrar en cada visita si ya se sabe la equivalencia px/unidad.
+  if (!resumido) {
+    const escalaGuardada = sketchLeerEscala();
+    if (escalaGuardada) {
+      sketchImgPxPerUnit = escalaGuardada.imgPxPerUnit;
+      sketchUnitLabel = escalaGuardada.unidad || "m";
+    }
+  }
+  if (sketchImgPxPerUnit != null) sketchScalePxPerUnit = sketchImgPxPerUnit * sketchBgImageScale;
+
+  sketchCanvasObj.on("object:modified", sketchSnapshot);
+  sketchCanvasObj.on("path:created", sketchSnapshot);
+  sketchCanvasObj.on("text:editing:exited", sketchSnapshot);
   sketchWireDrawTools();
   sketchSetTool("pencil");
+  sketchSnapshot(); // estado inicial — deja a "Deshacer" volver hasta acá
 }
 
 function sketchWireDrawTools() {
@@ -9393,59 +9551,69 @@ function sketchWireDrawTools() {
   c.on("mouse:down", (opt) => {
     if (sketchTool !== "eraser") return;
     sketchBorrando = true;
-    if (opt.target) sketchBorrarObjeto(opt.target);
+    if (opt.target && !opt.target.isBg) { c.remove(opt.target); sketchSnapshot(); }
   });
   c.on("mouse:move", (opt) => {
     if (sketchTool !== "eraser" || !sketchBorrando) return;
-    if (opt.target) sketchBorrarObjeto(opt.target);
+    if (opt.target && !opt.target.isBg) { c.remove(opt.target); sketchSnapshot(); }
   });
   c.on("mouse:up", () => { sketchBorrando = false; });
   c.on("mouse:down", (opt) => {
-    if (sketchTool !== "line" && sketchTool !== "rect" && sketchTool !== "measure") return;
+    if (sketchTool !== "line" && sketchTool !== "arrow" && sketchTool !== "rect" && sketchTool !== "measure") return;
     // Si el click cayó sobre un objeto existente (o sus manijas), es una
     // interacción con ese objeto, no el arranque de una figura nueva.
     if (opt.target || opt.transform) return;
     const p = c.getPointer(opt.e);
     sketchStartPt = p;
     if (sketchTool === "rect") {
-      sketchDrawingShape = new fabric.Rect({ left: p.x, top: p.y, width: 1, height: 1, fill: "transparent", stroke: sketchColor, strokeWidth: 2, selectable: false, evented: false });
+      sketchDrawingShape = new fabric.Rect({ left: p.x, top: p.y, width: 1, height: 1, fill: "transparent", stroke: sketchColor, strokeWidth: sketchStrokeWidth, selectable: false, evented: false });
     } else {
-      sketchDrawingShape = new fabric.Line([p.x, p.y, p.x, p.y], { stroke: sketchColor, strokeWidth: 2, selectable: false, evented: false });
+      sketchDrawingShape = new fabric.Line([p.x, p.y, p.x, p.y], { stroke: sketchColor, strokeWidth: sketchStrokeWidth, selectable: false, evented: false });
     }
     c.add(sketchDrawingShape);
   });
   c.on("mouse:move", (opt) => {
     if (!sketchDrawingShape || !sketchStartPt) return;
-    const p = c.getPointer(opt.e);
+    let p = c.getPointer(opt.e);
     if (sketchTool === "rect") {
       sketchDrawingShape.set({ width: Math.abs(p.x - sketchStartPt.x), height: Math.abs(p.y - sketchStartPt.y), left: Math.min(p.x, sketchStartPt.x), top: Math.min(p.y, sketchStartPt.y) });
     } else {
+      if (sketchTool === "line" || sketchTool === "arrow" || sketchTool === "measure") p = sketchSnapPoint(sketchStartPt, p);
       sketchDrawingShape.set({ x2: p.x, y2: p.y });
     }
     c.requestRenderAll();
   });
   c.on("mouse:up", () => {
     if (!sketchDrawingShape) return;
-    const shape = sketchDrawingShape;
-    shape.set({ selectable: true, evented: true });
-    shape.setCoords(); // sin esto el objeto queda con coordenadas de hit-test
-    // desactualizadas — no se puede volver a seleccionar ni redimensionar.
+    let shape = sketchDrawingShape;
+    shape.setCoords();
     sketchDrawingShape = null;
-    if (sketchTool === "measure" && shape.type === "line") {
-      sketchAplicarMedicion(shape);
-    } else if (!sketchHistory.includes(shape)) {
-      sketchHistory.push(shape);
-    }
     sketchStartPt = null;
+    if (sketchTool === "measure" && shape.type === "line") {
+      shape.set({ selectable: true, evented: true });
+      sketchAplicarMedicion(shape);
+    } else if (sketchTool === "arrow" && shape.type === "line") {
+      sketchConvertirEnFlecha(shape);
+    } else if (sketchTool === "rect") {
+      shape.set({ selectable: true, evented: true });
+      shape.setCoords();
+      sketchAplicarAreaSiCorresponde(shape);
+      sketchSnapshot();
+    } else {
+      shape.set({ selectable: true, evented: true });
+      shape.setCoords();
+      sketchSnapshot();
+    }
     c.requestRenderAll();
   });
   c.on("mouse:down", (opt) => {
     if (sketchTool !== "text") return;
     const p = c.getPointer(opt.e);
-    const t = new fabric.IText("Texto", { left: p.x, top: p.y, fill: sketchColor, fontSize: 20 });
+    const t = new fabric.IText("Texto", { left: p.x, top: p.y, fill: sketchColor, fontSize: sketchFontSize });
     c.add(t);
     c.setActiveObject(t);
     t.enterEditing();
+    t.selectAll();
   });
   // Cotas y textos se editan con un solo click/tap (no hace falta doble
   // click) — entra directo en edición con todo el texto seleccionado,
@@ -9516,23 +9684,56 @@ function sketchZoomBy(factor) {
   sketchCanvasObj.zoomToPoint(center, zoom);
 }
 
+// Convierte la línea recién trazada con la herramienta Flecha en un grupo
+// línea+punta de flecha (triángulo orientado según el ángulo del trazo).
+function sketchConvertirEnFlecha(line) {
+  const dx = line.x2 - line.x1, dy = line.y2 - line.y1;
+  if (Math.hypot(dx, dy) < 2) { sketchCanvasObj.remove(line); sketchCanvasObj.requestRenderAll(); return; }
+  const angleDeg = Math.atan2(dy, dx) * 180 / Math.PI;
+  const headLen = 10 + sketchStrokeWidth * 2.5;
+  const head = new fabric.Triangle({
+    left: line.x2, top: line.y2, originX: "center", originY: "center",
+    width: headLen, height: headLen, fill: sketchColor, angle: angleDeg + 90,
+  });
+  sketchCanvasObj.remove(line);
+  const body = new fabric.Line([line.x1, line.y1, line.x2, line.y2], { stroke: sketchColor, strokeWidth: sketchStrokeWidth });
+  const group = new fabric.Group([body, head], { selectable: true, evented: true });
+  sketchCanvasObj.add(group);
+  sketchCanvasObj.requestRenderAll();
+  sketchSnapshot();
+}
+
+// Si ya hay una escala calibrada, un rectángulo recién dibujado también
+// muestra su área real (no solo las líneas de medición muestran distancia).
+function sketchAplicarAreaSiCorresponde(rect) {
+  if (!sketchScalePxPerUnit) return;
+  const areaReal = (rect.width / sketchScalePxPerUnit) * (rect.height / sketchScalePxPerUnit);
+  const label = new fabric.IText(areaReal.toFixed(2) + " " + sketchUnitLabel + "²", {
+    left: rect.left + rect.width / 2, top: rect.top + rect.height / 2, fontSize: 14, fill: sketchColor,
+    backgroundColor: "rgba(255,255,255,.85)", originX: "center", originY: "center",
+  });
+  sketchCanvasObj.add(label);
+}
+
 function sketchAplicarMedicion(line) {
   const dx = line.x2 - line.x1, dy = line.y2 - line.y1;
   const pxLen = Math.sqrt(dx * dx + dy * dy);
-  if (pxLen < 2) { sketchCanvasObj.remove(line); return; }
+  if (pxLen < 2) { sketchCanvasObj.remove(line); sketchCanvasObj.requestRenderAll(); return; }
   if (!sketchScalePxPerUnit) {
     const real = prompt("Longitud real de esta línea (en " + sketchUnitLabel + "):", "1");
     const val = parseFloat((real || "").replace(",", "."));
-    if (!val || val <= 0) { sketchCanvasObj.remove(line); return; }
+    if (!val || val <= 0) { sketchCanvasObj.remove(line); sketchCanvasObj.requestRenderAll(); return; }
     sketchScalePxPerUnit = pxLen / val;
+    sketchImgPxPerUnit = sketchScalePxPerUnit / (sketchBgImageScale || 1);
+    sketchGuardarEscala();
   }
   const distReal = pxLen / sketchScalePxPerUnit;
   const label = new fabric.IText(distReal.toFixed(2) + " " + sketchUnitLabel, {
     left: (line.x1 + line.x2) / 2, top: (line.y1 + line.y2) / 2 - 14, fontSize: 14, fill: sketchColor, backgroundColor: "rgba(255,255,255,.85)"
   });
   sketchCanvasObj.add(label);
-  sketchHistory.push(line);
-  sketchHistory.push(label);
+  sketchCanvasObj.requestRenderAll();
+  sketchSnapshot();
 }
 
 document.querySelectorAll(".sketch-tool[data-tool]").forEach(btn => {
@@ -9542,24 +9743,35 @@ document.getElementById("sketch-color-input").addEventListener("input", (e) => {
   sketchColor = e.target.value;
   if (sketchCanvasObj && sketchCanvasObj.freeDrawingBrush) sketchCanvasObj.freeDrawingBrush.color = sketchColor;
 });
-document.getElementById("sketch-undo").addEventListener("click", () => {
-  if (!sketchCanvasObj || !sketchHistory.length) return;
-  const last = sketchHistory.pop();
-  sketchCanvasObj.remove(last);
+document.getElementById("sketch-stroke-width").addEventListener("change", (e) => {
+  sketchStrokeWidth = parseInt(e.target.value, 10) || 2;
+  if (sketchCanvasObj && sketchCanvasObj.freeDrawingBrush) sketchCanvasObj.freeDrawingBrush.width = sketchStrokeWidth;
 });
+document.getElementById("sketch-font-size").addEventListener("change", (e) => {
+  sketchFontSize = parseInt(e.target.value, 10) || 20;
+});
+document.getElementById("sketch-undo").addEventListener("click", sketchUndo);
+document.getElementById("sketch-redo").addEventListener("click", sketchRedo);
 document.getElementById("sketch-clear").addEventListener("click", () => {
   if (!sketchCanvasObj) return;
   if (!confirm("¿Borrar todas las anotaciones?")) return;
-  sketchHistory.forEach(o => sketchCanvasObj.remove(o));
-  sketchHistory = [];
+  sketchCanvasObj.getObjects().slice().forEach(o => { if (!o.isBg) sketchCanvasObj.remove(o); });
   sketchScalePxPerUnit = null;
+  sketchImgPxPerUnit = null;
+  sketchCanvasObj.requestRenderAll();
+  sketchSnapshot();
+});
+let sketchGridOn = false;
+document.getElementById("sketch-grid-toggle").addEventListener("click", () => {
+  sketchGridOn = !sketchGridOn;
+  document.getElementById("sketch-grid-toggle").classList.toggle("sel", sketchGridOn);
+  document.getElementById("sketch-grid").classList.toggle("show", sketchGridOn);
 });
 document.getElementById("sketch-zoom-out").addEventListener("click", () => sketchZoomBy(0.8));
 document.getElementById("sketch-zoom-in").addEventListener("click", () => sketchZoomBy(1.25));
 document.getElementById("sketch-attach").addEventListener("click", () => {
   document.getElementById("sketch-attach-input").click();
 });
-let sketchAttachCount = 0;
 document.getElementById("sketch-attach-input").addEventListener("change", (e) => {
   const file = e.target.files[0];
   e.target.value = "";
@@ -9576,18 +9788,29 @@ document.getElementById("sketch-attach-input").addEventListener("change", (e) =>
       img.set({ left: 30 + offset, top: 30 + offset, scaleX: scale, scaleY: scale, selectable: true, evented: true });
       sketchCanvasObj.add(img);
       sketchCanvasObj.setActiveObject(img);
-      sketchHistory.push(img);
       sketchSetTool("select");
+      sketchSnapshot();
     }, { crossOrigin: "anonymous" });
   };
   reader.readAsDataURL(file);
 });
 function cerrarCroquis() {
   document.getElementById("sketch-modal").classList.remove("show");
+  document.getElementById("sketch-grid").classList.remove("show");
+  sketchGridOn = false;
   if (sketchCanvasObj) { sketchCanvasObj.dispose(); sketchCanvasObj = null; window.sketchCanvasObj = null; }
 }
-document.getElementById("sketch-close").onclick = cerrarCroquis;
-document.getElementById("sketch-cancel").onclick = cerrarCroquis;
+// Cancelar/cerrar con trabajo sin guardar pide confirmación — el trabajo
+// sigue disponible como borrador (se puede retomar la próxima vez) salvo
+// que el usuario confirme explícitamente que quiere descartarlo.
+function sketchIntentarCerrar() {
+  if (sketchHayTrabajoSinGuardar()) {
+    if (!confirm("Tenés cambios sin guardar. ¿Salir de todos modos? (vas a poder retomarlos la próxima vez que abras este croquis)")) return;
+  }
+  cerrarCroquis();
+}
+document.getElementById("sketch-close").onclick = sketchIntentarCerrar;
+document.getElementById("sketch-cancel").onclick = sketchIntentarCerrar;
 function sketchDescargarPNG(dataUrl, nombre) {
   const a = document.createElement("a");
   a.href = dataUrl;
@@ -9638,6 +9861,7 @@ document.getElementById("sketch-save").addEventListener("click", async () => {
     sketchDescargarPNG(dataUrl, nombre);
     toast(conectado ? "✓ Croquis descargado" : "✓ Croquis guardado en el dispositivo (no hay sesión de Drive activa)");
   }
+  sketchBorrarDraft();
   cerrarCroquis();
 });
 
@@ -10084,6 +10308,10 @@ canvas{display:block;width:100%;height:100%}
 .sketch-tool svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .sketch-tool.color-swatch{padding:0;overflow:hidden;position:relative}
 .sketch-tool.color-swatch input[type=color]{position:absolute;inset:-4px;width:50px;height:50px;border:none;padding:0;cursor:pointer}
+.sketch-tool.sketch-select{width:auto;padding:0 6px;font-size:11px;-webkit-appearance:none;appearance:none}
+.sketch-tool:disabled{opacity:.4}
+.sketch-grid-overlay{position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .15s;background-image:linear-gradient(to right,rgba(128,128,128,.35) 1px,transparent 1px),linear-gradient(to bottom,rgba(128,128,128,.35) 1px,transparent 1px);background-size:24px 24px}
+.sketch-grid-overlay.show{opacity:1}
 .sketch-footer{display:flex;gap:8px;padding:10px 16px calc(10px + var(--safe-bottom));border-top:1px solid var(--border);background:var(--surf);flex-shrink:0}
 .zoom-controls{position:fixed;right:16px;bottom:calc(112px + var(--safe-bottom));display:flex;flex-direction:column;background:rgba(232,234,239,.92);border:1px solid var(--border);backdrop-filter:blur(12px);border-radius:14px;overflow:hidden;z-index:190;box-shadow:0 2px 12px rgba(0,0,0,.12)}
 .zoom-btn{width:44px;height:44px;background:transparent;border:none;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;-webkit-tap-highlight-color:transparent}
@@ -10859,18 +11087,36 @@ window.onerror=function(msg,src,line){
   </div>
   <div class="sketch-body" id="sketchBody">
     <canvas id="sketchCanvas"></canvas>
+    <div id="sketchGrid" class="sketch-grid-overlay"></div>
   </div>
   <div class="sketch-toolbar">
     <button class="sketch-tool" id="sketchToolSelect" data-tool="select" title="Seleccionar / mover vista (arrastrá el fondo)"><svg viewBox="0 0 24 24"><path d="m3 3 7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg></button>
     <button class="sketch-tool" id="sketchToolPencil" data-tool="pencil" title="Lápiz"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></button>
-    <button class="sketch-tool" id="sketchToolLine" data-tool="line" title="Línea"><svg viewBox="0 0 24 24"><line x1="5" y1="19" x2="19" y2="5"/></svg></button>
+    <button class="sketch-tool" id="sketchToolLine" data-tool="line" title="Línea (se ajusta a 0°/45°/90°)"><svg viewBox="0 0 24 24"><line x1="5" y1="19" x2="19" y2="5"/></svg></button>
+    <button class="sketch-tool" id="sketchToolArrow" data-tool="arrow" title="Flecha (se ajusta a 0°/45°/90°)"><svg viewBox="0 0 24 24"><line x1="5" y1="19" x2="19" y2="5"/><path d="M19 5v6M19 5h-6"/></svg></button>
     <button class="sketch-tool" id="sketchToolRect" data-tool="rect" title="Rectángulo"><svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="1"/></svg></button>
     <button class="sketch-tool" id="sketchToolText" data-tool="text" title="Texto"><svg viewBox="0 0 24 24"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg></button>
-    <button class="sketch-tool" id="sketchToolMeasure" data-tool="measure" title="Medición"><svg viewBox="0 0 24 24"><path d="M21 6H3M21 12H3M21 18H3"/><line x1="9" y1="3" x2="9" y2="21"/></svg></button>
+    <button class="sketch-tool" id="sketchToolMeasure" data-tool="measure" title="Medición (calculá área en rectángulos ya calibrados)"><svg viewBox="0 0 24 24"><path d="M21 6H3M21 12H3M21 18H3"/><line x1="9" y1="3" x2="9" y2="21"/></svg></button>
     <button class="sketch-tool" id="sketchToolEraser" data-tool="eraser" title="Goma — tocá o arrastrá sobre lo que quieras borrar"><svg viewBox="0 0 24 24"><path d="M20 20H8L3 15a2 2 0 0 1 0-2.8l8-8a2 2 0 0 1 2.8 0l6 6a2 2 0 0 1 0 2.8L14 19"/><line x1="8" y1="20" x2="14" y2="14"/></svg></button>
     <button class="sketch-tool color-swatch" id="sketchColorBtn" title="Color"><input type="color" id="sketchColorInput" value="#ff3b30"></button>
+    <select class="sketch-tool sketch-select" id="sketchStrokeWidth" title="Grosor de línea">
+      <option value="1">1px</option>
+      <option value="2" selected>2px</option>
+      <option value="4">4px</option>
+      <option value="6">6px</option>
+      <option value="10">10px</option>
+    </select>
+    <select class="sketch-tool sketch-select" id="sketchFontSize" title="Tamaño de texto">
+      <option value="14">14</option>
+      <option value="20" selected>20</option>
+      <option value="28">28</option>
+      <option value="36">36</option>
+      <option value="48">48</option>
+    </select>
     <button class="sketch-tool" id="sketchUndo" title="Deshacer"><svg viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M3 13a9 9 0 1 0 3-7.7L3 8"/></svg></button>
+    <button class="sketch-tool" id="sketchRedo" title="Rehacer"><svg viewBox="0 0 24 24"><path d="M21 7v6h-6"/><path d="M21 13a9 9 0 1 1-3-7.7L21 8"/></svg></button>
     <button class="sketch-tool" id="sketchClearAll" title="Borrar todo"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
+    <button class="sketch-tool" id="sketchGridToggle" title="Grilla de referencia (no se exporta)"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="1"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg></button>
     <button class="sketch-tool" id="sketchZoomOut" title="Alejar"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
     <button class="sketch-tool" id="sketchZoomIn" title="Acercar"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
     <button class="sketch-tool" id="sketchAttach" title="Adjuntar imagen / cámara"><svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7l1.5-3h5L16 7"/><circle cx="12" cy="14" r="3.5"/></svg></button>
@@ -16101,12 +16347,24 @@ document.getElementById('docModalWhatsapp').onclick=()=>{if(!currentDocViewer)re
 let sketchCanvasObj=null;   // instancia fabric.Canvas
 let sketchTool='pencil';
 let sketchColor='#ff3b30';
-let sketchHistory=[];        // objetos fabric agregados, para deshacer
+let sketchStrokeWidth=2;
+let sketchFontSize=20;
 let sketchDrawingShape=null; // línea/rect en curso de arrastre
 let sketchStartPt=null;
-let sketchScalePxPerUnit=null; // calibración: px por unidad real (medición)
+let sketchScalePxPerUnit=null; // calibración: px en pantalla por unidad real (esta sesión/zoom)
+let sketchImgPxPerUnit=null;   // normalizado a la imagen de fondo — lo que se persiste
 let sketchUnitLabel='m';
 let sketchTargetDoc=null;    // doc de docModal que se está editando (null = croquis en blanco)
+let sketchBgImageScale=1;    // escala aplicada a la imagen de fondo al ajustarla al canvas
+let sketchDraftId=null;      // clave para persistir/retomar este croquis
+let sketchAttachCount=0;
+
+// Undo/redo real: pila de snapshots del canvas completo (JSON), no solo
+// "sacar el último objeto agregado" — cubre mover/redimensionar/editar
+// texto y borrar con la goma, y permite Rehacer.
+let sketchStates=[];
+let sketchStateIndex=-1;
+let sketchApplyingHistory=false;
 
 function cargarFabricJS(){
   if(window.fabric) return Promise.resolve();
@@ -16129,7 +16387,7 @@ function sketchSetTool(tool){
   // Selection rectangle (rubber-band) desactivado: arrastrar sobre el fondo
   // vacío en la herramienta Seleccionar se usa para desplazar la vista (pan).
   sketchCanvasObj.selection=false;
-  sketchCanvasObj.forEachObject(o=>o.selectable=(tool==='select'));
+  sketchActualizarSelectable();
   sketchCanvasObj.defaultCursor=(tool==='eraser')?'crosshair':'default';
   sketchCanvasObj.hoverCursor=(tool==='eraser')?'crosshair':'move';
   if(tool!=='select'){
@@ -16141,27 +16399,129 @@ function sketchSetTool(tool){
     sketchCanvasObj.discardActiveObject();
   }
   if(tool==='pencil'){
-    sketchCanvasObj.freeDrawingBrush.width=3;
+    sketchCanvasObj.freeDrawingBrush.width=sketchStrokeWidth;
     sketchCanvasObj.freeDrawingBrush.color=sketchColor;
   }
   sketchCanvasObj.requestRenderAll();
 }
 
-// Borra el objeto tocado con la goma y lo saca también del historial de
-// deshacer (si quedara ahí, "Deshacer" podría volver a agregarlo).
+// El fondo (isBg) nunca es seleccionable/evented; el resto sigue la
+// herramienta activa. Se reaplica tras cambiar de herramienta y tras
+// cargar un snapshot de deshacer/rehacer o un borrador guardado.
+function sketchActualizarSelectable(){
+  if(!sketchCanvasObj) return;
+  sketchCanvasObj.forEachObject(o=>{
+    if(o.isBg){ o.selectable=false; o.evented=false; }
+    else o.selectable=(sketchTool==='select');
+  });
+}
+
+// Snap a 0°/45°/90°/135°… al dibujar líneas/flechas/mediciones — mucho más
+// fácil de trazar a mano alzada para relevamiento en planta que un ángulo
+// libre exacto.
+function sketchSnapPoint(start,p){
+  const dx=p.x-start.x, dy=p.y-start.y;
+  const dist=Math.hypot(dx,dy);
+  if(dist<1) return p;
+  const step=Math.PI/4;
+  const angle=Math.round(Math.atan2(dy,dx)/step)*step;
+  return { x: start.x+Math.cos(angle)*dist, y: start.y+Math.sin(angle)*dist };
+}
+
+// ── Deshacer/Rehacer ──────────────────────────────────────────────────
+function sketchSnapshot(){
+  if(!sketchCanvasObj||sketchApplyingHistory) return;
+  const json=JSON.stringify(sketchCanvasObj.toJSON(['selectable','evented','isBg']));
+  if(sketchStates[sketchStateIndex]===json) return;
+  sketchStates=sketchStates.slice(0,sketchStateIndex+1);
+  sketchStates.push(json);
+  sketchStateIndex=sketchStates.length-1;
+  sketchActualizarBotonesHistorial();
+  sketchGuardarDraft();
+}
+function sketchActualizarBotonesHistorial(){
+  const undoBtn=document.getElementById('sketchUndo');
+  const redoBtn=document.getElementById('sketchRedo');
+  if(undoBtn) undoBtn.disabled=sketchStateIndex<=0;
+  if(redoBtn) redoBtn.disabled=sketchStateIndex>=sketchStates.length-1;
+}
+function sketchCargarEstado(json){
+  sketchApplyingHistory=true;
+  sketchCanvasObj.loadFromJSON(json, ()=>{
+    sketchActualizarSelectable();
+    sketchCanvasObj.requestRenderAll();
+    sketchActualizarBotonesHistorial();
+    sketchApplyingHistory=false;
+  });
+}
+function sketchUndo(){
+  if(sketchStateIndex<=0) return;
+  sketchStateIndex--;
+  sketchCargarEstado(sketchStates[sketchStateIndex]);
+  sketchGuardarDraft();
+}
+function sketchRedo(){
+  if(sketchStateIndex>=sketchStates.length-1) return;
+  sketchStateIndex++;
+  sketchCargarEstado(sketchStates[sketchStateIndex]);
+  sketchGuardarDraft();
+}
+
+// ── Borrador (retomar edición más tarde) ────────────────────────────
+function sketchDraftKey(){ return 'pv_croquis_draft::'+(sketchDraftId||'__blank__'); }
+function sketchGuardarDraft(){
+  if(!sketchCanvasObj) return;
+  try{
+    localStorage.setItem(sketchDraftKey(), JSON.stringify({
+      ts: Date.now(),
+      json: sketchStates[sketchStateIndex],
+      imgPxPerUnit: sketchImgPxPerUnit,
+      unidad: sketchUnitLabel,
+    }));
+  }catch(err){ /* localStorage lleno o bloqueado — el croquis sigue funcionando igual */ }
+}
+function sketchBorrarDraft(){
+  try{ localStorage.removeItem(sketchDraftKey()); }catch(err){}
+}
+function sketchLeerDraft(){
+  try{
+    const raw=localStorage.getItem(sketchDraftKey());
+    return raw ? JSON.parse(raw) : null;
+  }catch(err){ return null; }
+}
+
+// ── Escala calibrada persistente por documento ──────────────────────
+function sketchEscalaKey(){ return 'pv_croquis_escala::'+(sketchDraftId||'__blank__'); }
+function sketchGuardarEscala(){
+  if(!sketchDraftId||sketchImgPxPerUnit==null) return;
+  try{ localStorage.setItem(sketchEscalaKey(), JSON.stringify({imgPxPerUnit:sketchImgPxPerUnit, unidad:sketchUnitLabel})); }catch(err){}
+}
+function sketchLeerEscala(){
+  if(!sketchDraftId) return null;
+  try{
+    const raw=localStorage.getItem(sketchEscalaKey());
+    return raw ? JSON.parse(raw) : null;
+  }catch(err){ return null; }
+}
+
+function sketchHayTrabajoSinGuardar(){ return sketchStateIndex>0; }
+
+// Borra el objeto tocado con la goma y toma un snapshot para deshacer.
 function sketchBorrarObjeto(obj){
-  if(!obj||!sketchCanvasObj) return;
+  if(!obj||!sketchCanvasObj||obj.isBg) return;
   sketchCanvasObj.remove(obj);
-  const idx=sketchHistory.indexOf(obj);
-  if(idx!==-1) sketchHistory.splice(idx,1);
+  sketchSnapshot();
 }
 
 async function abrirCroquis(doc){
   try{ await cargarFabricJS(); }catch(err){ toast('❌ '+err.message); return; }
   sketchTargetDoc=doc||null;
-  sketchHistory=[];
   sketchScalePxPerUnit=null;
+  sketchImgPxPerUnit=null;
   sketchAttachCount=0;
+  sketchDraftId=(doc&&doc.name)||null;
+  sketchStates=[];
+  sketchStateIndex=-1;
   document.getElementById('sketchTitle').textContent=doc?('Croquis · '+doc.name):'Croquis en blanco';
   document.getElementById('sketchModal').classList.add('open');
   const body=document.getElementById('sketchBody');
@@ -16177,22 +16537,47 @@ async function abrirCroquis(doc){
   fabric.Object.prototype.padding = 8;
   sketchCanvasObj.setWidth(w);
   sketchCanvasObj.setHeight(h);
-  if(doc && doc.dataUrl && doc.type!=='pdf'){
+
+  const draft=sketchLeerDraft();
+  let resumido=false;
+  if(draft && draft.json && confirm('Hay un croquis sin terminar para este archivo — ¿querés continuarlo donde lo dejaste?')){
+    await new Promise(resolve=>sketchCanvasObj.loadFromJSON(draft.json, resolve));
+    sketchActualizarSelectable();
+    sketchImgPxPerUnit=draft.imgPxPerUnit||null;
+    sketchUnitLabel=draft.unidad||'m';
+    const bg=sketchCanvasObj.getObjects().find(o=>o.isBg);
+    if(bg) sketchBgImageScale=bg.scaleX||1;
+    resumido=true;
+  }else if(doc && doc.dataUrl && doc.type!=='pdf'){
     await new Promise(resolve=>{
       fabric.Image.fromURL(doc.dataUrl,(img)=>{
         const scale=Math.min(w/img.width,h/img.height,1);
-        img.set({left:(w-img.width*scale)/2,top:(h-img.height*scale)/2,scaleX:scale,scaleY:scale,selectable:false,evented:false});
+        sketchBgImageScale=scale;
+        img.set({left:(w-img.width*scale)/2,top:(h-img.height*scale)/2,scaleX:scale,scaleY:scale,selectable:false,evented:false,isBg:true});
         sketchCanvasObj.add(img);
         sketchCanvasObj.sendToBack(img);
         resolve();
       },{crossOrigin:'anonymous'});
     });
   }
-  sketchCanvasObj.on('object:added',(e)=>{
-    if(e.target && e.target!==sketchCanvasObj.backgroundImage) sketchHistory.push(e.target);
-  });
+
+  // Escala ya calibrada antes para este mismo documento — evita tener que
+  // recalibrar en cada visita si ya se sabe la equivalencia px/unidad.
+  if(!resumido){
+    const escalaGuardada=sketchLeerEscala();
+    if(escalaGuardada){
+      sketchImgPxPerUnit=escalaGuardada.imgPxPerUnit;
+      sketchUnitLabel=escalaGuardada.unidad||'m';
+    }
+  }
+  if(sketchImgPxPerUnit!=null) sketchScalePxPerUnit=sketchImgPxPerUnit*sketchBgImageScale;
+
+  sketchCanvasObj.on('object:modified', sketchSnapshot);
+  sketchCanvasObj.on('path:created', sketchSnapshot);
+  sketchCanvasObj.on('text:editing:exited', sketchSnapshot);
   sketchWireDrawTools();
   sketchSetTool('pencil');
+  sketchSnapshot(); // estado inicial — deja a "Deshacer" volver hasta acá
 }
 
 function sketchWireDrawTools(){
@@ -16210,51 +16595,61 @@ function sketchWireDrawTools(){
   });
   c.on('mouse:up',()=>{ sketchBorrando=false; });
   c.on('mouse:down',(opt)=>{
-    if(sketchTool!=='line' && sketchTool!=='rect' && sketchTool!=='measure') return;
+    if(sketchTool!=='line' && sketchTool!=='arrow' && sketchTool!=='rect' && sketchTool!=='measure') return;
     // Si el click cayó sobre un objeto existente (o sus manijas), es una
     // interacción con ese objeto, no el arranque de una figura nueva.
     if(opt.target || opt.transform) return;
     const p=c.getPointer(opt.e);
     sketchStartPt=p;
     if(sketchTool==='rect'){
-      sketchDrawingShape=new fabric.Rect({left:p.x,top:p.y,width:1,height:1,fill:'transparent',stroke:sketchColor,strokeWidth:2,selectable:false,evented:false});
+      sketchDrawingShape=new fabric.Rect({left:p.x,top:p.y,width:1,height:1,fill:'transparent',stroke:sketchColor,strokeWidth:sketchStrokeWidth,selectable:false,evented:false});
     }else{
-      sketchDrawingShape=new fabric.Line([p.x,p.y,p.x,p.y],{stroke:sketchColor,strokeWidth:2,selectable:false,evented:false});
+      sketchDrawingShape=new fabric.Line([p.x,p.y,p.x,p.y],{stroke:sketchColor,strokeWidth:sketchStrokeWidth,selectable:false,evented:false});
     }
     c.add(sketchDrawingShape);
   });
   c.on('mouse:move',(opt)=>{
     if(!sketchDrawingShape||!sketchStartPt) return;
-    const p=c.getPointer(opt.e);
+    let p=c.getPointer(opt.e);
     if(sketchTool==='rect'){
       sketchDrawingShape.set({width:Math.abs(p.x-sketchStartPt.x),height:Math.abs(p.y-sketchStartPt.y),left:Math.min(p.x,sketchStartPt.x),top:Math.min(p.y,sketchStartPt.y)});
     }else{
+      if(sketchTool==='line'||sketchTool==='arrow'||sketchTool==='measure') p=sketchSnapPoint(sketchStartPt,p);
       sketchDrawingShape.set({x2:p.x,y2:p.y});
     }
     c.requestRenderAll();
   });
   c.on('mouse:up',()=>{
     if(!sketchDrawingShape) return;
-    const shape=sketchDrawingShape;
-    shape.set({selectable:true,evented:true});
-    shape.setCoords(); // sin esto el objeto queda con coordenadas de hit-test
-    // desactualizadas — no se puede volver a seleccionar ni redimensionar.
+    let shape=sketchDrawingShape;
+    shape.setCoords();
     sketchDrawingShape=null;
-    if(sketchTool==='measure' && shape.type==='line'){
-      sketchAplicarMedicion(shape);
-    }else if(!sketchHistory.includes(shape)){
-      sketchHistory.push(shape);
-    }
     sketchStartPt=null;
+    if(sketchTool==='measure' && shape.type==='line'){
+      shape.set({selectable:true,evented:true});
+      sketchAplicarMedicion(shape);
+    }else if(sketchTool==='arrow' && shape.type==='line'){
+      sketchConvertirEnFlecha(shape);
+    }else if(sketchTool==='rect'){
+      shape.set({selectable:true,evented:true});
+      shape.setCoords();
+      sketchAplicarAreaSiCorresponde(shape);
+      sketchSnapshot();
+    }else{
+      shape.set({selectable:true,evented:true});
+      shape.setCoords();
+      sketchSnapshot();
+    }
     c.requestRenderAll();
   });
   c.on('mouse:down',(opt)=>{
     if(sketchTool!=='text') return;
     const p=c.getPointer(opt.e);
-    const t=new fabric.IText('Texto',{left:p.x,top:p.y,fill:sketchColor,fontSize:20});
+    const t=new fabric.IText('Texto',{left:p.x,top:p.y,fill:sketchColor,fontSize:sketchFontSize});
     c.add(t);
     c.setActiveObject(t);
     t.enterEditing();
+    t.selectAll();
   });
   // Cotas y textos se editan con un solo click/tap (no hace falta doble
   // click) — entra directo en edición con todo el texto seleccionado,
@@ -16325,15 +16720,48 @@ function sketchZoomBy(factor){
   sketchCanvasObj.zoomToPoint(center,zoom);
 }
 
+// Convierte la línea recién trazada con la herramienta Flecha en un grupo
+// línea+punta de flecha (triángulo orientado según el ángulo del trazo).
+function sketchConvertirEnFlecha(line){
+  const dx=line.x2-line.x1, dy=line.y2-line.y1;
+  if(Math.hypot(dx,dy)<2){ sketchCanvasObj.remove(line); sketchCanvasObj.requestRenderAll(); return; }
+  const angleDeg=Math.atan2(dy,dx)*180/Math.PI;
+  const headLen=10+sketchStrokeWidth*2.5;
+  const head=new fabric.Triangle({
+    left:line.x2, top:line.y2, originX:'center', originY:'center',
+    width:headLen, height:headLen, fill:sketchColor, angle:angleDeg+90,
+  });
+  sketchCanvasObj.remove(line);
+  const body=new fabric.Line([line.x1,line.y1,line.x2,line.y2],{stroke:sketchColor,strokeWidth:sketchStrokeWidth});
+  const group=new fabric.Group([body,head],{selectable:true,evented:true});
+  sketchCanvasObj.add(group);
+  sketchCanvasObj.requestRenderAll();
+  sketchSnapshot();
+}
+
+// Si ya hay una escala calibrada, un rectángulo recién dibujado también
+// muestra su área real (no solo las líneas de medición muestran distancia).
+function sketchAplicarAreaSiCorresponde(rect){
+  if(!sketchScalePxPerUnit) return;
+  const areaReal=(rect.width/sketchScalePxPerUnit)*(rect.height/sketchScalePxPerUnit);
+  const label=new fabric.IText(areaReal.toFixed(2)+' '+sketchUnitLabel+'²',{
+    left:rect.left+rect.width/2, top:rect.top+rect.height/2, fontSize:14, fill:sketchColor,
+    backgroundColor:'rgba(255,255,255,.85)', originX:'center', originY:'center',
+  });
+  sketchCanvasObj.add(label);
+}
+
 function sketchAplicarMedicion(line){
   const dx=line.x2-line.x1, dy=line.y2-line.y1;
   const pxLen=Math.sqrt(dx*dx+dy*dy);
-  if(pxLen<2){ sketchCanvasObj.remove(line); return; }
+  if(pxLen<2){ sketchCanvasObj.remove(line); sketchCanvasObj.requestRenderAll(); return; }
   if(!sketchScalePxPerUnit){
     const real=prompt('Longitud real de esta línea (en '+sketchUnitLabel+'):','1');
     const val=parseFloat((real||'').replace(',','.'));
-    if(!val||val<=0){ sketchCanvasObj.remove(line); return; }
+    if(!val||val<=0){ sketchCanvasObj.remove(line); sketchCanvasObj.requestRenderAll(); return; }
     sketchScalePxPerUnit=pxLen/val;
+    sketchImgPxPerUnit=sketchScalePxPerUnit/(sketchBgImageScale||1);
+    sketchGuardarEscala();
     window.sketchScalePxPerUnit=sketchScalePxPerUnit;
   }
   const distReal=pxLen/sketchScalePxPerUnit;
@@ -16341,8 +16769,8 @@ function sketchAplicarMedicion(line){
     left:(line.x1+line.x2)/2, top:(line.y1+line.y2)/2-14, fontSize:14, fill:sketchColor, backgroundColor:'rgba(255,255,255,.85)'
   });
   sketchCanvasObj.add(label);
-  sketchHistory.push(line);
-  sketchHistory.push(label);
+  sketchCanvasObj.requestRenderAll();
+  sketchSnapshot();
 }
 
 document.querySelectorAll('.sketch-tool[data-tool]').forEach(btn=>{
@@ -16352,24 +16780,35 @@ document.getElementById('sketchColorInput').addEventListener('input',(e)=>{
   sketchColor=e.target.value;
   if(sketchCanvasObj&&sketchCanvasObj.freeDrawingBrush) sketchCanvasObj.freeDrawingBrush.color=sketchColor;
 });
-document.getElementById('sketchUndo').addEventListener('click',()=>{
-  if(!sketchCanvasObj||!sketchHistory.length) return;
-  const last=sketchHistory.pop();
-  sketchCanvasObj.remove(last);
+document.getElementById('sketchStrokeWidth').addEventListener('change',(e)=>{
+  sketchStrokeWidth=parseInt(e.target.value,10)||2;
+  if(sketchCanvasObj&&sketchCanvasObj.freeDrawingBrush) sketchCanvasObj.freeDrawingBrush.width=sketchStrokeWidth;
 });
+document.getElementById('sketchFontSize').addEventListener('change',(e)=>{
+  sketchFontSize=parseInt(e.target.value,10)||20;
+});
+document.getElementById('sketchUndo').addEventListener('click', sketchUndo);
+document.getElementById('sketchRedo').addEventListener('click', sketchRedo);
 document.getElementById('sketchClearAll').addEventListener('click',()=>{
   if(!sketchCanvasObj) return;
   if(!confirm('¿Borrar todas las anotaciones?')) return;
-  sketchHistory.forEach(o=>sketchCanvasObj.remove(o));
-  sketchHistory=[];
+  sketchCanvasObj.getObjects().slice().forEach(o=>{ if(!o.isBg) sketchCanvasObj.remove(o); });
   sketchScalePxPerUnit=null;
+  sketchImgPxPerUnit=null;
+  sketchCanvasObj.requestRenderAll();
+  sketchSnapshot();
+});
+let sketchGridOn=false;
+document.getElementById('sketchGridToggle').addEventListener('click',()=>{
+  sketchGridOn=!sketchGridOn;
+  document.getElementById('sketchGridToggle').classList.toggle('sel', sketchGridOn);
+  document.getElementById('sketchGrid').classList.toggle('show', sketchGridOn);
 });
 document.getElementById('sketchZoomOut').addEventListener('click',()=>sketchZoomBy(0.8));
 document.getElementById('sketchZoomIn').addEventListener('click',()=>sketchZoomBy(1.25));
 document.getElementById('sketchAttach').addEventListener('click',()=>{
   document.getElementById('sketchAttachInput').click();
 });
-let sketchAttachCount=0;
 document.getElementById('sketchAttachInput').addEventListener('change',(e)=>{
   const file=e.target.files[0];
   e.target.value='';
@@ -16386,19 +16825,30 @@ document.getElementById('sketchAttachInput').addEventListener('change',(e)=>{
       img.set({left:30+offset,top:30+offset,scaleX:scale,scaleY:scale,selectable:true,evented:true});
       sketchCanvasObj.add(img);
       sketchCanvasObj.setActiveObject(img);
-      sketchHistory.push(img);
       sketchSetTool('select');
+      sketchSnapshot();
     },{crossOrigin:'anonymous'});
   };
   reader.readAsDataURL(file);
 });
 function cerrarCroquis(){
   document.getElementById('sketchModal').classList.remove('open');
+  document.getElementById('sketchGrid').classList.remove('show');
+  sketchGridOn=false;
   if(sketchCanvasObj){ sketchCanvasObj.dispose(); sketchCanvasObj=null; window.sketchCanvasObj=null; }
   sketchTargetDoc=null;
 }
-document.getElementById('sketchClose').onclick=cerrarCroquis;
-document.getElementById('sketchCancel').onclick=cerrarCroquis;
+// Cancelar/cerrar con trabajo sin guardar pide confirmación — el trabajo
+// sigue disponible como borrador (se puede retomar la próxima vez) salvo
+// que el usuario confirme explícitamente que quiere descartarlo.
+function sketchIntentarCerrar(){
+  if(sketchHayTrabajoSinGuardar()){
+    if(!confirm('Tenés cambios sin guardar. ¿Salir de todos modos? (vas a poder retomarlos la próxima vez que abras este croquis)')) return;
+  }
+  cerrarCroquis();
+}
+document.getElementById('sketchClose').onclick=sketchIntentarCerrar;
+document.getElementById('sketchCancel').onclick=sketchIntentarCerrar;
 function sketchDescargarPNG(dataUrl,nombre){
   const a=document.createElement('a');
   a.href=dataUrl; a.download=nombre;
@@ -16449,6 +16899,7 @@ document.getElementById('sketchSave').addEventListener('click',async()=>{
     sketchDescargarPNG(dataUrl,nombre);
     toast(conectado ? '✓ Croquis descargado' : '✓ Croquis guardado en el dispositivo (no hay sesión de Drive activa)');
   }
+  sketchBorrarDraft();
   cerrarCroquis();
 });
 document.getElementById('docModalCroquis').addEventListener('click',()=>{
