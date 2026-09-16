@@ -9316,6 +9316,7 @@ async function abrirCroquis(bgDataUrl, nombre, modoImagen) {
   sketchModoImagen = !!modoImagen;
   sketchHistory = [];
   sketchScalePxPerUnit = null;
+  sketchAttachCount = 0;
   document.getElementById("sketch-title").textContent = nombre ? ("Croquis · " + nombre) : "Croquis en blanco";
   const modal = document.getElementById("sketch-modal");
   modal.classList.add("show");
@@ -9390,6 +9391,18 @@ function sketchWireDrawTools() {
     c.setActiveObject(t);
     t.enterEditing();
   });
+  // Cotas y textos se editan con un solo click/tap (no hace falta doble
+  // click) — entra directo en edición con todo el texto seleccionado,
+  // para tipear el número nuevo sin tener que borrar el anterior.
+  c.on("mouse:down", (opt) => {
+    if (sketchTool !== "select") return;
+    const target = opt.target;
+    if (target && target.type === "i-text" && !target.isEditing) {
+      c.setActiveObject(target);
+      target.enterEditing();
+      target.selectAll();
+    }
+  });
 }
 
 function sketchAplicarMedicion(line) {
@@ -9403,7 +9416,7 @@ function sketchAplicarMedicion(line) {
     sketchScalePxPerUnit = pxLen / val;
   }
   const distReal = pxLen / sketchScalePxPerUnit;
-  const label = new fabric.Text(distReal.toFixed(2) + " " + sketchUnitLabel, {
+  const label = new fabric.IText(distReal.toFixed(2) + " " + sketchUnitLabel, {
     left: (line.x1 + line.x2) / 2, top: (line.y1 + line.y2) / 2 - 14, fontSize: 14, fill: sketchColor, backgroundColor: "rgba(255,255,255,.85)"
   });
   sketchCanvasObj.add(label);
@@ -9433,6 +9446,7 @@ document.getElementById("sketch-clear").addEventListener("click", () => {
 document.getElementById("sketch-attach").addEventListener("click", () => {
   document.getElementById("sketch-attach-input").click();
 });
+let sketchAttachCount = 0;
 document.getElementById("sketch-attach-input").addEventListener("change", (e) => {
   const file = e.target.files[0];
   e.target.value = "";
@@ -9440,14 +9454,17 @@ document.getElementById("sketch-attach-input").addEventListener("change", (e) =>
   const reader = new FileReader();
   reader.onload = (ev) => {
     fabric.Image.fromURL(ev.target.result, (img) => {
+      // Cada foto adjuntada se agrega como un objeto más (estilo Figma):
+      // movible, escalable y rotable sobre el lienzo, sin borrar nada de
+      // lo que ya había — así se pueden ir sumando varias fotos.
       const w = sketchCanvasObj.getWidth(), h = sketchCanvasObj.getHeight();
-      const scale = Math.min(w / img.width, h / img.height, 1);
-      img.set({ left: (w - img.width * scale) / 2, top: (h - img.height * scale) / 2, scaleX: scale, scaleY: scale, selectable: false, evented: false });
-      sketchCanvasObj.getObjects().slice().forEach(o => sketchCanvasObj.remove(o));
-      sketchHistory = [];
-      sketchScalePxPerUnit = null;
+      const scale = Math.min((w * 0.6) / img.width, (h * 0.6) / img.height, 1);
+      const offset = (sketchAttachCount++ % 6) * 24;
+      img.set({ left: 30 + offset, top: 30 + offset, scaleX: scale, scaleY: scale, selectable: true, evented: true });
       sketchCanvasObj.add(img);
-      sketchCanvasObj.sendToBack(img);
+      sketchCanvasObj.setActiveObject(img);
+      sketchHistory.push(img);
+      sketchSetTool("select");
     }, { crossOrigin: "anonymous" });
   };
   reader.readAsDataURL(file);
@@ -15955,6 +15972,7 @@ async function abrirCroquis(doc){
   sketchTargetDoc=doc||null;
   sketchHistory=[];
   sketchScalePxPerUnit=null;
+  sketchAttachCount=0;
   document.getElementById('sketchTitle').textContent=doc?('Croquis · '+doc.name):'Croquis en blanco';
   document.getElementById('sketchModal').classList.add('open');
   const body=document.getElementById('sketchBody');
@@ -16028,6 +16046,18 @@ function sketchWireDrawTools(){
     c.setActiveObject(t);
     t.enterEditing();
   });
+  // Cotas y textos se editan con un solo click/tap (no hace falta doble
+  // click) — entra directo en edición con todo el texto seleccionado,
+  // para tipear el número nuevo sin tener que borrar el anterior.
+  c.on('mouse:down',(opt)=>{
+    if(sketchTool!=='select') return;
+    const target=opt.target;
+    if(target && target.type==='i-text' && !target.isEditing){
+      c.setActiveObject(target);
+      target.enterEditing();
+      target.selectAll();
+    }
+  });
 }
 
 function sketchAplicarMedicion(line){
@@ -16042,7 +16072,7 @@ function sketchAplicarMedicion(line){
     window.sketchScalePxPerUnit=sketchScalePxPerUnit;
   }
   const distReal=pxLen/sketchScalePxPerUnit;
-  const label=new fabric.Text(distReal.toFixed(2)+' '+sketchUnitLabel,{
+  const label=new fabric.IText(distReal.toFixed(2)+' '+sketchUnitLabel,{
     left:(line.x1+line.x2)/2, top:(line.y1+line.y2)/2-14, fontSize:14, fill:sketchColor, backgroundColor:'rgba(255,255,255,.85)'
   });
   sketchCanvasObj.add(label);
@@ -16072,6 +16102,7 @@ document.getElementById('sketchClearAll').addEventListener('click',()=>{
 document.getElementById('sketchAttach').addEventListener('click',()=>{
   document.getElementById('sketchAttachInput').click();
 });
+let sketchAttachCount=0;
 document.getElementById('sketchAttachInput').addEventListener('change',(e)=>{
   const file=e.target.files[0];
   e.target.value='';
@@ -16079,14 +16110,17 @@ document.getElementById('sketchAttachInput').addEventListener('change',(e)=>{
   const reader=new FileReader();
   reader.onload=(ev)=>{
     fabric.Image.fromURL(ev.target.result,(img)=>{
+      // Cada foto adjuntada se agrega como un objeto más (estilo Figma):
+      // movible, escalable y rotable sobre el lienzo, sin borrar nada de
+      // lo que ya había — así se pueden ir sumando varias fotos.
       const w=sketchCanvasObj.getWidth(), h=sketchCanvasObj.getHeight();
-      const scale=Math.min(w/img.width,h/img.height,1);
-      img.set({left:(w-img.width*scale)/2,top:(h-img.height*scale)/2,scaleX:scale,scaleY:scale,selectable:false,evented:false});
-      sketchCanvasObj.getObjects().slice().forEach(o=>sketchCanvasObj.remove(o));
-      sketchHistory=[];
-      sketchScalePxPerUnit=null;
+      const scale=Math.min((w*0.6)/img.width,(h*0.6)/img.height,1);
+      const offset=(sketchAttachCount++ % 6)*24;
+      img.set({left:30+offset,top:30+offset,scaleX:scale,scaleY:scale,selectable:true,evented:true});
       sketchCanvasObj.add(img);
-      sketchCanvasObj.sendToBack(img);
+      sketchCanvasObj.setActiveObject(img);
+      sketchHistory.push(img);
+      sketchSetTool('select');
     },{crossOrigin:'anonymous'});
   };
   reader.readAsDataURL(file);
