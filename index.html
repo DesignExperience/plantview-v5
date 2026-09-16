@@ -1799,6 +1799,7 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
           </div>
           <div class="sketch-footer">
             <button class="sketch-btn secondary" id="sketch-cancel" type="button">Cancelar</button>
+            <button class="sketch-btn secondary" id="sketch-share" type="button">Compartir</button>
             <button class="sketch-btn primary" id="sketch-save" type="button">Guardar</button>
           </div>
         </div>
@@ -9207,6 +9208,15 @@ window.addEventListener("message", (e) => {
   }
 });
 
+// El visor 3D (pv-tpl) vive en un iframe aparte y no tiene acceso directo
+// al estado de login de Drive del shell exterior — lo consulta por
+// postMessage (mismo patrón que subidaDrive) para decidir si el croquis
+// se puede aplicar sobre el visor o si conviene ofrecer compartir/descargar.
+window.addEventListener("message", (e) => {
+  if (!e.data || e.data.tipo !== "consultaLoginDrive") return;
+  if (e.source) e.source.postMessage({ tipo: "consultaLoginDriveResp", reqId: e.data.reqId, conectado: driveEscrituraConectada() }, "*");
+});
+
 /* ============================================================
    PESTAÑAS PDF / eDRAWINGS (mobile) — cada una muestra su propio
    contenido recordado, sin destruir el del otro tipo.
@@ -9578,20 +9588,55 @@ function cerrarCroquis() {
 }
 document.getElementById("sketch-close").onclick = cerrarCroquis;
 document.getElementById("sketch-cancel").onclick = cerrarCroquis;
-document.getElementById("sketch-save").addEventListener("click", () => {
+function sketchDescargarPNG(dataUrl, nombre) {
+  const a = document.createElement("a");
+  a.href = dataUrl;
+  a.download = nombre;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+async function sketchCompartirPNG(dataUrl, nombre) {
+  try {
+    const blob = await (await fetch(dataUrl)).blob();
+    const file = new File([blob], nombre, { type: "image/png" });
+    if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
+      await navigator.share({ files: [file], title: nombre });
+      return true;
+    }
+  } catch (err) {
+    if (err && err.name === "AbortError") return true; // el usuario canceló el share, no es un error
+  }
+  return false;
+}
+
+document.getElementById("sketch-share").addEventListener("click", async () => {
   if (!sketchCanvasObj) return;
   const dataUrl = sketchCanvasObj.toDataURL({ format: "png" });
-  if (sketchModoImagen) {
+  const nombre = "croquis-" + Date.now() + ".png";
+  const compartido = await sketchCompartirPNG(dataUrl, nombre);
+  if (!compartido) {
+    sketchDescargarPNG(dataUrl, nombre);
+    toast("Tu navegador no admite compartir directo — se descargó el PNG");
+  }
+});
+
+document.getElementById("sketch-save").addEventListener("click", async () => {
+  if (!sketchCanvasObj) return;
+  const dataUrl = sketchCanvasObj.toDataURL({ format: "png" });
+  const nombre = "croquis-" + Date.now() + ".png";
+  // Aplicar el croquis sobre la imagen del visor sólo tiene sentido si hay
+  // sesión de Drive activa — si no, ese resultado no queda vinculado a
+  // ningún lado y se perdería sin que el usuario lo note. Sin login, o sin
+  // una imagen de origen (croquis en blanco), se guarda en el dispositivo.
+  const conectado = typeof driveEscrituraConectada === "function" ? driveEscrituraConectada() : false;
+  if (sketchModoImagen && conectado) {
     visorImagen.src = dataUrl;
     toast("✓ Croquis aplicado sobre la imagen");
   } else {
-    const a = document.createElement("a");
-    a.href = dataUrl;
-    a.download = "croquis-" + Date.now() + ".png";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    toast("✓ Croquis descargado");
+    sketchDescargarPNG(dataUrl, nombre);
+    toast(conectado ? "✓ Croquis descargado" : "✓ Croquis guardado en el dispositivo (no hay sesión de Drive activa)");
   }
   cerrarCroquis();
 });
@@ -10832,6 +10877,7 @@ window.onerror=function(msg,src,line){
   </div>
   <div class="sketch-footer">
     <button class="doc-modal-btn secondary" id="sketchCancel">Cancelar</button>
+    <button class="doc-modal-btn secondary" id="sketchShare">Compartir</button>
     <button class="doc-modal-btn primary" id="sketchSave">Guardar</button>
   </div>
 </div>
@@ -14928,6 +14974,18 @@ function guardarNotasDrive(){
   return resolverCarpetaNotasDrive().then(carpetaNotas => subirArchivoADriveDesdeVisor(archivo, blob, carpetaNotas));
 }
 
+// El shell exterior es quien mantiene el login de Drive — este iframe lo
+// consulta por postMessage para decidir si el croquis se puede aplicar
+// sobre el visor o si conviene ofrecer compartir/descargar directamente.
+function consultaLoginDrive(){
+  return new Promise((resolve)=>{
+    const reqId=++notasReqSeq;
+    notasReqPendientes[reqId]={resolve, reject:()=>resolve(false)};
+    window.parent.postMessage({ tipo:'consultaLoginDrive', reqId }, '*');
+    setTimeout(()=>{ if(notasReqPendientes[reqId]){ delete notasReqPendientes[reqId]; resolve(false); } }, 1500);
+  });
+}
+
 window.addEventListener('message',(e)=>{
   if(!e.data) return;
   if(e.data.tipo==='subidaDriveOK' && notasReqPendientes[e.data.reqId]){
@@ -14941,6 +14999,9 @@ window.addEventListener('message',(e)=>{
     delete notasReqPendientes[e.data.reqId];
   }else if(e.data.tipo==='resolverCarpetaNotasError' && notasReqPendientes[e.data.reqId]){
     notasReqPendientes[e.data.reqId].reject(new Error(e.data.error||'Error al resolver la carpeta de notas'));
+    delete notasReqPendientes[e.data.reqId];
+  }else if(e.data.tipo==='consultaLoginDriveResp' && notasReqPendientes[e.data.reqId]){
+    notasReqPendientes[e.data.reqId].resolve(!!e.data.conectado);
     delete notasReqPendientes[e.data.reqId];
   }
 });
@@ -16338,20 +16399,55 @@ function cerrarCroquis(){
 }
 document.getElementById('sketchClose').onclick=cerrarCroquis;
 document.getElementById('sketchCancel').onclick=cerrarCroquis;
-document.getElementById('sketchSave').addEventListener('click',()=>{
+function sketchDescargarPNG(dataUrl,nombre){
+  const a=document.createElement('a');
+  a.href=dataUrl; a.download=nombre;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+async function sketchCompartirPNG(dataUrl,nombre){
+  try{
+    const blob=await (await fetch(dataUrl)).blob();
+    const file=new File([blob],nombre,{type:'image/png'});
+    if(navigator.share && (!navigator.canShare || navigator.canShare({files:[file]}))){
+      await navigator.share({files:[file],title:nombre});
+      return true;
+    }
+  }catch(err){
+    if(err && err.name==='AbortError') return true; // el usuario canceló el share, no es un error
+  }
+  return false;
+}
+
+document.getElementById('sketchShare').addEventListener('click',async()=>{
   if(!sketchCanvasObj) return;
   const dataUrl=sketchCanvasObj.toDataURL({format:'png'});
   const nombre='croquis-'+Date.now()+'.png';
-  if(sketchTargetDoc){
+  const compartido=await sketchCompartirPNG(dataUrl,nombre);
+  if(!compartido){
+    sketchDescargarPNG(dataUrl,nombre);
+    toast('Tu navegador no admite compartir directo — se descargó el PNG');
+  }
+});
+
+document.getElementById('sketchSave').addEventListener('click',async()=>{
+  if(!sketchCanvasObj) return;
+  const dataUrl=sketchCanvasObj.toDataURL({format:'png'});
+  const nombre='croquis-'+Date.now()+'.png';
+  // Aplicar el croquis sobre el visor de documentos sólo tiene sentido si
+  // hay sesión de Drive activa en el shell exterior — si no, ese resultado
+  // no queda vinculado a ningún lado y se perdería sin que el usuario lo
+  // note. Sin login, o sin un documento de origen (croquis en blanco), se
+  // guarda directo en el dispositivo.
+  const conectado=await consultaLoginDrive();
+  if(sketchTargetDoc && conectado){
     currentDocViewer={name:nombre,dataUrl,type:'imagen'};
     document.getElementById('docModalTitle').textContent=currentDocViewer.name;
     document.getElementById('docModalBody').innerHTML=`<img src="${dataUrl}" alt="${nombre}">`;
     toast('✓ Croquis aplicado — usá Compartir/WhatsApp para enviarlo');
   }else{
-    const a=document.createElement('a');
-    a.href=dataUrl; a.download=nombre;
-    document.body.appendChild(a); a.click(); a.remove();
-    toast('✓ Croquis descargado');
+    sketchDescargarPNG(dataUrl,nombre);
+    toast(conectado ? '✓ Croquis descargado' : '✓ Croquis guardado en el dispositivo (no hay sesión de Drive activa)');
   }
   cerrarCroquis();
 });
