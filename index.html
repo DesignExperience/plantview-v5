@@ -1305,6 +1305,8 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
   background: var(--surface-2); border: 1px solid var(--line); color: var(--muted);
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
+.sketch-hdr button svg { width: 15px; height: 15px; }
+.sketch-hdr button:disabled { opacity: .4; }
 #sketch-body {
   flex: 1; overflow: hidden; position: relative;
   display: flex; align-items: center; justify-content: center;
@@ -1333,6 +1335,22 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
   background-size: 24px 24px;
 }
 .sketch-grid-overlay.show { opacity: 1; }
+.sketch-toolbar-props {
+  flex: none; display: flex; align-items: center; gap: 6px; padding: 0 10px 8px;
+  background: var(--surface); overflow-x: auto; -webkit-overflow-scrolling: touch;
+}
+.sketch-toolbar-props .sketch-tool[hidden] { display: none; }
+.sketch-toolbar-props .sketch-spacer { flex: 1 0 auto; min-width: 4px; }
+.sketch-zoom-pill {
+  position: absolute; right: 10px; bottom: 10px; z-index: 5;
+  display: flex; flex-direction: column; border-radius: var(--radius); overflow: hidden;
+  background: rgba(28,31,36,.85); border: 1px solid var(--line);
+}
+.sketch-zoom-pill button {
+  width: 36px; height: 36px; color: #fff; display: flex; align-items: center; justify-content: center;
+}
+.sketch-zoom-pill button svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.sketch-zoom-pill button:first-child { border-bottom: 1px solid var(--line); }
 .sketch-footer {
   flex: none; display: flex; gap: 8px; padding: 10px;
   background: var(--surface); border-top: 1px solid var(--line);
@@ -1786,11 +1804,18 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
           <div class="sketch-hdr">
             <button id="sketch-close" type="button">×</button>
             <span class="sketch-title" id="sketch-title">Croquis</span>
+            <button id="sketch-undo" title="Deshacer" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M3 13a9 9 0 1 0 3-7.7L3 8"/></svg></button>
+            <button id="sketch-redo" title="Rehacer" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M21 13a9 9 0 1 1-3-7.7L21 8"/></svg></button>
           </div>
           <div id="sketch-body">
             <canvas id="sketch-canvas"></canvas>
             <div id="sketch-grid" class="sketch-grid-overlay"></div>
+            <div class="sketch-zoom-pill">
+              <button id="sketch-zoom-in" title="Acercar" type="button"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
+              <button id="sketch-zoom-out" title="Alejar" type="button"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
+            </div>
           </div>
+          <!-- Herramientas de dibujo — siempre las mismas, fila fija -->
           <div class="sketch-toolbar">
             <button class="sketch-tool" data-tool="select" title="Seleccionar / mover vista (arrastrá el fondo)"><svg viewBox="0 0 24 24"><path d="m3 3 7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg></button>
             <button class="sketch-tool" data-tool="pencil" title="Lápiz"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></button>
@@ -1800,6 +1825,9 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
             <button class="sketch-tool" data-tool="text" title="Texto"><svg viewBox="0 0 24 24"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg></button>
             <button class="sketch-tool" data-tool="measure" title="Medición (calculá área en rectángulos ya calibrados)"><svg viewBox="0 0 24 24"><path d="M21 6H3M21 12H3M21 18H3"/><line x1="9" y1="3" x2="9" y2="21"/></svg></button>
             <button class="sketch-tool" data-tool="eraser" title="Goma — tocá o arrastrá sobre lo que quieras borrar"><svg viewBox="0 0 24 24"><path d="M20 20H8L3 15a2 2 0 0 1 0-2.8l8-8a2 2 0 0 1 2.8 0l6 6a2 2 0 0 1 0 2.8L14 19"/><line x1="8" y1="20" x2="14" y2="14"/></svg></button>
+          </div>
+          <!-- Propiedades del trazo (solo lo que aplica a la herramienta activa) + utilidades -->
+          <div class="sketch-toolbar-props">
             <button class="sketch-tool color-swatch" id="sketch-color-btn" title="Color"><input type="color" id="sketch-color-input" value="#ff3b30"></button>
             <select class="sketch-tool sketch-select" id="sketch-stroke-width" title="Grosor de línea">
               <option value="1">1px</option>
@@ -1808,19 +1836,16 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
               <option value="6">6px</option>
               <option value="10">10px</option>
             </select>
-            <select class="sketch-tool sketch-select" id="sketch-font-size" title="Tamaño de texto">
+            <select class="sketch-tool sketch-select" id="sketch-font-size" title="Tamaño de texto" hidden>
               <option value="14">14</option>
               <option value="20" selected>20</option>
               <option value="28">28</option>
               <option value="36">36</option>
               <option value="48">48</option>
             </select>
-            <button class="sketch-tool" id="sketch-undo" title="Deshacer"><svg viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M3 13a9 9 0 1 0 3-7.7L3 8"/></svg></button>
-            <button class="sketch-tool" id="sketch-redo" title="Rehacer"><svg viewBox="0 0 24 24"><path d="M21 7v6h-6"/><path d="M21 13a9 9 0 1 1-3-7.7L21 8"/></svg></button>
-            <button class="sketch-tool" id="sketch-clear" title="Borrar todo"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
+            <span class="sketch-spacer"></span>
             <button class="sketch-tool" id="sketch-grid-toggle" title="Grilla de referencia (no se exporta)"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="1"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg></button>
-            <button class="sketch-tool" id="sketch-zoom-out" title="Alejar"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
-            <button class="sketch-tool" id="sketch-zoom-in" title="Acercar"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
+            <button class="sketch-tool" id="sketch-clear" title="Borrar todo"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
             <button class="sketch-tool" id="sketch-gallery" title="Elegir foto de la galería"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg></button>
             <button class="sketch-tool" id="sketch-attach" title="Sacar foto con la cámara"><svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7l1.5-3h5L16 7"/><circle cx="12" cy="14" r="3.5"/></svg></button>
           </div>
@@ -9350,9 +9375,18 @@ function cargarFabricJS() {
   return window._fabricLoadPromise;
 }
 
+function sketchActualizarPropsUI(tool) {
+  const isText = tool === "text";
+  const isDraw = tool === "pencil" || tool === "line" || tool === "arrow" || tool === "rect" || tool === "measure";
+  document.getElementById("sketch-color-btn").hidden = !(isDraw || isText);
+  document.getElementById("sketch-stroke-width").hidden = !isDraw;
+  document.getElementById("sketch-font-size").hidden = !isText;
+}
+
 function sketchSetTool(tool) {
   sketchTool = tool;
   document.querySelectorAll(".sketch-tool[data-tool]").forEach(b => b.classList.toggle("sel", b.dataset.tool === tool));
+  sketchActualizarPropsUI(tool);
   if (!sketchCanvasObj) return;
   sketchCanvasObj.isDrawingMode = (tool === "pencil");
   // Selection rectangle (rubber-band) desactivado: arrastrar sobre el fondo
@@ -10353,6 +10387,9 @@ canvas{display:block;width:100%;height:100%}
 .sketch-hdr{display:flex;align-items:center;gap:12px;padding:calc(12px + var(--safe-top)) 16px 10px;background:var(--surf);border-bottom:1px solid var(--border);flex-shrink:0}
 .sketch-title{flex:1;font-size:13px;font-weight:500}
 .sketch-close{width:34px;height:34px;border-radius:10px;background:var(--surf2);border:1px solid var(--border);color:var(--muted);font-size:20px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}
+.sketch-hdr-btn{width:34px;height:34px;border-radius:10px;background:var(--surf2);border:1px solid var(--border);color:var(--muted);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}
+.sketch-hdr-btn svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.sketch-hdr-btn:disabled{opacity:.4}
 .sketch-body{flex:1;overflow:hidden;position:relative;display:flex;align-items:center;justify-content:center;background:#2a2a2a;touch-action:none}
 .sketch-body canvas{touch-action:none}
 .sketch-toolbar{display:flex;gap:6px;padding:8px 10px;background:var(--surf);border-top:1px solid var(--border);overflow-x:auto;flex-shrink:0;-webkit-overflow-scrolling:touch}
@@ -10365,6 +10402,13 @@ canvas{display:block;width:100%;height:100%}
 .sketch-tool:disabled{opacity:.4}
 .sketch-grid-overlay{position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .15s;background-image:linear-gradient(to right,rgba(128,128,128,.35) 1px,transparent 1px),linear-gradient(to bottom,rgba(128,128,128,.35) 1px,transparent 1px);background-size:24px 24px}
 .sketch-grid-overlay.show{opacity:1}
+.sketch-toolbar-props{display:flex;align-items:center;gap:6px;padding:0 10px 8px;background:var(--surf);overflow-x:auto;flex-shrink:0;-webkit-overflow-scrolling:touch}
+.sketch-toolbar-props .sketch-tool[hidden]{display:none}
+.sketch-toolbar-props .sketch-spacer{flex:1 0 auto;min-width:4px}
+.sketch-zoom-pill{position:absolute;right:10px;bottom:10px;z-index:5;display:flex;flex-direction:column;border-radius:10px;overflow:hidden;background:rgba(20,22,26,.85);border:1px solid var(--border)}
+.sketch-zoom-pill button{width:36px;height:36px;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.sketch-zoom-pill button svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.sketch-zoom-pill button:first-child{border-bottom:1px solid var(--border)}
 .sketch-footer{display:flex;gap:8px;padding:10px 16px calc(10px + var(--safe-bottom));border-top:1px solid var(--border);background:var(--surf);flex-shrink:0}
 .zoom-controls{position:fixed;right:16px;bottom:calc(112px + var(--safe-bottom));display:flex;flex-direction:column;background:rgba(232,234,239,.92);border:1px solid var(--border);backdrop-filter:blur(12px);border-radius:14px;overflow:hidden;z-index:190;box-shadow:0 2px 12px rgba(0,0,0,.12)}
 .zoom-btn{width:44px;height:44px;background:transparent;border:none;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;-webkit-tap-highlight-color:transparent}
@@ -11137,11 +11181,18 @@ window.onerror=function(msg,src,line){
   <div class="sketch-hdr">
     <button class="sketch-close" id="sketchClose">×</button>
     <span class="sketch-title" id="sketchTitle">Croquis</span>
+    <button class="sketch-hdr-btn" id="sketchUndo" title="Deshacer"><svg viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M3 13a9 9 0 1 0 3-7.7L3 8"/></svg></button>
+    <button class="sketch-hdr-btn" id="sketchRedo" title="Rehacer"><svg viewBox="0 0 24 24"><path d="M21 7v6h-6"/><path d="M21 13a9 9 0 1 1-3-7.7L21 8"/></svg></button>
   </div>
   <div class="sketch-body" id="sketchBody">
     <canvas id="sketchCanvas"></canvas>
     <div id="sketchGrid" class="sketch-grid-overlay"></div>
+    <div class="sketch-zoom-pill">
+      <button id="sketchZoomIn" title="Acercar"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
+      <button id="sketchZoomOut" title="Alejar"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
+    </div>
   </div>
+  <!-- Herramientas de dibujo — siempre las mismas, fila fija -->
   <div class="sketch-toolbar">
     <button class="sketch-tool" id="sketchToolSelect" data-tool="select" title="Seleccionar / mover vista (arrastrá el fondo)"><svg viewBox="0 0 24 24"><path d="m3 3 7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg></button>
     <button class="sketch-tool" id="sketchToolPencil" data-tool="pencil" title="Lápiz"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></button>
@@ -11151,6 +11202,9 @@ window.onerror=function(msg,src,line){
     <button class="sketch-tool" id="sketchToolText" data-tool="text" title="Texto"><svg viewBox="0 0 24 24"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg></button>
     <button class="sketch-tool" id="sketchToolMeasure" data-tool="measure" title="Medición (calculá área en rectángulos ya calibrados)"><svg viewBox="0 0 24 24"><path d="M21 6H3M21 12H3M21 18H3"/><line x1="9" y1="3" x2="9" y2="21"/></svg></button>
     <button class="sketch-tool" id="sketchToolEraser" data-tool="eraser" title="Goma — tocá o arrastrá sobre lo que quieras borrar"><svg viewBox="0 0 24 24"><path d="M20 20H8L3 15a2 2 0 0 1 0-2.8l8-8a2 2 0 0 1 2.8 0l6 6a2 2 0 0 1 0 2.8L14 19"/><line x1="8" y1="20" x2="14" y2="14"/></svg></button>
+  </div>
+  <!-- Propiedades del trazo (solo lo que aplica a la herramienta activa) + utilidades -->
+  <div class="sketch-toolbar-props">
     <button class="sketch-tool color-swatch" id="sketchColorBtn" title="Color"><input type="color" id="sketchColorInput" value="#ff3b30"></button>
     <select class="sketch-tool sketch-select" id="sketchStrokeWidth" title="Grosor de línea">
       <option value="1">1px</option>
@@ -11159,19 +11213,16 @@ window.onerror=function(msg,src,line){
       <option value="6">6px</option>
       <option value="10">10px</option>
     </select>
-    <select class="sketch-tool sketch-select" id="sketchFontSize" title="Tamaño de texto">
+    <select class="sketch-tool sketch-select" id="sketchFontSize" title="Tamaño de texto" hidden>
       <option value="14">14</option>
       <option value="20" selected>20</option>
       <option value="28">28</option>
       <option value="36">36</option>
       <option value="48">48</option>
     </select>
-    <button class="sketch-tool" id="sketchUndo" title="Deshacer"><svg viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M3 13a9 9 0 1 0 3-7.7L3 8"/></svg></button>
-    <button class="sketch-tool" id="sketchRedo" title="Rehacer"><svg viewBox="0 0 24 24"><path d="M21 7v6h-6"/><path d="M21 13a9 9 0 1 1-3-7.7L21 8"/></svg></button>
-    <button class="sketch-tool" id="sketchClearAll" title="Borrar todo"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
+    <span class="sketch-spacer"></span>
     <button class="sketch-tool" id="sketchGridToggle" title="Grilla de referencia (no se exporta)"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="1"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg></button>
-    <button class="sketch-tool" id="sketchZoomOut" title="Alejar"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
-    <button class="sketch-tool" id="sketchZoomIn" title="Acercar"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
+    <button class="sketch-tool" id="sketchClearAll" title="Borrar todo"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
     <button class="sketch-tool" id="sketchGallery" title="Elegir foto de la galería"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg></button>
     <button class="sketch-tool" id="sketchAttach" title="Sacar foto con la cámara"><svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7l1.5-3h5L16 7"/><circle cx="12" cy="14" r="3.5"/></svg></button>
   </div>
@@ -16435,9 +16486,18 @@ function cargarFabricJS(){
   return window._fabricLoadPromise;
 }
 
+function sketchActualizarPropsUI(tool){
+  const isText=tool==='text';
+  const isDraw=tool==='pencil'||tool==='line'||tool==='arrow'||tool==='rect'||tool==='measure';
+  document.getElementById('sketchColorBtn').hidden=!(isDraw||isText);
+  document.getElementById('sketchStrokeWidth').hidden=!isDraw;
+  document.getElementById('sketchFontSize').hidden=!isText;
+}
+
 function sketchSetTool(tool){
   sketchTool=tool;
   document.querySelectorAll('.sketch-tool[data-tool]').forEach(b=>b.classList.toggle('sel',b.dataset.tool===tool));
+  sketchActualizarPropsUI(tool);
   if(!sketchCanvasObj) return;
   sketchCanvasObj.isDrawingMode=(tool==='pencil');
   // Selection rectangle (rubber-band) desactivado: arrastrar sobre el fondo
