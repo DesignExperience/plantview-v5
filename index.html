@@ -1789,6 +1789,7 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
             <button class="sketch-tool" data-tool="rect" title="Rectángulo"><svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="1"/></svg></button>
             <button class="sketch-tool" data-tool="text" title="Texto"><svg viewBox="0 0 24 24"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg></button>
             <button class="sketch-tool" data-tool="measure" title="Medición"><svg viewBox="0 0 24 24"><path d="M21 6H3M21 12H3M21 18H3"/><line x1="9" y1="3" x2="9" y2="21"/></svg></button>
+            <button class="sketch-tool" data-tool="eraser" title="Goma — tocá o arrastrá sobre lo que quieras borrar"><svg viewBox="0 0 24 24"><path d="M20 20H8L3 15a2 2 0 0 1 0-2.8l8-8a2 2 0 0 1 2.8 0l6 6a2 2 0 0 1 0 2.8L14 19"/><line x1="8" y1="20" x2="14" y2="14"/></svg></button>
             <button class="sketch-tool color-swatch" id="sketch-color-btn" title="Color"><input type="color" id="sketch-color-input" value="#ff3b30"></button>
             <button class="sketch-tool" id="sketch-undo" title="Deshacer"><svg viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M3 13a9 9 0 1 0 3-7.7L3 8"/></svg></button>
             <button class="sketch-tool" id="sketch-clear" title="Borrar todo"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
@@ -9305,10 +9306,21 @@ function sketchSetTool(tool) {
   sketchCanvasObj.isDrawingMode = (tool === "pencil");
   sketchCanvasObj.selection = (tool === "select");
   sketchCanvasObj.forEachObject(o => o.selectable = (tool === "select"));
+  sketchCanvasObj.defaultCursor = (tool === "eraser") ? "crosshair" : "default";
+  sketchCanvasObj.hoverCursor = (tool === "eraser") ? "crosshair" : "move";
   if (tool === "pencil") {
     sketchCanvasObj.freeDrawingBrush.width = 3;
     sketchCanvasObj.freeDrawingBrush.color = sketchColor;
   }
+}
+
+// Borra el objeto tocado con la goma y lo saca también del historial de
+// deshacer (si quedara ahí, "Deshacer" podría volver a agregarlo).
+function sketchBorrarObjeto(obj) {
+  if (!obj || !sketchCanvasObj) return;
+  sketchCanvasObj.remove(obj);
+  const idx = sketchHistory.indexOf(obj);
+  if (idx !== -1) sketchHistory.splice(idx, 1);
 }
 
 // bgDataUrl null = lienzo en blanco. modoImagen indica si "Guardar" debe
@@ -9329,6 +9341,10 @@ async function abrirCroquis(bgDataUrl, nombre, modoImagen) {
   const canvasEl = document.getElementById("sketch-canvas");
   sketchCanvasObj = new fabric.Canvas(canvasEl, { isDrawingMode: false, backgroundColor: "#ffffff" });
   window.sketchCanvasObj = sketchCanvasObj; // expuesto para depuración/tests
+  // Padding invisible en el hit-test de cada objeto — sin esto, tocar con
+  // el dedo justo sobre una línea fina o diagonal para seleccionarla o
+  // borrarla con la goma es casi imposible en mobile.
+  fabric.Object.prototype.padding = 8;
   sketchCanvasObj.setWidth(w);
   sketchCanvasObj.setHeight(h);
   if (bgDataUrl) {
@@ -9351,6 +9367,18 @@ async function abrirCroquis(bgDataUrl, nombre, modoImagen) {
 
 function sketchWireDrawTools() {
   const c = sketchCanvasObj;
+  // Goma: tocar o arrastrar sobre cualquier figura/cota la borra al toque.
+  let sketchBorrando = false;
+  c.on("mouse:down", (opt) => {
+    if (sketchTool !== "eraser") return;
+    sketchBorrando = true;
+    if (opt.target) sketchBorrarObjeto(opt.target);
+  });
+  c.on("mouse:move", (opt) => {
+    if (sketchTool !== "eraser" || !sketchBorrando) return;
+    if (opt.target) sketchBorrarObjeto(opt.target);
+  });
+  c.on("mouse:up", () => { sketchBorrando = false; });
   c.on("mouse:down", (opt) => {
     if (sketchTool !== "line" && sketchTool !== "rect" && sketchTool !== "measure") return;
     const p = c.getPointer(opt.e);
@@ -10757,6 +10785,7 @@ window.onerror=function(msg,src,line){
     <button class="sketch-tool" id="sketchToolRect" data-tool="rect" title="Rectángulo"><svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="1"/></svg></button>
     <button class="sketch-tool" id="sketchToolText" data-tool="text" title="Texto"><svg viewBox="0 0 24 24"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg></button>
     <button class="sketch-tool" id="sketchToolMeasure" data-tool="measure" title="Medición"><svg viewBox="0 0 24 24"><path d="M21 6H3M21 12H3M21 18H3"/><line x1="9" y1="3" x2="9" y2="21"/></svg></button>
+    <button class="sketch-tool" id="sketchToolEraser" data-tool="eraser" title="Goma — tocá o arrastrá sobre lo que quieras borrar"><svg viewBox="0 0 24 24"><path d="M20 20H8L3 15a2 2 0 0 1 0-2.8l8-8a2 2 0 0 1 2.8 0l6 6a2 2 0 0 1 0 2.8L14 19"/><line x1="8" y1="20" x2="14" y2="14"/></svg></button>
     <button class="sketch-tool color-swatch" id="sketchColorBtn" title="Color"><input type="color" id="sketchColorInput" value="#ff3b30"></button>
     <button class="sketch-tool" id="sketchUndo" title="Deshacer"><svg viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M3 13a9 9 0 1 0 3-7.7L3 8"/></svg></button>
     <button class="sketch-tool" id="sketchClearAll" title="Borrar todo"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
@@ -16001,10 +16030,21 @@ function sketchSetTool(tool){
   sketchCanvasObj.isDrawingMode=(tool==='pencil');
   sketchCanvasObj.selection=(tool==='select');
   sketchCanvasObj.forEachObject(o=>o.selectable=(tool==='select'));
+  sketchCanvasObj.defaultCursor=(tool==='eraser')?'crosshair':'default';
+  sketchCanvasObj.hoverCursor=(tool==='eraser')?'crosshair':'move';
   if(tool==='pencil'){
     sketchCanvasObj.freeDrawingBrush.width=3;
     sketchCanvasObj.freeDrawingBrush.color=sketchColor;
   }
+}
+
+// Borra el objeto tocado con la goma y lo saca también del historial de
+// deshacer (si quedara ahí, "Deshacer" podría volver a agregarlo).
+function sketchBorrarObjeto(obj){
+  if(!obj||!sketchCanvasObj) return;
+  sketchCanvasObj.remove(obj);
+  const idx=sketchHistory.indexOf(obj);
+  if(idx!==-1) sketchHistory.splice(idx,1);
 }
 
 async function abrirCroquis(doc){
@@ -16022,6 +16062,10 @@ async function abrirCroquis(doc){
   const canvasEl=document.getElementById('sketchCanvas');
   sketchCanvasObj=new fabric.Canvas(canvasEl,{isDrawingMode:false,backgroundColor:'#ffffff'});
   window.sketchCanvasObj=sketchCanvasObj; // expuesto para depuración/tests
+  // Padding invisible en el hit-test de cada objeto — sin esto, tocar con
+  // el dedo justo sobre una línea fina o diagonal para seleccionarla o
+  // borrarla con la goma es casi imposible en mobile.
+  fabric.Object.prototype.padding = 8;
   sketchCanvasObj.setWidth(w);
   sketchCanvasObj.setHeight(h);
   if(doc && doc.dataUrl && doc.type!=='pdf'){
@@ -16044,6 +16088,18 @@ async function abrirCroquis(doc){
 
 function sketchWireDrawTools(){
   const c=sketchCanvasObj;
+  // Goma: tocar o arrastrar sobre cualquier figura/cota la borra al toque.
+  let sketchBorrando=false;
+  c.on('mouse:down',(opt)=>{
+    if(sketchTool!=='eraser') return;
+    sketchBorrando=true;
+    if(opt.target) sketchBorrarObjeto(opt.target);
+  });
+  c.on('mouse:move',(opt)=>{
+    if(sketchTool!=='eraser'||!sketchBorrando) return;
+    if(opt.target) sketchBorrarObjeto(opt.target);
+  });
+  c.on('mouse:up',()=>{ sketchBorrando=false; });
   c.on('mouse:down',(opt)=>{
     if(sketchTool!=='line' && sketchTool!=='rect' && sketchTool!=='measure') return;
     const p=c.getPointer(opt.e);
