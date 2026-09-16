@@ -1283,6 +1283,63 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 #app.visor-fullscreen #visor-dblclick-hint { display: none; }
 
 /* ============================================================
+   CROQUIS — editor de dibujo/anotación sobre imagen o lienzo en
+   blanco, vive dentro de la pestaña PDF/IMG (panel-visor).
+   ============================================================ */
+#sketch-modal {
+  position: absolute; inset: 0; z-index: 40;
+  display: none; flex-direction: column;
+  background: #1a1a1a;
+}
+#sketch-modal.show { display: flex; }
+.sketch-hdr {
+  flex: none; height: 42px; padding: 0 10px;
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface); border-bottom: 1px solid var(--line);
+}
+.sketch-hdr .sketch-title {
+  flex: 1; font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sketch-hdr button {
+  width: 30px; height: 30px; border-radius: var(--radius);
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--muted);
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+#sketch-body {
+  flex: 1; overflow: hidden; position: relative;
+  display: flex; align-items: center; justify-content: center;
+  background: #2a2a2a; touch-action: none;
+}
+#sketch-canvas { touch-action: none; }
+.sketch-toolbar {
+  flex: none; display: flex; gap: 6px; padding: 8px 10px;
+  background: var(--surface); border-top: 1px solid var(--line);
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+}
+.sketch-tool {
+  flex-shrink: 0; width: 38px; height: 38px; border-radius: var(--radius);
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--text);
+  display: flex; align-items: center; justify-content: center;
+}
+.sketch-tool.sel { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.sketch-tool svg { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.sketch-tool.color-swatch { padding: 0; overflow: hidden; position: relative; }
+.sketch-tool.color-swatch input[type=color] { position: absolute; inset: -4px; width: 46px; height: 46px; border: none; padding: 0; cursor: pointer; }
+.sketch-footer {
+  flex: none; display: flex; gap: 8px; padding: 10px;
+  background: var(--surface); border-top: 1px solid var(--line);
+}
+.sketch-btn {
+  flex: 1; height: 38px; border-radius: var(--radius); font-size: 12px; font-weight: 500;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.sketch-btn.secondary { background: var(--surface-2); color: var(--text); border: 1px solid var(--line); }
+.sketch-btn.primary { background: var(--accent); color: var(--on-accent); }
+.btn-croquis {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+
+/* ============================================================
    PDF PREVIEW — panel derecho sin cerrar eDrawing
    ============================================================ */
 #pdf-preview-panel {
@@ -1627,6 +1684,10 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
             </svg>
           </div>
           <p><strong>Visor vacío</strong>Tocá un plano en la lista para abrirlo acá.</p>
+          <button class="btn-retry btn-croquis" id="btn-croquis-blanco" type="button" style="margin-top:12px">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            Croquizar en blanco
+          </button>
         </div>
 
         <!-- Cargando -->
@@ -1666,6 +1727,9 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
           <button class="btn-pdf-nav" id="imagen-print" title="Imprimir">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6,9 6,2 18,2 18,9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
           </button>
+          <button class="btn-pdf-nav" id="imagen-croquis" title="Croquis">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          </button>
         </div>
         <div id="visor-imagen-wrap">
           <img id="visor-imagen" alt="">
@@ -1701,10 +1765,41 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
           <button class="btn-pdf-nav" id="pdf-print" title="Imprimir">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6,9 6,2 18,2 18,9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
           </button>
+          <button class="btn-pdf-nav" id="pdf-croquis" title="Croquis">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          </button>
         </div>
 
         <!-- PDF.js canvas area -->
         <div id="pdf-canvas-wrap"></div>
+
+        <!-- Editor de croquis (dibujo/anotación) — se superpone al visor -->
+        <div id="sketch-modal">
+          <div class="sketch-hdr">
+            <button id="sketch-close" type="button">×</button>
+            <span class="sketch-title" id="sketch-title">Croquis</span>
+          </div>
+          <div id="sketch-body">
+            <canvas id="sketch-canvas"></canvas>
+          </div>
+          <div class="sketch-toolbar">
+            <button class="sketch-tool" data-tool="select" title="Seleccionar"><svg viewBox="0 0 24 24"><path d="m3 3 7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg></button>
+            <button class="sketch-tool" data-tool="pencil" title="Lápiz"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></button>
+            <button class="sketch-tool" data-tool="line" title="Línea"><svg viewBox="0 0 24 24"><line x1="5" y1="19" x2="19" y2="5"/></svg></button>
+            <button class="sketch-tool" data-tool="rect" title="Rectángulo"><svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="1"/></svg></button>
+            <button class="sketch-tool" data-tool="text" title="Texto"><svg viewBox="0 0 24 24"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg></button>
+            <button class="sketch-tool" data-tool="measure" title="Medición"><svg viewBox="0 0 24 24"><path d="M21 6H3M21 12H3M21 18H3"/><line x1="9" y1="3" x2="9" y2="21"/></svg></button>
+            <button class="sketch-tool color-swatch" id="sketch-color-btn" title="Color"><input type="color" id="sketch-color-input" value="#ff3b30"></button>
+            <button class="sketch-tool" id="sketch-undo" title="Deshacer"><svg viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M3 13a9 9 0 1 0 3-7.7L3 8"/></svg></button>
+            <button class="sketch-tool" id="sketch-clear" title="Borrar todo"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
+            <button class="sketch-tool" id="sketch-attach" title="Adjuntar imagen / cámara"><svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7l1.5-3h5L16 7"/><circle cx="12" cy="14" r="3.5"/></svg></button>
+          </div>
+          <div class="sketch-footer">
+            <button class="sketch-btn secondary" id="sketch-cancel" type="button">Cancelar</button>
+            <button class="sketch-btn primary" id="sketch-save" type="button">Guardar</button>
+          </div>
+        </div>
+        <input type="file" id="sketch-attach-input" accept="image/*" capture="environment" style="display:none">
 
       </div>
       <!-- Hint doble click -->
@@ -9159,7 +9254,242 @@ function actualizarVisorSegunModo(modo) {
   document.getElementById("visor-chip-name").textContent = archivoTab ? archivoTab.nombre : "—";
   document.getElementById("visor-chip-folder").textContent = archivoTab ? archivoTab.carpetaNombre : "—";
   document.getElementById("btn-visor-reload").style.display = hayContenido ? "flex" : "none";
+  document.getElementById("btn-croquis-blanco").style.display = (esPDF && !hayContenido) ? "flex" : "none";
 }
+
+// ── TOAST (outer shell) ──────────────────────────────────────────────
+let toastTimerShell = null;
+function toast(msg, dur = 2200) {
+  const el = document.getElementById("toast");
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(toastTimerShell);
+  toastTimerShell = setTimeout(() => el.classList.remove("show"), dur);
+}
+
+// ── CROQUIS (dibujo/anotación sobre imagen o lienzo en blanco) ──────
+// Vive en la pestaña PDF/IMG: permite dibujar líneas, rectángulos, texto,
+// freehand y mediciones calibradas sobre la imagen abierta, o croquizar
+// desde cero cuando no hay ningún archivo cargado — útil para relevamiento
+// en planta sin tener que croquizar en papel.
+let sketchCanvasObj = null;
+let sketchTool = "pencil";
+let sketchColor = "#ff3b30";
+let sketchHistory = [];
+let sketchDrawingShape = null;
+let sketchStartPt = null;
+let sketchScalePxPerUnit = null;
+let sketchUnitLabel = "m";
+let sketchModoImagen = false; // true = guardar reemplaza visor-imagen; false = descarga PNG
+
+function cargarFabricJS() {
+  if (window.fabric) return Promise.resolve();
+  if (window._fabricLoadPromise) return window._fabricLoadPromise;
+  window._fabricLoadPromise = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js";
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error("No se pudo cargar la librería de croquis"));
+    document.head.appendChild(s);
+  });
+  return window._fabricLoadPromise;
+}
+
+function sketchSetTool(tool) {
+  sketchTool = tool;
+  document.querySelectorAll(".sketch-tool[data-tool]").forEach(b => b.classList.toggle("sel", b.dataset.tool === tool));
+  if (!sketchCanvasObj) return;
+  sketchCanvasObj.isDrawingMode = (tool === "pencil");
+  sketchCanvasObj.selection = (tool === "select");
+  sketchCanvasObj.forEachObject(o => o.selectable = (tool === "select"));
+  if (tool === "pencil") {
+    sketchCanvasObj.freeDrawingBrush.width = 3;
+    sketchCanvasObj.freeDrawingBrush.color = sketchColor;
+  }
+}
+
+// bgDataUrl null = lienzo en blanco. modoImagen indica si "Guardar" debe
+// reemplazar la imagen del visor (true) o descargar un PNG suelto (false).
+async function abrirCroquis(bgDataUrl, nombre, modoImagen) {
+  try { await cargarFabricJS(); } catch (err) { toast("❌ " + err.message); return; }
+  sketchModoImagen = !!modoImagen;
+  sketchHistory = [];
+  sketchScalePxPerUnit = null;
+  document.getElementById("sketch-title").textContent = nombre ? ("Croquis · " + nombre) : "Croquis en blanco";
+  const modal = document.getElementById("sketch-modal");
+  modal.classList.add("show");
+  const body = document.getElementById("sketch-body");
+  const w = Math.max(320, body.clientWidth || window.innerWidth);
+  const h = Math.max(320, body.clientHeight || window.innerHeight);
+  if (sketchCanvasObj) { sketchCanvasObj.dispose(); sketchCanvasObj = null; }
+  const canvasEl = document.getElementById("sketch-canvas");
+  sketchCanvasObj = new fabric.Canvas(canvasEl, { isDrawingMode: false, backgroundColor: "#ffffff" });
+  window.sketchCanvasObj = sketchCanvasObj; // expuesto para depuración/tests
+  sketchCanvasObj.setWidth(w);
+  sketchCanvasObj.setHeight(h);
+  if (bgDataUrl) {
+    await new Promise(resolve => {
+      fabric.Image.fromURL(bgDataUrl, (img) => {
+        const scale = Math.min(w / img.width, h / img.height, 1);
+        img.set({ left: (w - img.width * scale) / 2, top: (h - img.height * scale) / 2, scaleX: scale, scaleY: scale, selectable: false, evented: false });
+        sketchCanvasObj.add(img);
+        sketchCanvasObj.sendToBack(img);
+        resolve();
+      }, { crossOrigin: "anonymous" });
+    });
+  }
+  sketchCanvasObj.on("object:added", (e) => {
+    if (e.target && e.target !== sketchCanvasObj.backgroundImage) sketchHistory.push(e.target);
+  });
+  sketchWireDrawTools();
+  sketchSetTool("pencil");
+}
+
+function sketchWireDrawTools() {
+  const c = sketchCanvasObj;
+  c.on("mouse:down", (opt) => {
+    if (sketchTool !== "line" && sketchTool !== "rect" && sketchTool !== "measure") return;
+    const p = c.getPointer(opt.e);
+    sketchStartPt = p;
+    if (sketchTool === "rect") {
+      sketchDrawingShape = new fabric.Rect({ left: p.x, top: p.y, width: 1, height: 1, fill: "transparent", stroke: sketchColor, strokeWidth: 2, selectable: false, evented: false });
+    } else {
+      sketchDrawingShape = new fabric.Line([p.x, p.y, p.x, p.y], { stroke: sketchColor, strokeWidth: 2, selectable: false, evented: false });
+    }
+    c.add(sketchDrawingShape);
+  });
+  c.on("mouse:move", (opt) => {
+    if (!sketchDrawingShape || !sketchStartPt) return;
+    const p = c.getPointer(opt.e);
+    if (sketchTool === "rect") {
+      sketchDrawingShape.set({ width: Math.abs(p.x - sketchStartPt.x), height: Math.abs(p.y - sketchStartPt.y), left: Math.min(p.x, sketchStartPt.x), top: Math.min(p.y, sketchStartPt.y) });
+    } else {
+      sketchDrawingShape.set({ x2: p.x, y2: p.y });
+    }
+    c.requestRenderAll();
+  });
+  c.on("mouse:up", () => {
+    if (!sketchDrawingShape) return;
+    const shape = sketchDrawingShape;
+    shape.set({ selectable: true, evented: true });
+    sketchDrawingShape = null;
+    if (sketchTool === "measure" && shape.type === "line") {
+      sketchAplicarMedicion(shape);
+    } else if (!sketchHistory.includes(shape)) {
+      sketchHistory.push(shape);
+    }
+    sketchStartPt = null;
+    c.requestRenderAll();
+  });
+  c.on("mouse:down", (opt) => {
+    if (sketchTool !== "text") return;
+    const p = c.getPointer(opt.e);
+    const t = new fabric.IText("Texto", { left: p.x, top: p.y, fill: sketchColor, fontSize: 20 });
+    c.add(t);
+    c.setActiveObject(t);
+    t.enterEditing();
+  });
+}
+
+function sketchAplicarMedicion(line) {
+  const dx = line.x2 - line.x1, dy = line.y2 - line.y1;
+  const pxLen = Math.sqrt(dx * dx + dy * dy);
+  if (pxLen < 2) { sketchCanvasObj.remove(line); return; }
+  if (!sketchScalePxPerUnit) {
+    const real = prompt("Longitud real de esta línea (en " + sketchUnitLabel + "):", "1");
+    const val = parseFloat((real || "").replace(",", "."));
+    if (!val || val <= 0) { sketchCanvasObj.remove(line); return; }
+    sketchScalePxPerUnit = pxLen / val;
+  }
+  const distReal = pxLen / sketchScalePxPerUnit;
+  const label = new fabric.Text(distReal.toFixed(2) + " " + sketchUnitLabel, {
+    left: (line.x1 + line.x2) / 2, top: (line.y1 + line.y2) / 2 - 14, fontSize: 14, fill: sketchColor, backgroundColor: "rgba(255,255,255,.85)"
+  });
+  sketchCanvasObj.add(label);
+  sketchHistory.push(line);
+  sketchHistory.push(label);
+}
+
+document.querySelectorAll(".sketch-tool[data-tool]").forEach(btn => {
+  btn.addEventListener("click", () => sketchSetTool(btn.dataset.tool));
+});
+document.getElementById("sketch-color-input").addEventListener("input", (e) => {
+  sketchColor = e.target.value;
+  if (sketchCanvasObj && sketchCanvasObj.freeDrawingBrush) sketchCanvasObj.freeDrawingBrush.color = sketchColor;
+});
+document.getElementById("sketch-undo").addEventListener("click", () => {
+  if (!sketchCanvasObj || !sketchHistory.length) return;
+  const last = sketchHistory.pop();
+  sketchCanvasObj.remove(last);
+});
+document.getElementById("sketch-clear").addEventListener("click", () => {
+  if (!sketchCanvasObj) return;
+  if (!confirm("¿Borrar todas las anotaciones?")) return;
+  sketchHistory.forEach(o => sketchCanvasObj.remove(o));
+  sketchHistory = [];
+  sketchScalePxPerUnit = null;
+});
+document.getElementById("sketch-attach").addEventListener("click", () => {
+  document.getElementById("sketch-attach-input").click();
+});
+document.getElementById("sketch-attach-input").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file || !sketchCanvasObj) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    fabric.Image.fromURL(ev.target.result, (img) => {
+      const w = sketchCanvasObj.getWidth(), h = sketchCanvasObj.getHeight();
+      const scale = Math.min(w / img.width, h / img.height, 1);
+      img.set({ left: (w - img.width * scale) / 2, top: (h - img.height * scale) / 2, scaleX: scale, scaleY: scale, selectable: false, evented: false });
+      sketchCanvasObj.getObjects().slice().forEach(o => sketchCanvasObj.remove(o));
+      sketchHistory = [];
+      sketchScalePxPerUnit = null;
+      sketchCanvasObj.add(img);
+      sketchCanvasObj.sendToBack(img);
+    }, { crossOrigin: "anonymous" });
+  };
+  reader.readAsDataURL(file);
+});
+function cerrarCroquis() {
+  document.getElementById("sketch-modal").classList.remove("show");
+  if (sketchCanvasObj) { sketchCanvasObj.dispose(); sketchCanvasObj = null; window.sketchCanvasObj = null; }
+}
+document.getElementById("sketch-close").onclick = cerrarCroquis;
+document.getElementById("sketch-cancel").onclick = cerrarCroquis;
+document.getElementById("sketch-save").addEventListener("click", () => {
+  if (!sketchCanvasObj) return;
+  const dataUrl = sketchCanvasObj.toDataURL({ format: "png" });
+  if (sketchModoImagen) {
+    visorImagen.src = dataUrl;
+    toast("✓ Croquis aplicado sobre la imagen");
+  } else {
+    const a = document.createElement("a");
+    a.href = dataUrl;
+    a.download = "croquis-" + Date.now() + ".png";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    toast("✓ Croquis descargado");
+  }
+  cerrarCroquis();
+});
+
+document.getElementById("btn-croquis-blanco").addEventListener("click", () => {
+  abrirCroquis(null, null, false);
+});
+document.getElementById("imagen-croquis").addEventListener("click", () => {
+  if (!visorImagen.src || visorImagen.src === "about:blank") { toast("No hay ninguna imagen abierta"); return; }
+  abrirCroquis(visorImagen.src, state.pdfArchivo ? state.pdfArchivo.nombre : "imagen", true);
+});
+document.getElementById("pdf-croquis").addEventListener("click", () => {
+  const paginaActual = parseInt(document.getElementById("pdf-page-cur").value) || 1;
+  const canvases = document.querySelectorAll("#pdf-canvas-inner .pdf-page-canvas");
+  const cv = canvases[paginaActual - 1];
+  if (!cv) { toast("Todavía no se cargó esta página"); return; }
+  abrirCroquis(cv.toDataURL("image/png"), state.pdfArchivo ? state.pdfArchivo.nombre : "plano", false);
+});
 
 function aplicarModo(modo, save = true) {
   // Si había un modal abierto (crear/editar tarea, su explorador de
