@@ -4574,6 +4574,18 @@ function ocultarPanelesVisor() {
 }
 
 function abrirVisor(archivo) {
+  // Si hay un croquis abierto tapando el visor, abrir otro archivo antes
+  // no hacía nada visible — el archivo nuevo cargaba "atrás" del croquis
+  // sin que el usuario lo notara. Se pregunta antes de cambiar (general
+  // para cualquier tipo de archivo, no solo imágenes); el progreso del
+  // croquis queda guardado como borrador de todos modos.
+  const sketchModalAbierto = document.getElementById("sketch-modal");
+  if (sketchModalAbierto && sketchModalAbierto.classList.contains("show")) {
+    if (!confirm(`Tenés un croquis abierto. ¿Cerrarlo y abrir "${archivo.nombre}"? (tu progreso queda guardado como borrador)`)) {
+      return;
+    }
+    cerrarCroquis();
+  }
   state.archivoActual = archivo;
 
   // Guardar reciente
