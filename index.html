@@ -1821,7 +1821,8 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
             <button class="sketch-tool" id="sketch-grid-toggle" title="Grilla de referencia (no se exporta)"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="1"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg></button>
             <button class="sketch-tool" id="sketch-zoom-out" title="Alejar"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
             <button class="sketch-tool" id="sketch-zoom-in" title="Acercar"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
-            <button class="sketch-tool" id="sketch-attach" title="Adjuntar imagen / cámara"><svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7l1.5-3h5L16 7"/><circle cx="12" cy="14" r="3.5"/></svg></button>
+            <button class="sketch-tool" id="sketch-gallery" title="Elegir foto de la galería"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg></button>
+            <button class="sketch-tool" id="sketch-attach" title="Sacar foto con la cámara"><svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7l1.5-3h5L16 7"/><circle cx="12" cy="14" r="3.5"/></svg></button>
           </div>
           <div class="sketch-footer">
             <button class="sketch-btn secondary" id="sketch-cancel" type="button">Cancelar</button>
@@ -1830,6 +1831,7 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
           </div>
         </div>
         <input type="file" id="sketch-attach-input" accept="image/*" capture="environment" style="display:none">
+        <input type="file" id="sketch-gallery-input" accept="image/*" style="display:none">
 
       </div>
       <!-- Hint doble click -->
@@ -9818,7 +9820,10 @@ document.getElementById("sketch-zoom-in").addEventListener("click", () => sketch
 document.getElementById("sketch-attach").addEventListener("click", () => {
   document.getElementById("sketch-attach-input").click();
 });
-document.getElementById("sketch-attach-input").addEventListener("change", (e) => {
+document.getElementById("sketch-gallery").addEventListener("click", () => {
+  document.getElementById("sketch-gallery-input").click();
+});
+function sketchOnFotoElegida(e) {
   const file = e.target.files[0];
   e.target.value = "";
   if (!file || !sketchCanvasObj) return;
@@ -9839,7 +9844,9 @@ document.getElementById("sketch-attach-input").addEventListener("change", (e) =>
     }, { crossOrigin: "anonymous" });
   };
   reader.readAsDataURL(file);
-});
+}
+document.getElementById("sketch-attach-input").addEventListener("change", sketchOnFotoElegida);
+document.getElementById("sketch-gallery-input").addEventListener("change", sketchOnFotoElegida);
 function cerrarCroquis() {
   document.getElementById("sketch-modal").classList.remove("show");
   document.getElementById("sketch-grid").classList.remove("show");
@@ -11165,7 +11172,8 @@ window.onerror=function(msg,src,line){
     <button class="sketch-tool" id="sketchGridToggle" title="Grilla de referencia (no se exporta)"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="1"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg></button>
     <button class="sketch-tool" id="sketchZoomOut" title="Alejar"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
     <button class="sketch-tool" id="sketchZoomIn" title="Acercar"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
-    <button class="sketch-tool" id="sketchAttach" title="Adjuntar imagen / cámara"><svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7l1.5-3h5L16 7"/><circle cx="12" cy="14" r="3.5"/></svg></button>
+    <button class="sketch-tool" id="sketchGallery" title="Elegir foto de la galería"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg></button>
+    <button class="sketch-tool" id="sketchAttach" title="Sacar foto con la cámara"><svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7l1.5-3h5L16 7"/><circle cx="12" cy="14" r="3.5"/></svg></button>
   </div>
   <div class="sketch-footer">
     <button class="doc-modal-btn secondary" id="sketchCancel">Cancelar</button>
@@ -11174,6 +11182,7 @@ window.onerror=function(msg,src,line){
   </div>
 </div>
 <input type="file" id="sketchAttachInput" accept="image/*" capture="environment" style="display:none">
+<input type="file" id="sketchGalleryInput" accept="image/*" style="display:none">
 
 <script>
 // ── INLINE STL PARSER ────────────────────────────────────────────────
@@ -16903,7 +16912,10 @@ document.getElementById('sketchZoomIn').addEventListener('click',()=>sketchZoomB
 document.getElementById('sketchAttach').addEventListener('click',()=>{
   document.getElementById('sketchAttachInput').click();
 });
-document.getElementById('sketchAttachInput').addEventListener('change',(e)=>{
+document.getElementById('sketchGallery').addEventListener('click',()=>{
+  document.getElementById('sketchGalleryInput').click();
+});
+function sketchOnFotoElegida(e){
   const file=e.target.files[0];
   e.target.value='';
   if(!file||!sketchCanvasObj) return;
@@ -16924,7 +16936,9 @@ document.getElementById('sketchAttachInput').addEventListener('change',(e)=>{
     },{crossOrigin:'anonymous'});
   };
   reader.readAsDataURL(file);
-});
+}
+document.getElementById('sketchAttachInput').addEventListener('change', sketchOnFotoElegida);
+document.getElementById('sketchGalleryInput').addEventListener('change', sketchOnFotoElegida);
 function cerrarCroquis(){
   document.getElementById('sketchModal').classList.remove('open');
   document.getElementById('sketchGrid').classList.remove('show');
