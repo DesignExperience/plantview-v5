@@ -9308,10 +9308,19 @@ function sketchSetTool(tool) {
   sketchCanvasObj.forEachObject(o => o.selectable = (tool === "select"));
   sketchCanvasObj.defaultCursor = (tool === "eraser") ? "crosshair" : "default";
   sketchCanvasObj.hoverCursor = (tool === "eraser") ? "crosshair" : "move";
+  if (tool !== "select") {
+    // Al salir de selección, las manijas de redimensionar del objeto activo
+    // quedaban visibles aunque ya no fuera seleccionable — al arrastrar ahí
+    // pensando que se iba a redimensionar, en realidad se empezaba a
+    // dibujar una figura nueva encima. Deseleccionar al cambiar de
+    // herramienta evita esa trampa.
+    sketchCanvasObj.discardActiveObject();
+  }
   if (tool === "pencil") {
     sketchCanvasObj.freeDrawingBrush.width = 3;
     sketchCanvasObj.freeDrawingBrush.color = sketchColor;
   }
+  sketchCanvasObj.requestRenderAll();
 }
 
 // Borra el objeto tocado con la goma y lo saca también del historial de
@@ -9381,6 +9390,9 @@ function sketchWireDrawTools() {
   c.on("mouse:up", () => { sketchBorrando = false; });
   c.on("mouse:down", (opt) => {
     if (sketchTool !== "line" && sketchTool !== "rect" && sketchTool !== "measure") return;
+    // Si el click cayó sobre un objeto existente (o sus manijas), es una
+    // interacción con ese objeto, no el arranque de una figura nueva.
+    if (opt.target || opt.transform) return;
     const p = c.getPointer(opt.e);
     sketchStartPt = p;
     if (sketchTool === "rect") {
@@ -16032,10 +16044,19 @@ function sketchSetTool(tool){
   sketchCanvasObj.forEachObject(o=>o.selectable=(tool==='select'));
   sketchCanvasObj.defaultCursor=(tool==='eraser')?'crosshair':'default';
   sketchCanvasObj.hoverCursor=(tool==='eraser')?'crosshair':'move';
+  if(tool!=='select'){
+    // Al salir de selección, las manijas de redimensionar del objeto activo
+    // quedaban visibles aunque ya no fuera seleccionable — al arrastrar ahí
+    // pensando que se iba a redimensionar, en realidad se empezaba a
+    // dibujar una figura nueva encima. Deseleccionar al cambiar de
+    // herramienta evita esa trampa.
+    sketchCanvasObj.discardActiveObject();
+  }
   if(tool==='pencil'){
     sketchCanvasObj.freeDrawingBrush.width=3;
     sketchCanvasObj.freeDrawingBrush.color=sketchColor;
   }
+  sketchCanvasObj.requestRenderAll();
 }
 
 // Borra el objeto tocado con la goma y lo saca también del historial de
@@ -16102,6 +16123,9 @@ function sketchWireDrawTools(){
   c.on('mouse:up',()=>{ sketchBorrando=false; });
   c.on('mouse:down',(opt)=>{
     if(sketchTool!=='line' && sketchTool!=='rect' && sketchTool!=='measure') return;
+    // Si el click cayó sobre un objeto existente (o sus manijas), es una
+    // interacción con ese objeto, no el arranque de una figura nueva.
+    if(opt.target || opt.transform) return;
     const p=c.getPointer(opt.e);
     sketchStartPt=p;
     if(sketchTool==='rect'){
