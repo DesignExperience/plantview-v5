@@ -9333,6 +9333,7 @@ let sketchAttachCount = 0;
 let sketchStates = [];
 let sketchStateIndex = -1;
 let sketchApplyingHistory = false;
+let sketchEditingGrupoPartes = null; // {shape,label} mientras se edita el número de una cota/área agrupada
 
 function cargarFabricJS() {
   if (window.fabric) return Promise.resolve();
@@ -9399,7 +9400,7 @@ function sketchSnapPoint(start, p) {
 // ── Deshacer/Rehacer ──────────────────────────────────────────────────
 function sketchSnapshot() {
   if (!sketchCanvasObj || sketchApplyingHistory) return;
-  const json = JSON.stringify(sketchCanvasObj.toJSON(["selectable", "evented", "isBg"]));
+  const json = JSON.stringify(sketchCanvasObj.toJSON(["selectable", "evented", "isBg", "isAnnotationGroup"]));
   if (sketchStates[sketchStateIndex] === json) return;
   sketchStates = sketchStates.slice(0, sketchStateIndex + 1);
   sketchStates.push(json);
@@ -9538,7 +9539,10 @@ async function abrirCroquis(bgDataUrl, nombre, modoImagen) {
 
   sketchCanvasObj.on("object:modified", sketchSnapshot);
   sketchCanvasObj.on("path:created", sketchSnapshot);
-  sketchCanvasObj.on("text:editing:exited", sketchSnapshot);
+  sketchCanvasObj.on("text:editing:exited", () => {
+    if (sketchEditingGrupoPartes) sketchRegroupSiCorresponde();
+    else sketchSnapshot();
+  });
   sketchWireDrawTools();
   sketchSetTool("pencil");
   sketchSnapshot(); // estado inicial — deja a "Deshacer" volver hasta acá
@@ -9615,16 +9619,21 @@ function sketchWireDrawTools() {
     t.enterEditing();
     t.selectAll();
   });
-  // Cotas y textos se editan con un solo click/tap (no hace falta doble
-  // click) — entra directo en edición con todo el texto seleccionado,
-  // para tipear el número nuevo sin tener que borrar el anterior.
-  c.on("mouse:down", (opt) => {
+  // Cotas y textos se editan con doble click/tap — un solo click permite
+  // seleccionar y arrastrar la figura entera sin entrar en edición sin
+  // querer. En una cota (línea+número agrupados) el número se edita
+  // "sacándolo" un instante del grupo y devolviéndolo al terminar, para
+  // que el grupo se pueda seguir moviendo siempre como una sola pieza.
+  c.on("mouse:dblclick", (opt) => {
     if (sketchTool !== "select") return;
     const target = opt.target;
-    if (target && target.type === "i-text" && !target.isEditing) {
+    if (!target) return;
+    if (target.type === "i-text" && !target.isEditing) {
       c.setActiveObject(target);
       target.enterEditing();
       target.selectAll();
+    } else if (target.isAnnotationGroup) {
+      sketchEntrarEdicionGrupo(target);
     }
   });
   // Zoom con rueda del mouse (desktop) — mismo rango que los botones.
@@ -9703,8 +9712,46 @@ function sketchConvertirEnFlecha(line) {
   sketchSnapshot();
 }
 
+// Cotas y áreas son un grupo {figura, número} — así se mueven, escalan y
+// borran siempre como una sola pieza (antes eran dos objetos sueltos: al
+// arrastrar el número se separaba de la línea y "rompía" la cota).
+function sketchAgruparAnotacion(shape, label) {
+  sketchCanvasObj.remove(shape);
+  sketchCanvasObj.remove(label);
+  const group = new fabric.Group([shape, label], { selectable: true, evented: true, isAnnotationGroup: true });
+  sketchCanvasObj.add(group);
+  sketchCanvasObj.requestRenderAll();
+  return group;
+}
+
+// El número de una cota/área se edita "sacándolo" un instante del grupo:
+// Fabric no permite editar texto en vivo dentro de un grupo. Al terminar
+// de editar (text:editing:exited) se vuelve a armar el mismo grupo.
+function sketchEntrarEdicionGrupo(group) {
+  const items = group._objects.slice();
+  group._restoreObjectsState();
+  sketchCanvasObj.remove(group);
+  items.forEach(o => sketchCanvasObj.add(o));
+  const label = items.find(o => o.type === "i-text");
+  const shape = items.find(o => o !== label);
+  if (!label || !shape) return;
+  sketchEditingGrupoPartes = { shape, label };
+  sketchCanvasObj.setActiveObject(label);
+  label.enterEditing();
+  label.selectAll();
+  sketchCanvasObj.requestRenderAll();
+}
+function sketchRegroupSiCorresponde() {
+  if (!sketchEditingGrupoPartes) return;
+  const { shape, label } = sketchEditingGrupoPartes;
+  sketchEditingGrupoPartes = null;
+  sketchAgruparAnotacion(shape, label);
+  sketchSnapshot();
+}
+
 // Si ya hay una escala calibrada, un rectángulo recién dibujado también
-// muestra su área real (no solo las líneas de medición muestran distancia).
+// muestra su área real (no solo las líneas de medición muestran distancia),
+// agrupado con el rectángulo para moverse siempre junto.
 function sketchAplicarAreaSiCorresponde(rect) {
   if (!sketchScalePxPerUnit) return;
   const areaReal = (rect.width / sketchScalePxPerUnit) * (rect.height / sketchScalePxPerUnit);
@@ -9712,7 +9759,7 @@ function sketchAplicarAreaSiCorresponde(rect) {
     left: rect.left + rect.width / 2, top: rect.top + rect.height / 2, fontSize: 14, fill: sketchColor,
     backgroundColor: "rgba(255,255,255,.85)", originX: "center", originY: "center",
   });
-  sketchCanvasObj.add(label);
+  sketchAgruparAnotacion(rect, label);
 }
 
 function sketchAplicarMedicion(line) {
@@ -9731,8 +9778,7 @@ function sketchAplicarMedicion(line) {
   const label = new fabric.IText(distReal.toFixed(2) + " " + sketchUnitLabel, {
     left: (line.x1 + line.x2) / 2, top: (line.y1 + line.y2) / 2 - 14, fontSize: 14, fill: sketchColor, backgroundColor: "rgba(255,255,255,.85)"
   });
-  sketchCanvasObj.add(label);
-  sketchCanvasObj.requestRenderAll();
+  sketchAgruparAnotacion(line, label);
   sketchSnapshot();
 }
 
@@ -16365,6 +16411,7 @@ let sketchAttachCount=0;
 let sketchStates=[];
 let sketchStateIndex=-1;
 let sketchApplyingHistory=false;
+let sketchEditingGrupoPartes=null; // {shape,label} mientras se edita el número de una cota/área agrupada
 
 function cargarFabricJS(){
   if(window.fabric) return Promise.resolve();
@@ -16431,7 +16478,7 @@ function sketchSnapPoint(start,p){
 // ── Deshacer/Rehacer ──────────────────────────────────────────────────
 function sketchSnapshot(){
   if(!sketchCanvasObj||sketchApplyingHistory) return;
-  const json=JSON.stringify(sketchCanvasObj.toJSON(['selectable','evented','isBg']));
+  const json=JSON.stringify(sketchCanvasObj.toJSON(['selectable','evented','isBg','isAnnotationGroup']));
   if(sketchStates[sketchStateIndex]===json) return;
   sketchStates=sketchStates.slice(0,sketchStateIndex+1);
   sketchStates.push(json);
@@ -16574,7 +16621,10 @@ async function abrirCroquis(doc){
 
   sketchCanvasObj.on('object:modified', sketchSnapshot);
   sketchCanvasObj.on('path:created', sketchSnapshot);
-  sketchCanvasObj.on('text:editing:exited', sketchSnapshot);
+  sketchCanvasObj.on('text:editing:exited', () => {
+    if(sketchEditingGrupoPartes) sketchRegroupSiCorresponde();
+    else sketchSnapshot();
+  });
   sketchWireDrawTools();
   sketchSetTool('pencil');
   sketchSnapshot(); // estado inicial — deja a "Deshacer" volver hasta acá
@@ -16651,16 +16701,21 @@ function sketchWireDrawTools(){
     t.enterEditing();
     t.selectAll();
   });
-  // Cotas y textos se editan con un solo click/tap (no hace falta doble
-  // click) — entra directo en edición con todo el texto seleccionado,
-  // para tipear el número nuevo sin tener que borrar el anterior.
-  c.on('mouse:down',(opt)=>{
+  // Cotas y textos se editan con doble click/tap — un solo click permite
+  // seleccionar y arrastrar la figura entera sin entrar en edición sin
+  // querer. En una cota (línea+número agrupados) el número se edita
+  // "sacándolo" un instante del grupo y devolviéndolo al terminar, para
+  // que el grupo se pueda seguir moviendo siempre como una sola pieza.
+  c.on('mouse:dblclick',(opt)=>{
     if(sketchTool!=='select') return;
     const target=opt.target;
-    if(target && target.type==='i-text' && !target.isEditing){
+    if(!target) return;
+    if(target.type==='i-text' && !target.isEditing){
       c.setActiveObject(target);
       target.enterEditing();
       target.selectAll();
+    }else if(target.isAnnotationGroup){
+      sketchEntrarEdicionGrupo(target);
     }
   });
   // Zoom con rueda del mouse (desktop) — mismo rango que los botones.
@@ -16741,6 +16796,46 @@ function sketchConvertirEnFlecha(line){
 
 // Si ya hay una escala calibrada, un rectángulo recién dibujado también
 // muestra su área real (no solo las líneas de medición muestran distancia).
+// Cotas y áreas son un grupo {figura, número} — así se mueven, escalan y
+// borran siempre como una sola pieza (antes eran dos objetos sueltos: al
+// arrastrar el número se separaba de la línea y "rompía" la cota).
+function sketchAgruparAnotacion(shape,label){
+  sketchCanvasObj.remove(shape);
+  sketchCanvasObj.remove(label);
+  const group=new fabric.Group([shape,label],{selectable:true,evented:true,isAnnotationGroup:true});
+  sketchCanvasObj.add(group);
+  sketchCanvasObj.requestRenderAll();
+  return group;
+}
+
+// El número de una cota/área se edita "sacándolo" un instante del grupo:
+// Fabric no permite editar texto en vivo dentro de un grupo. Al terminar
+// de editar (text:editing:exited) se vuelve a armar el mismo grupo.
+function sketchEntrarEdicionGrupo(group){
+  const items=group._objects.slice();
+  group._restoreObjectsState();
+  sketchCanvasObj.remove(group);
+  items.forEach(o=>sketchCanvasObj.add(o));
+  const label=items.find(o=>o.type==='i-text');
+  const shape=items.find(o=>o!==label);
+  if(!label||!shape) return;
+  sketchEditingGrupoPartes={shape,label};
+  sketchCanvasObj.setActiveObject(label);
+  label.enterEditing();
+  label.selectAll();
+  sketchCanvasObj.requestRenderAll();
+}
+function sketchRegroupSiCorresponde(){
+  if(!sketchEditingGrupoPartes) return;
+  const {shape,label}=sketchEditingGrupoPartes;
+  sketchEditingGrupoPartes=null;
+  sketchAgruparAnotacion(shape,label);
+  sketchSnapshot();
+}
+
+// Si ya hay una escala calibrada, un rectángulo recién dibujado también
+// muestra su área real (no solo las líneas de medición muestran distancia),
+// agrupado con el rectángulo para moverse siempre junto.
 function sketchAplicarAreaSiCorresponde(rect){
   if(!sketchScalePxPerUnit) return;
   const areaReal=(rect.width/sketchScalePxPerUnit)*(rect.height/sketchScalePxPerUnit);
@@ -16748,7 +16843,7 @@ function sketchAplicarAreaSiCorresponde(rect){
     left:rect.left+rect.width/2, top:rect.top+rect.height/2, fontSize:14, fill:sketchColor,
     backgroundColor:'rgba(255,255,255,.85)', originX:'center', originY:'center',
   });
-  sketchCanvasObj.add(label);
+  sketchAgruparAnotacion(rect,label);
 }
 
 function sketchAplicarMedicion(line){
@@ -16768,8 +16863,7 @@ function sketchAplicarMedicion(line){
   const label=new fabric.IText(distReal.toFixed(2)+' '+sketchUnitLabel,{
     left:(line.x1+line.x2)/2, top:(line.y1+line.y2)/2-14, fontSize:14, fill:sketchColor, backgroundColor:'rgba(255,255,255,.85)'
   });
-  sketchCanvasObj.add(label);
-  sketchCanvasObj.requestRenderAll();
+  sketchAgruparAnotacion(line,label);
   sketchSnapshot();
 }
 
