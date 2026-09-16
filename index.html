@@ -9419,7 +9419,14 @@ function sketchActualizarSelectable() {
   if (!sketchCanvasObj) return;
   sketchCanvasObj.forEachObject(o => {
     if (o.isBg) { o.selectable = false; o.evented = false; }
-    else o.selectable = (sketchTool === "select");
+    else if (o.rectGroupId && o.type !== "rect") {
+      // Texto libre / cotas de ancho-alto de un rectángulo: nunca
+      // seleccionables sueltas, o se podrían arrastrar lejos del
+      // rectángulo y "romper" la anotación otra vez.
+      o.selectable = false;
+    } else {
+      o.selectable = (sketchTool === "select");
+    }
   });
 }
 
@@ -9643,20 +9650,30 @@ function sketchWireDrawTools() {
     shape.setCoords();
     sketchDrawingShape = null;
     sketchStartPt = null;
+    // Después de trazar la figura se vuelve solo a la herramienta
+    // Seleccionar — si el usuario intentaba arrastrar la figura recién
+    // dibujada para moverla, con la herramienta de dibujo todavía activa
+    // ese arrastre se interpretaba como "dibujar una más" en vez de mover
+    // la existente (el bug reportado). Volver a Seleccionar deja el
+    // arrastre siguiente listo para mover/redimensionar, no para dibujar.
     if (sketchTool === "measure" && shape.type === "line") {
       shape.set({ selectable: true, evented: true });
       sketchAplicarMedicion(shape);
+      sketchSetTool("select");
     } else if (sketchTool === "arrow" && shape.type === "line") {
       sketchConvertirEnFlecha(shape);
+      sketchSetTool("select");
     } else if (sketchTool === "rect") {
       shape.set({ selectable: true, evented: true });
       shape.setCoords();
       if (sketchDimsOn) sketchCrearRectConDimensiones(shape);
       sketchSnapshot();
+      sketchSetTool("select");
     } else {
       shape.set({ selectable: true, evented: true });
       shape.setCoords();
       sketchSnapshot();
+      sketchSetTool("select");
     }
     c.requestRenderAll();
   });
@@ -16632,7 +16649,14 @@ function sketchActualizarSelectable(){
   if(!sketchCanvasObj) return;
   sketchCanvasObj.forEachObject(o=>{
     if(o.isBg){ o.selectable=false; o.evented=false; }
-    else o.selectable=(sketchTool==='select');
+    else if(o.rectGroupId && o.type!=='rect'){
+      // Texto libre / cotas de ancho-alto de un rectángulo: nunca
+      // seleccionables sueltas, o se podrían arrastrar lejos del
+      // rectángulo y "romper" la anotación otra vez.
+      o.selectable=false;
+    }else{
+      o.selectable=(sketchTool==='select');
+    }
   });
 }
 
@@ -16863,20 +16887,30 @@ function sketchWireDrawTools(){
     shape.setCoords();
     sketchDrawingShape=null;
     sketchStartPt=null;
+    // Después de trazar la figura se vuelve solo a la herramienta
+    // Seleccionar — si el usuario intentaba arrastrar la figura recién
+    // dibujada para moverla, con la herramienta de dibujo todavía activa
+    // ese arrastre se interpretaba como "dibujar una más" en vez de mover
+    // la existente (el bug reportado). Volver a Seleccionar deja el
+    // arrastre siguiente listo para mover/redimensionar, no para dibujar.
     if(sketchTool==='measure' && shape.type==='line'){
       shape.set({selectable:true,evented:true});
       sketchAplicarMedicion(shape);
+      sketchSetTool('select');
     }else if(sketchTool==='arrow' && shape.type==='line'){
       sketchConvertirEnFlecha(shape);
+      sketchSetTool('select');
     }else if(sketchTool==='rect'){
       shape.set({selectable:true,evented:true});
       shape.setCoords();
       if(sketchDimsOn) sketchCrearRectConDimensiones(shape);
       sketchSnapshot();
+      sketchSetTool('select');
     }else{
       shape.set({selectable:true,evented:true});
       shape.setCoords();
       sketchSnapshot();
+      sketchSetTool('select');
     }
     c.requestRenderAll();
   });
