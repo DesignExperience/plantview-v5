@@ -1783,7 +1783,7 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
             <canvas id="sketch-canvas"></canvas>
           </div>
           <div class="sketch-toolbar">
-            <button class="sketch-tool" data-tool="select" title="Seleccionar"><svg viewBox="0 0 24 24"><path d="m3 3 7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg></button>
+            <button class="sketch-tool" data-tool="select" title="Seleccionar / mover vista (arrastrá el fondo)"><svg viewBox="0 0 24 24"><path d="m3 3 7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg></button>
             <button class="sketch-tool" data-tool="pencil" title="Lápiz"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></button>
             <button class="sketch-tool" data-tool="line" title="Línea"><svg viewBox="0 0 24 24"><line x1="5" y1="19" x2="19" y2="5"/></svg></button>
             <button class="sketch-tool" data-tool="rect" title="Rectángulo"><svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="1"/></svg></button>
@@ -9304,7 +9304,9 @@ function sketchSetTool(tool) {
   document.querySelectorAll(".sketch-tool[data-tool]").forEach(b => b.classList.toggle("sel", b.dataset.tool === tool));
   if (!sketchCanvasObj) return;
   sketchCanvasObj.isDrawingMode = (tool === "pencil");
-  sketchCanvasObj.selection = (tool === "select");
+  // Selection rectangle (rubber-band) desactivado: arrastrar sobre el fondo
+  // vacío en la herramienta Seleccionar se usa para desplazar la vista (pan).
+  sketchCanvasObj.selection = false;
   sketchCanvasObj.forEachObject(o => o.selectable = (tool === "select"));
   sketchCanvasObj.defaultCursor = (tool === "eraser") ? "crosshair" : "default";
   sketchCanvasObj.hoverCursor = (tool === "eraser") ? "crosshair" : "move";
@@ -9455,8 +9457,24 @@ function sketchWireDrawTools() {
     opt.e.preventDefault();
     opt.e.stopPropagation();
   });
-  // Pinch-to-zoom con dos dedos (touch) — Fabric no lo resuelve solo.
-  let sketchPinchDist = null, sketchPinchZoomIni = 1;
+  // Desplazamiento (pan) con un dedo/mouse en la herramienta Seleccionar,
+  // arrastrando sobre el fondo vacío (no sobre una figura) — mueve la vista
+  // del canvas, no el contenido.
+  let sketchPanning = false, sketchPanLast = null;
+  c.on("mouse:down", (opt) => {
+    if (sketchTool !== "select" || opt.target) return;
+    sketchPanning = true;
+    sketchPanLast = sketchGetClientXY(opt.e);
+  });
+  c.on("mouse:move", (opt) => {
+    if (!sketchPanning) return;
+    const p = sketchGetClientXY(opt.e);
+    c.relativePan({ x: p.x - sketchPanLast.x, y: p.y - sketchPanLast.y });
+    sketchPanLast = p;
+  });
+  c.on("mouse:up", () => { sketchPanning = false; });
+  // Pinch-to-zoom + pan con dos dedos (touch) — Fabric no lo resuelve solo.
+  let sketchPinchDist = null, sketchPinchZoomIni = 1, sketchPinchLastMid = null;
   const upperEl = c.upperCanvasEl;
   upperEl.addEventListener("touchmove", (e) => {
     if (e.touches.length !== 2) { sketchPinchDist = null; return; }
@@ -9465,12 +9483,19 @@ function sketchWireDrawTools() {
     const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
     const rect = upperEl.getBoundingClientRect();
     const mid = { x: (t1.clientX + t2.clientX) / 2 - rect.left, y: (t1.clientY + t2.clientY) / 2 - rect.top };
-    if (sketchPinchDist == null) { sketchPinchDist = dist; sketchPinchZoomIni = c.getZoom(); return; }
+    if (sketchPinchDist == null) { sketchPinchDist = dist; sketchPinchZoomIni = c.getZoom(); sketchPinchLastMid = mid; return; }
     let zoom = sketchPinchZoomIni * (dist / sketchPinchDist);
     zoom = Math.max(0.2, Math.min(6, zoom));
     c.zoomToPoint(mid, zoom);
+    c.relativePan({ x: mid.x - sketchPinchLastMid.x, y: mid.y - sketchPinchLastMid.y });
+    sketchPinchLastMid = mid;
   }, { passive: false });
   upperEl.addEventListener("touchend", (e) => { if (e.touches.length < 2) sketchPinchDist = null; }, { passive: true });
+}
+
+function sketchGetClientXY(e) {
+  if (e.touches && e.touches.length) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  return { x: e.clientX, y: e.clientY };
 }
 
 function sketchZoomBy(factor) {
@@ -10791,7 +10816,7 @@ window.onerror=function(msg,src,line){
     <canvas id="sketchCanvas"></canvas>
   </div>
   <div class="sketch-toolbar">
-    <button class="sketch-tool" id="sketchToolSelect" data-tool="select" title="Seleccionar"><svg viewBox="0 0 24 24"><path d="m3 3 7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg></button>
+    <button class="sketch-tool" id="sketchToolSelect" data-tool="select" title="Seleccionar / mover vista (arrastrá el fondo)"><svg viewBox="0 0 24 24"><path d="m3 3 7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg></button>
     <button class="sketch-tool" id="sketchToolPencil" data-tool="pencil" title="Lápiz"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></button>
     <button class="sketch-tool" id="sketchToolLine" data-tool="line" title="Línea"><svg viewBox="0 0 24 24"><line x1="5" y1="19" x2="19" y2="5"/></svg></button>
     <button class="sketch-tool" id="sketchToolRect" data-tool="rect" title="Rectángulo"><svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="1"/></svg></button>
@@ -16040,7 +16065,9 @@ function sketchSetTool(tool){
   document.querySelectorAll('.sketch-tool[data-tool]').forEach(b=>b.classList.toggle('sel',b.dataset.tool===tool));
   if(!sketchCanvasObj) return;
   sketchCanvasObj.isDrawingMode=(tool==='pencil');
-  sketchCanvasObj.selection=(tool==='select');
+  // Selection rectangle (rubber-band) desactivado: arrastrar sobre el fondo
+  // vacío en la herramienta Seleccionar se usa para desplazar la vista (pan).
+  sketchCanvasObj.selection=false;
   sketchCanvasObj.forEachObject(o=>o.selectable=(tool==='select'));
   sketchCanvasObj.defaultCursor=(tool==='eraser')?'crosshair':'default';
   sketchCanvasObj.hoverCursor=(tool==='eraser')?'crosshair':'move';
@@ -16188,8 +16215,24 @@ function sketchWireDrawTools(){
     opt.e.preventDefault();
     opt.e.stopPropagation();
   });
-  // Pinch-to-zoom con dos dedos (touch) — Fabric no lo resuelve solo.
-  let sketchPinchDist=null, sketchPinchZoomIni=1;
+  // Desplazamiento (pan) con un dedo/mouse en la herramienta Seleccionar,
+  // arrastrando sobre el fondo vacío (no sobre una figura) — mueve la vista
+  // del canvas, no el contenido.
+  let sketchPanning=false, sketchPanLast=null;
+  c.on('mouse:down',(opt)=>{
+    if(sketchTool!=='select' || opt.target) return;
+    sketchPanning=true;
+    sketchPanLast=sketchGetClientXY(opt.e);
+  });
+  c.on('mouse:move',(opt)=>{
+    if(!sketchPanning) return;
+    const p=sketchGetClientXY(opt.e);
+    c.relativePan({x:p.x-sketchPanLast.x,y:p.y-sketchPanLast.y});
+    sketchPanLast=p;
+  });
+  c.on('mouse:up',()=>{ sketchPanning=false; });
+  // Pinch-to-zoom + pan con dos dedos (touch) — Fabric no lo resuelve solo.
+  let sketchPinchDist=null, sketchPinchZoomIni=1, sketchPinchLastMid=null;
   const upperEl=c.upperCanvasEl;
   upperEl.addEventListener('touchmove',(e)=>{
     if(e.touches.length!==2){ sketchPinchDist=null; return; }
@@ -16198,12 +16241,19 @@ function sketchWireDrawTools(){
     const dist=Math.hypot(t2.clientX-t1.clientX,t2.clientY-t1.clientY);
     const rect=upperEl.getBoundingClientRect();
     const mid={x:(t1.clientX+t2.clientX)/2-rect.left,y:(t1.clientY+t2.clientY)/2-rect.top};
-    if(sketchPinchDist==null){ sketchPinchDist=dist; sketchPinchZoomIni=c.getZoom(); return; }
+    if(sketchPinchDist==null){ sketchPinchDist=dist; sketchPinchZoomIni=c.getZoom(); sketchPinchLastMid=mid; return; }
     let zoom=sketchPinchZoomIni*(dist/sketchPinchDist);
     zoom=Math.max(0.2,Math.min(6,zoom));
     c.zoomToPoint(mid,zoom);
+    c.relativePan({x:mid.x-sketchPinchLastMid.x,y:mid.y-sketchPinchLastMid.y});
+    sketchPinchLastMid=mid;
   },{passive:false});
   upperEl.addEventListener('touchend',(e)=>{ if(e.touches.length<2) sketchPinchDist=null; },{passive:true});
+}
+
+function sketchGetClientXY(e){
+  if(e.touches && e.touches.length) return {x:e.touches[0].clientX,y:e.touches[0].clientY};
+  return {x:e.clientX,y:e.clientY};
 }
 
 function sketchZoomBy(factor){
