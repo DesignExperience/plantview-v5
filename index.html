@@ -1351,6 +1351,37 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 }
 .sketch-zoom-pill button svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .sketch-zoom-pill button:first-child { border-bottom: 1px solid var(--line); }
+.sketch-nota-editor {
+  position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 6;
+  max-width: 300px; margin: 0 auto;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 10px; display: none; flex-direction: column; gap: 8px;
+  box-shadow: 0 4px 20px rgba(0,0,0,.4);
+}
+.sketch-nota-editor.show { display: flex; }
+.sketch-nota-editor textarea {
+  width: 100%; resize: vertical; min-height: 54px; font: inherit; font-size: 12px;
+  background: var(--surface-2); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 8px;
+}
+.sketch-nota-colores { display: flex; gap: 6px; }
+.sketch-nota-color-sw { width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; flex-shrink: 0; }
+.sketch-nota-color-sw.sel { border-color: var(--text); }
+.sketch-nota-tarea-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text); }
+.sketch-nota-estados { display: none; gap: 6px; }
+.sketch-nota-estados.show { display: flex; }
+.sketch-nota-estado-pill {
+  flex: 1; height: 28px; border-radius: var(--radius); border: 1.5px solid var(--line);
+  background: var(--surface-2); color: var(--muted); font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .02em; cursor: pointer;
+}
+.sketch-nota-estado-pill.sel { color: #fff; border-color: transparent; }
+.sketch-nota-actions { display: flex; gap: 6px; }
+.sketch-nota-actions button {
+  flex: 1; height: 34px; border-radius: var(--radius); font-size: 12px; font-weight: 500;
+}
+.sketch-nota-actions .secondary { background: var(--surface-2); color: var(--text); border: 1px solid var(--line); }
+.sketch-nota-actions .danger { background: var(--surface-2); color: #e05555; border: 1px solid var(--line); }
+.sketch-nota-actions .primary { background: var(--accent); color: var(--on-accent); }
 .sketch-footer {
   flex: none; display: flex; gap: 8px; padding: 10px;
   background: var(--surface); border-top: 1px solid var(--line);
@@ -1823,6 +1854,18 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
               <button id="sketch-zoom-in" title="Acercar" type="button"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
               <button id="sketch-zoom-out" title="Alejar" type="button"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
             </div>
+            <!-- Editor de nota (superpuesto sobre el canvas) -->
+            <div class="sketch-nota-editor" id="sketchNotaEditor">
+              <textarea id="sketchNotaTexto" rows="3" placeholder="Escribí la nota…"></textarea>
+              <div class="sketch-nota-colores" id="sketchNotaColores"></div>
+              <label class="sketch-nota-tarea-row"><input type="checkbox" id="sketchNotaEsTarea"> Es una tarea/OT</label>
+              <div class="sketch-nota-estados" id="sketchNotaEstados"></div>
+              <div class="sketch-nota-actions">
+                <button type="button" class="secondary" id="sketchNotaCancelar">Cancelar</button>
+                <button type="button" class="danger" id="sketchNotaBorrar">Borrar</button>
+                <button type="button" class="primary" id="sketchNotaGuardar">Guardar</button>
+              </div>
+            </div>
           </div>
           <!-- Herramientas de dibujo — siempre las mismas, fila fija -->
           <div class="sketch-toolbar">
@@ -1833,6 +1876,7 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
             <button class="sketch-tool" data-tool="rect" title="Rectángulo"><svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="1"/></svg></button>
             <button class="sketch-tool" data-tool="text" title="Texto"><svg viewBox="0 0 24 24"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg></button>
             <button class="sketch-tool" data-tool="measure" title="Medición (calculá área en rectángulos ya calibrados)"><svg viewBox="0 0 24 24"><path d="M21 6H3M21 12H3M21 18H3"/><line x1="9" y1="3" x2="9" y2="21"/></svg></button>
+            <button class="sketch-tool" data-tool="nota" title="Nota — tocá para agregar un pin con texto/tarea"><svg viewBox="0 0 24 24"><path d="M21 10c0 6-9 12-9 12s-9-6-9-12a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></button>
             <button class="sketch-tool" data-tool="eraser" title="Goma — tocá o arrastrá sobre lo que quieras borrar"><svg viewBox="0 0 24 24"><path d="M20 20H8L3 15a2 2 0 0 1 0-2.8l8-8a2 2 0 0 1 2.8 0l6 6a2 2 0 0 1 0 2.8L14 19"/><line x1="8" y1="20" x2="14" y2="14"/></svg></button>
           </div>
           <!-- Propiedades del trazo (solo lo que aplica a la herramienta activa) + utilidades -->
@@ -9466,7 +9510,7 @@ function sketchSnapPoint(start, p) {
 // ── Deshacer/Rehacer ──────────────────────────────────────────────────
 function sketchSnapshot() {
   if (!sketchCanvasObj || sketchApplyingHistory) return;
-  const json = JSON.stringify(sketchCanvasObj.toJSON(["selectable", "evented", "isBg", "isAnnotationGroup", "rectGroupId"]));
+  const json = JSON.stringify(sketchCanvasObj.toJSON(["selectable", "evented", "isBg", "isAnnotationGroup", "rectGroupId", "isNotaPin", "notaTexto", "notaColor", "notaEsTarea", "notaEstado"]));
   if (sketchStates[sketchStateIndex] === json) return;
   sketchStates = sketchStates.slice(0, sketchStateIndex + 1);
   sketchStates.push(json);
@@ -9707,6 +9751,21 @@ function sketchWireDrawTools() {
     t.enterEditing();
     t.selectAll();
   });
+  // Nota: un tap coloca un pin (mismo modelo que las notas del visor 3D —
+  // texto, color, tarea/estado) y abre su editor al toque; tocar un pin
+  // existente lo abre para editarlo en vez de crear uno nuevo encima.
+  c.on("mouse:down", (opt) => {
+    if (sketchTool !== "nota") return;
+    if (opt.target && opt.target.isNotaPin) {
+      sketchSetTool("select");
+      sketchAbrirEditorNota(opt.target, false);
+      return;
+    }
+    const p = c.getPointer(opt.e);
+    const pin = sketchCrearNotaPin(p.x, p.y);
+    sketchSetTool("select");
+    sketchAbrirEditorNota(pin, true);
+  });
   // Cotas y textos se editan con doble click/tap — un solo click permite
   // seleccionar y arrastrar la figura entera sin entrar en edición sin
   // querer. En una cota (línea+número agrupados) el número se edita
@@ -9728,6 +9787,8 @@ function sketchWireDrawTools() {
       const pointer = c.getPointer(opt.e);
       const hit = target._rectLabels.find(l => l.containsPoint(pointer));
       if (hit) sketchEditarLabelDeRect(hit);
+    } else if (target.isNotaPin) {
+      sketchAbrirEditorNota(target, false);
     }
   });
   // Zoom con rueda del mouse (desktop) — mismo rango que los botones.
@@ -9952,6 +10013,135 @@ function sketchAplicarMedicion(line) {
   sketchAgruparAnotacion(line, label);
   sketchSnapshot();
 }
+
+// ── NOTAS EN EL CROQUIS ──────────────────────────────────────────────
+// Mismo modelo que las notas del visor 3D (texto, color, tarea/estado)
+// pero como un pin sobre el lienzo en vez de anclado a una pieza 3D.
+const SKETCH_NOTA_COLORES = { negro: "#1a1d26", rojo: "#e03050", verde: "#188a5c", azul: "#3a6be8", naranja: "#d97a00" };
+const SKETCH_ESTADOS_TAREA = [
+  { key: "no_iniciado", label: "No iniciado", color: "#8a9099" },
+  { key: "en_proceso", label: "En proceso", color: "#d97a00" },
+  { key: "finalizado", label: "Finalizado", color: "#188a5c" },
+];
+function sketchColorEstadoTarea(estado) {
+  const e = SKETCH_ESTADOS_TAREA.find(x => x.key === estado);
+  return e ? e.color : SKETCH_ESTADOS_TAREA[0].color;
+}
+(function initSketchNotaColores() {
+  const cont = document.getElementById("sketchNotaColores");
+  Object.keys(SKETCH_NOTA_COLORES).forEach(key => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "sketch-nota-color-sw";
+    b.dataset.color = key;
+    b.style.background = SKETCH_NOTA_COLORES[key];
+    b.title = key;
+    b.addEventListener("click", () => {
+      cont.querySelectorAll(".sketch-nota-color-sw").forEach(x => x.classList.remove("sel"));
+      b.classList.add("sel");
+    });
+    cont.appendChild(b);
+  });
+})();
+function sketchSeleccionarColorNota(key) {
+  document.querySelectorAll("#sketchNotaColores .sketch-nota-color-sw").forEach(x => x.classList.toggle("sel", x.dataset.color === (key || "negro")));
+}
+function sketchColorNotaSeleccionado() {
+  const sel = document.querySelector("#sketchNotaColores .sketch-nota-color-sw.sel");
+  return sel ? sel.dataset.color : "negro";
+}
+(function initSketchNotaEstados() {
+  const cont = document.getElementById("sketchNotaEstados");
+  SKETCH_ESTADOS_TAREA.forEach(e => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "sketch-nota-estado-pill";
+    b.dataset.estado = e.key;
+    b.textContent = e.label;
+    b.addEventListener("click", () => {
+      cont.querySelectorAll(".sketch-nota-estado-pill").forEach(x => { x.classList.remove("sel"); x.style.background = ""; });
+      b.classList.add("sel");
+      b.style.background = e.color;
+    });
+    cont.appendChild(b);
+  });
+})();
+function sketchSeleccionarEstadoNota(key) {
+  document.querySelectorAll("#sketchNotaEstados .sketch-nota-estado-pill").forEach(x => {
+    const sel = x.dataset.estado === (key || "no_iniciado");
+    x.classList.toggle("sel", sel);
+    x.style.background = sel ? sketchColorEstadoTarea(x.dataset.estado) : "";
+  });
+}
+function sketchEstadoNotaSeleccionado() {
+  const sel = document.querySelector("#sketchNotaEstados .sketch-nota-estado-pill.sel");
+  return sel ? sel.dataset.estado : "no_iniciado";
+}
+
+let sketchNotaEditando = null; // pin (objeto fabric) en edición
+let sketchNotaEsNueva = false;
+
+function sketchColorPin(pin) {
+  return pin.notaEsTarea ? sketchColorEstadoTarea(pin.notaEstado) : (SKETCH_NOTA_COLORES[pin.notaColor] || SKETCH_NOTA_COLORES.negro);
+}
+function sketchActualizarEstiloPin(pin) {
+  pin.set({ fill: sketchColorPin(pin) });
+}
+function sketchCrearNotaPin(x, y) {
+  const pin = new fabric.Circle({
+    left: x, top: y, radius: 11, originX: "center", originY: "center",
+    fill: SKETCH_NOTA_COLORES.negro, stroke: "#fff", strokeWidth: 2,
+    selectable: true, evented: true, isNotaPin: true,
+    notaTexto: "", notaColor: "negro", notaEsTarea: false, notaEstado: "no_iniciado",
+  });
+  sketchCanvasObj.add(pin);
+  return pin;
+}
+function sketchAbrirEditorNota(pin, esNueva) {
+  sketchNotaEditando = pin;
+  sketchNotaEsNueva = !!esNueva;
+  document.getElementById("sketchNotaTexto").value = pin.notaTexto || "";
+  sketchSeleccionarColorNota(pin.notaColor);
+  document.getElementById("sketchNotaEsTarea").checked = !!pin.notaEsTarea;
+  document.getElementById("sketchNotaEstados").classList.toggle("show", !!pin.notaEsTarea);
+  sketchSeleccionarEstadoNota(pin.notaEstado);
+  document.getElementById("sketchNotaBorrar").style.display = esNueva ? "none" : "flex";
+  document.getElementById("sketchNotaEditor").classList.add("show");
+  document.getElementById("sketchNotaTexto").focus();
+}
+function sketchCerrarEditorNota() {
+  document.getElementById("sketchNotaEditor").classList.remove("show");
+  sketchNotaEditando = null;
+  sketchNotaEsNueva = false;
+}
+document.getElementById("sketchNotaEsTarea").addEventListener("change", (e) => {
+  document.getElementById("sketchNotaEstados").classList.toggle("show", e.target.checked);
+});
+document.getElementById("sketchNotaCancelar").addEventListener("click", () => {
+  if (sketchNotaEsNueva && sketchNotaEditando) sketchCanvasObj.remove(sketchNotaEditando);
+  sketchCerrarEditorNota();
+  if (sketchCanvasObj) sketchCanvasObj.requestRenderAll();
+});
+document.getElementById("sketchNotaBorrar").addEventListener("click", () => {
+  if (sketchNotaEditando) sketchCanvasObj.remove(sketchNotaEditando);
+  sketchCerrarEditorNota();
+  sketchCanvasObj.requestRenderAll();
+  sketchSnapshot();
+});
+document.getElementById("sketchNotaGuardar").addEventListener("click", () => {
+  if (!sketchNotaEditando) return;
+  const pin = sketchNotaEditando;
+  pin.set({
+    notaTexto: document.getElementById("sketchNotaTexto").value.trim(),
+    notaColor: sketchColorNotaSeleccionado(),
+    notaEsTarea: document.getElementById("sketchNotaEsTarea").checked,
+    notaEstado: sketchEstadoNotaSeleccionado(),
+  });
+  sketchActualizarEstiloPin(pin);
+  sketchCerrarEditorNota();
+  sketchCanvasObj.requestRenderAll();
+  sketchSnapshot();
+});
 
 document.querySelectorAll(".sketch-tool[data-tool]").forEach(btn => {
   btn.addEventListener("click", () => sketchSetTool(btn.dataset.tool));
@@ -10549,6 +10739,22 @@ canvas{display:block;width:100%;height:100%}
 .sketch-zoom-pill button{width:36px;height:36px;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer}
 .sketch-zoom-pill button svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .sketch-zoom-pill button:first-child{border-bottom:1px solid var(--border)}
+.sketch-nota-editor{position:absolute;left:10px;right:10px;bottom:10px;z-index:6;max-width:300px;margin:0 auto;background:var(--surf);border:1px solid var(--border);border-radius:10px;padding:10px;display:none;flex-direction:column;gap:8px;box-shadow:0 4px 20px rgba(0,0,0,.4)}
+.sketch-nota-editor.show{display:flex}
+.sketch-nota-editor textarea{width:100%;resize:vertical;min-height:54px;font:inherit;font-size:12px;background:var(--surf2);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:6px 8px}
+.sketch-nota-colores{display:flex;gap:6px}
+.sketch-nota-color-sw{width:22px;height:22px;border-radius:50%;border:2px solid transparent;cursor:pointer;flex-shrink:0}
+.sketch-nota-color-sw.sel{border-color:var(--text)}
+.sketch-nota-tarea-row{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text)}
+.sketch-nota-estados{display:none;gap:6px}
+.sketch-nota-estados.show{display:flex}
+.sketch-nota-estado-pill{flex:1;height:28px;border-radius:10px;border:1.5px solid var(--border);background:var(--surf2);color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.02em;cursor:pointer}
+.sketch-nota-estado-pill.sel{color:#fff;border-color:transparent}
+.sketch-nota-actions{display:flex;gap:6px}
+.sketch-nota-actions button{flex:1;height:34px;border-radius:10px;font-size:12px;font-weight:500}
+.sketch-nota-actions .secondary{background:var(--surf2);color:var(--text);border:1px solid var(--border)}
+.sketch-nota-actions .danger{background:var(--surf2);color:#e05555;border:1px solid var(--border)}
+.sketch-nota-actions .primary{background:var(--acc);color:#fff}
 .sketch-footer{display:flex;gap:8px;padding:10px 16px calc(10px + var(--safe-bottom));border-top:1px solid var(--border);background:var(--surf);flex-shrink:0}
 .zoom-controls{position:fixed;right:16px;bottom:calc(112px + var(--safe-bottom));display:flex;flex-direction:column;background:rgba(232,234,239,.92);border:1px solid var(--border);backdrop-filter:blur(12px);border-radius:14px;overflow:hidden;z-index:190;box-shadow:0 2px 12px rgba(0,0,0,.12)}
 .zoom-btn{width:44px;height:44px;background:transparent;border:none;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;-webkit-tap-highlight-color:transparent}
@@ -11331,6 +11537,18 @@ window.onerror=function(msg,src,line){
       <button id="sketchZoomIn" title="Acercar"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
       <button id="sketchZoomOut" title="Alejar"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
     </div>
+    <!-- Editor de nota (superpuesto sobre el canvas) -->
+    <div class="sketch-nota-editor" id="sketchNotaEditor">
+      <textarea id="sketchNotaTexto" rows="3" placeholder="Escribí la nota…"></textarea>
+      <div class="sketch-nota-colores" id="sketchNotaColores"></div>
+      <label class="sketch-nota-tarea-row"><input type="checkbox" id="sketchNotaEsTarea"> Es una tarea/OT</label>
+      <div class="sketch-nota-estados" id="sketchNotaEstados"></div>
+      <div class="sketch-nota-actions">
+        <button type="button" class="secondary" id="sketchNotaCancelar">Cancelar</button>
+        <button type="button" class="danger" id="sketchNotaBorrar">Borrar</button>
+        <button type="button" class="primary" id="sketchNotaGuardar">Guardar</button>
+      </div>
+    </div>
   </div>
   <!-- Herramientas de dibujo — siempre las mismas, fila fija -->
   <div class="sketch-toolbar">
@@ -11341,6 +11559,7 @@ window.onerror=function(msg,src,line){
     <button class="sketch-tool" id="sketchToolRect" data-tool="rect" title="Rectángulo"><svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="1"/></svg></button>
     <button class="sketch-tool" id="sketchToolText" data-tool="text" title="Texto"><svg viewBox="0 0 24 24"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg></button>
     <button class="sketch-tool" id="sketchToolMeasure" data-tool="measure" title="Medición (calculá área en rectángulos ya calibrados)"><svg viewBox="0 0 24 24"><path d="M21 6H3M21 12H3M21 18H3"/><line x1="9" y1="3" x2="9" y2="21"/></svg></button>
+    <button class="sketch-tool" id="sketchToolNota" data-tool="nota" title="Nota — tocá para agregar un pin con texto/tarea"><svg viewBox="0 0 24 24"><path d="M21 10c0 6-9 12-9 12s-9-6-9-12a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></button>
     <button class="sketch-tool" id="sketchToolEraser" data-tool="eraser" title="Goma — tocá o arrastrá sobre lo que quieras borrar"><svg viewBox="0 0 24 24"><path d="M20 20H8L3 15a2 2 0 0 1 0-2.8l8-8a2 2 0 0 1 2.8 0l6 6a2 2 0 0 1 0 2.8L14 19"/><line x1="8" y1="20" x2="14" y2="14"/></svg></button>
   </div>
   <!-- Propiedades del trazo (solo lo que aplica a la herramienta activa) + utilidades -->
@@ -16696,7 +16915,7 @@ function sketchSnapPoint(start,p){
 // ── Deshacer/Rehacer ──────────────────────────────────────────────────
 function sketchSnapshot(){
   if(!sketchCanvasObj||sketchApplyingHistory) return;
-  const json=JSON.stringify(sketchCanvasObj.toJSON(['selectable','evented','isBg','isAnnotationGroup','rectGroupId']));
+  const json=JSON.stringify(sketchCanvasObj.toJSON(['selectable','evented','isBg','isAnnotationGroup','rectGroupId','isNotaPin','notaTexto','notaColor','notaEsTarea','notaEstado']));
   if(sketchStates[sketchStateIndex]===json) return;
   sketchStates=sketchStates.slice(0,sketchStateIndex+1);
   sketchStates.push(json);
@@ -16944,6 +17163,21 @@ function sketchWireDrawTools(){
     t.enterEditing();
     t.selectAll();
   });
+  // Nota: un tap coloca un pin (mismo modelo que las notas del visor 3D —
+  // texto, color, tarea/estado) y abre su editor al toque; tocar un pin
+  // existente lo abre para editarlo en vez de crear uno nuevo encima.
+  c.on('mouse:down',(opt)=>{
+    if(sketchTool!=='nota') return;
+    if(opt.target && opt.target.isNotaPin){
+      sketchSetTool('select');
+      sketchAbrirEditorNota(opt.target,false);
+      return;
+    }
+    const p=c.getPointer(opt.e);
+    const pin=sketchCrearNotaPin(p.x,p.y);
+    sketchSetTool('select');
+    sketchAbrirEditorNota(pin,true);
+  });
   // Cotas y textos se editan con doble click/tap — un solo click permite
   // seleccionar y arrastrar la figura entera sin entrar en edición sin
   // querer. En una cota (línea+número agrupados) el número se edita
@@ -16965,6 +17199,8 @@ function sketchWireDrawTools(){
       const pointer=c.getPointer(opt.e);
       const hit=target._rectLabels.find(l=>l.containsPoint(pointer));
       if(hit) sketchEditarLabelDeRect(hit);
+    }else if(target.isNotaPin){
+      sketchAbrirEditorNota(target,false);
     }
   });
   // Zoom con rueda del mouse (desktop) — mismo rango que los botones.
@@ -17183,6 +17419,105 @@ function sketchAplicarMedicion(line){
   sketchAgruparAnotacion(line,label);
   sketchSnapshot();
 }
+
+// ── NOTAS EN EL CROQUIS ──────────────────────────────────────────────
+// Mismo modelo que las notas del visor 3D (NOTA_COLORES, ESTADOS_TAREA,
+// colorEstadoTarea, crearSelectorEstadoEn ya definidos más arriba para
+// las notas ancladas a piezas) pero como un pin sobre el lienzo del
+// croquis en vez de anclado a una pieza 3D.
+(function initSketchNotaColores(){
+  const cont=document.getElementById('sketchNotaColores');
+  Object.keys(NOTA_COLORES).forEach(key=>{
+    const b=document.createElement('button');
+    b.type='button';
+    b.className='nota-color-sw';
+    b.dataset.color=key;
+    b.style.background=NOTA_COLORES[key];
+    b.title=key;
+    b.addEventListener('click',()=>{
+      cont.querySelectorAll('.nota-color-sw').forEach(x=>x.classList.remove('sel'));
+      b.classList.add('sel');
+    });
+    cont.appendChild(b);
+  });
+})();
+function sketchSeleccionarColorNota(key){
+  document.querySelectorAll('#sketchNotaColores .nota-color-sw').forEach(x=>x.classList.toggle('sel', x.dataset.color===(key||'negro')));
+}
+function sketchColorNotaSeleccionado(){
+  const sel=document.querySelector('#sketchNotaColores .nota-color-sw.sel');
+  return sel ? sel.dataset.color : 'negro';
+}
+crearSelectorEstadoEn(document.getElementById('sketchNotaEstados'),'no_iniciado');
+function sketchEstadoNotaSeleccionado(){
+  const sel=document.querySelector('#sketchNotaEstados .nota-estado-pill.sel');
+  return sel ? sel.dataset.estado : 'no_iniciado';
+}
+
+let sketchNotaEditando=null; // pin (objeto fabric) en edición
+let sketchNotaEsNueva=false;
+
+function sketchColorPin(pin){
+  return pin.notaEsTarea ? colorEstadoTarea(pin.notaEstado) : (NOTA_COLORES[pin.notaColor]||NOTA_COLORES.negro);
+}
+function sketchActualizarEstiloPin(pin){
+  pin.set({fill: sketchColorPin(pin)});
+}
+function sketchCrearNotaPin(x,y){
+  const pin=new fabric.Circle({
+    left:x, top:y, radius:11, originX:'center', originY:'center',
+    fill:NOTA_COLORES.negro, stroke:'#fff', strokeWidth:2,
+    selectable:true, evented:true, isNotaPin:true,
+    notaTexto:'', notaColor:'negro', notaEsTarea:false, notaEstado:'no_iniciado',
+  });
+  sketchCanvasObj.add(pin);
+  return pin;
+}
+function sketchAbrirEditorNota(pin,esNueva){
+  sketchNotaEditando=pin;
+  sketchNotaEsNueva=!!esNueva;
+  document.getElementById('sketchNotaTexto').value=pin.notaTexto||'';
+  sketchSeleccionarColorNota(pin.notaColor);
+  document.getElementById('sketchNotaEsTarea').checked=!!pin.notaEsTarea;
+  document.getElementById('sketchNotaEstados').classList.toggle('show', !!pin.notaEsTarea);
+  crearSelectorEstadoEn(document.getElementById('sketchNotaEstados'), pin.notaEstado);
+  document.getElementById('sketchNotaBorrar').style.display=esNueva?'none':'flex';
+  document.getElementById('sketchNotaEditor').classList.add('show');
+  document.getElementById('sketchNotaTexto').focus();
+}
+function sketchCerrarEditorNota(){
+  document.getElementById('sketchNotaEditor').classList.remove('show');
+  sketchNotaEditando=null;
+  sketchNotaEsNueva=false;
+}
+document.getElementById('sketchNotaEsTarea').addEventListener('change',(e)=>{
+  document.getElementById('sketchNotaEstados').classList.toggle('show', e.target.checked);
+});
+document.getElementById('sketchNotaCancelar').addEventListener('click',()=>{
+  if(sketchNotaEsNueva && sketchNotaEditando) sketchCanvasObj.remove(sketchNotaEditando);
+  sketchCerrarEditorNota();
+  if(sketchCanvasObj) sketchCanvasObj.requestRenderAll();
+});
+document.getElementById('sketchNotaBorrar').addEventListener('click',()=>{
+  if(sketchNotaEditando) sketchCanvasObj.remove(sketchNotaEditando);
+  sketchCerrarEditorNota();
+  sketchCanvasObj.requestRenderAll();
+  sketchSnapshot();
+});
+document.getElementById('sketchNotaGuardar').addEventListener('click',()=>{
+  if(!sketchNotaEditando) return;
+  const pin=sketchNotaEditando;
+  pin.set({
+    notaTexto: document.getElementById('sketchNotaTexto').value.trim(),
+    notaColor: sketchColorNotaSeleccionado(),
+    notaEsTarea: document.getElementById('sketchNotaEsTarea').checked,
+    notaEstado: sketchEstadoNotaSeleccionado(),
+  });
+  sketchActualizarEstiloPin(pin);
+  sketchCerrarEditorNota();
+  sketchCanvasObj.requestRenderAll();
+  sketchSnapshot();
+});
 
 document.querySelectorAll('.sketch-tool[data-tool]').forEach(btn=>{
   btn.addEventListener('click',()=>sketchSetTool(btn.dataset.tool));
