@@ -9711,6 +9711,20 @@ async function abrirCroquis(bgDataUrl, nombre, modoImagen) {
   sketchSnapshot(); // estado inicial — deja a "Deshacer" volver hasta acá
 }
 
+// Las cotas de ancho/alto de un rectángulo son evented:false (para no poder
+// arrastrarlas sueltas), así que un click sobre ellas nunca resuelve
+// opt.target — hace falta buscarlas a mano por posición para poder
+// editarlas y para no confundirlas con "fondo vacío" al iniciar un pan.
+function sketchBuscarRectLabelEnPunto(c, pointer) {
+  for (const obj of c.getObjects()) {
+    if (obj.type === "rect" && obj._rectLabels) {
+      const hit = obj._rectLabels.find(l => l.containsPoint(pointer));
+      if (hit) return hit;
+    }
+  }
+  return null;
+}
+
 function sketchWireDrawTools() {
   const c = sketchCanvasObj;
   // Goma: tocar o arrastrar sobre cualquier figura/cota la borra al toque.
@@ -9837,12 +9851,8 @@ function sketchWireDrawTools() {
     // — hay que buscar en todos los rectángulos con cotas cuál cae bajo el
     // punto clickeado, sin depender de qué objeto haya detectado Fabric.
     const pointer = c.getPointer(opt.e);
-    for (const obj of c.getObjects()) {
-      if (obj.type === "rect" && obj._rectLabels) {
-        const hit = obj._rectLabels.find(l => l.containsPoint(pointer));
-        if (hit) { sketchEditarLabelDeRect(hit); return; }
-      }
-    }
+    const hit = sketchBuscarRectLabelEnPunto(c, pointer);
+    if (hit) sketchEditarLabelDeRect(hit);
   });
   // Zoom con rueda del mouse (desktop) — mismo rango que los botones.
   c.on("mouse:wheel", (opt) => {
@@ -9860,7 +9870,13 @@ function sketchWireDrawTools() {
   let sketchPanning = false, sketchPanLast = null, sketchPanConRueda = false;
   c.on("mouse:down", (opt) => {
     const conRueda = opt.e.button === 1;
-    if (!conRueda && (sketchTool !== "select" || opt.target)) return;
+    if (!conRueda) {
+      if (sketchTool !== "select" || opt.target) return;
+      // opt.target da null también al clickear una cota (evented:false) —
+      // sin este chequeo, ese primer click ya arrancaba un pan y el click/
+      // doble click sobre la cota nunca llegaba a registrarse.
+      if (sketchBuscarRectLabelEnPunto(c, c.getPointer(opt.e))) return;
+    }
     if (conRueda) opt.e.preventDefault(); // evita el ícono de autoscroll del navegador
     sketchPanning = true;
     sketchPanConRueda = conRueda;
@@ -17241,6 +17257,20 @@ async function abrirCroquis(doc){
   sketchSnapshot(); // estado inicial — deja a "Deshacer" volver hasta acá
 }
 
+// Las cotas de ancho/alto de un rectángulo son evented:false (para no poder
+// arrastrarlas sueltas), así que un click sobre ellas nunca resuelve
+// opt.target — hace falta buscarlas a mano por posición para poder
+// editarlas y para no confundirlas con "fondo vacío" al iniciar un pan.
+function sketchBuscarRectLabelEnPunto(c, pointer){
+  for(const obj of c.getObjects()){
+    if(obj.type==='rect' && obj._rectLabels){
+      const hit=obj._rectLabels.find(l=>l.containsPoint(pointer));
+      if(hit) return hit;
+    }
+  }
+  return null;
+}
+
 function sketchWireDrawTools(){
   const c=sketchCanvasObj;
   // Goma: tocar o arrastrar sobre cualquier figura/cota la borra al toque.
@@ -17367,12 +17397,8 @@ function sketchWireDrawTools(){
     // — hay que buscar en todos los rectángulos con cotas cuál cae bajo el
     // punto clickeado, sin depender de qué objeto haya detectado Fabric.
     const pointer=c.getPointer(opt.e);
-    for(const obj of c.getObjects()){
-      if(obj.type==='rect' && obj._rectLabels){
-        const hit=obj._rectLabels.find(l=>l.containsPoint(pointer));
-        if(hit){ sketchEditarLabelDeRect(hit); return; }
-      }
-    }
+    const hit=sketchBuscarRectLabelEnPunto(c, pointer);
+    if(hit) sketchEditarLabelDeRect(hit);
   });
   // Zoom con rueda del mouse (desktop) — mismo rango que los botones.
   c.on('mouse:wheel',(opt)=>{
@@ -17390,7 +17416,13 @@ function sketchWireDrawTools(){
   let sketchPanning=false, sketchPanLast=null, sketchPanConRueda=false;
   c.on('mouse:down',(opt)=>{
     const conRueda = opt.e.button === 1;
-    if(!conRueda && (sketchTool!=='select' || opt.target)) return;
+    if(!conRueda){
+      if(sketchTool!=='select' || opt.target) return;
+      // opt.target da null también al clickear una cota (evented:false) —
+      // sin este chequeo, ese primer click ya arrancaba un pan y el click/
+      // doble click sobre la cota nunca llegaba a registrarse.
+      if(sketchBuscarRectLabelEnPunto(c, c.getPointer(opt.e))) return;
+    }
     if(conRueda) opt.e.preventDefault(); // evita el ícono de autoscroll del navegador
     sketchPanning=true;
     sketchPanConRueda=conRueda;
