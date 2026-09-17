@@ -10404,6 +10404,12 @@ function aplicarModo(modo, save = true) {
     // Acá el app-bar SÍ está visible, dejarle el espacio de siempre (valor de la hoja de estilos).
     pvWrap.style.top = "";
     document.getElementById("tab-split-btn").style.display = "flex";
+    // Este "Split" (app + visor 3D) es independiente del split interno
+    // Files/visor — pero si ese quedó colapsado (por ejemplo, entrando
+    // acá con el explorador plegado para dejarle más lugar al PDF/IMG),
+    // hay que restaurarlo: "Split" siempre debería mostrar Files al lado
+    // de lo que sea que esté abierto en el visor, nunca taparlo.
+    if (!state.splitActivo || gestorColapsado) setSplit(true);
     cargarPV();
   } else {
     pvWrap.style.top = "";
