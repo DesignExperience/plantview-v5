@@ -8748,6 +8748,11 @@ let pvLoaded = false;
 let pvReady = false;
 let modoActual = localStorage.getItem("pv_modo") || "planos";
 let splitPx = parseInt(localStorage.getItem("pv_split_px")) || Math.floor(window.innerWidth * .5);
+// Qué visor (pdf/edrawing/3d) está "detrás" de Split — Split no es un
+// contenido propio, así que hay que recordar cuál era para poder (a) marcar
+// esa pestaña como activa además de "Split" y (b) volver a ella si el
+// usuario toca "Split" de nuevo (toggle).
+let splitBaseModo = null;
 
 const pvWrap   = document.getElementById("pv-wrap");
 const pvIframe = document.getElementById("pv-iframe");
@@ -10366,11 +10371,23 @@ function aplicarModo(modo, save = true) {
   // PDF/IMG o el 3D), así que necesita saber cuál de los dos era.
   const modoAlEntrarASplit = modoActual;
 
+  // Tocar "Split" mientras ya se está en Split es un toggle: volver al
+  // visor de base (sin Files al lado), no volver a aplicar el mismo split.
+  if (modo === "split" && modoActual === "split" && splitBaseModo) {
+    aplicarModo(splitBaseModo, save);
+    return;
+  }
+  splitBaseModo = modo === "split" ? modoAlEntrarASplit : null;
+
   modoActual = modo;
   if (save) localStorage.setItem("pv_modo", modo);
 
   document.querySelectorAll(".mode-tab, .bnav-tab").forEach(t => {
-    const activo = t.dataset.mode === modo;
+    // En Split, la pestaña del visor de base (PDF/IMG o 3D) se mantiene
+    // marcada como activa junto con "Split" — seguís viendo ese contenido,
+    // Split solo le agregó Files al lado, así que perder esa indicación
+    // sería confuso ("¿en qué estoy parado ahora?").
+    const activo = t.dataset.mode === modo || (modo === "split" && t.dataset.mode === splitBaseModo);
     t.classList.toggle("active", activo);
     t.setAttribute("aria-pressed", String(activo));
   });
