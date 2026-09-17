@@ -9637,7 +9637,10 @@ async function abrirCroquis(bgDataUrl, nombre, modoImagen) {
   const h = Math.max(320, body.clientHeight || window.innerHeight);
   if (sketchCanvasObj) { sketchCanvasObj.dispose(); sketchCanvasObj = null; }
   const canvasEl = document.getElementById("sketch-canvas");
-  sketchCanvasObj = new fabric.Canvas(canvasEl, { isDrawingMode: false, backgroundColor: "#ffffff" });
+  // fireMiddleClick: Fabric ignora el botón del medio del mouse por
+  // default (ni siquiera dispara mouse:down) — sin esto, el pan con la
+  // rueda presionada no tiene forma de engancharse.
+  sketchCanvasObj = new fabric.Canvas(canvasEl, { isDrawingMode: false, backgroundColor: "#ffffff", fireMiddleClick: true });
   window.sketchCanvasObj = sketchCanvasObj; // expuesto para depuración/tests
   // Padding invisible en el hit-test de cada objeto — sin esto, tocar con
   // el dedo justo sobre una línea fina o diagonal para seleccionarla o
@@ -9841,12 +9844,18 @@ function sketchWireDrawTools() {
   });
   // Desplazamiento (pan) con un dedo/mouse en la herramienta Seleccionar,
   // arrastrando sobre el fondo vacío (no sobre una figura) — mueve la vista
-  // del canvas, no el contenido.
-  let sketchPanning = false, sketchPanLast = null;
+  // del canvas, no el contenido. El botón del medio (rueda) del mouse
+  // también hace pan, sin importar la herramienta activa ni si hay una
+  // figura debajo — es el atajo estándar de apps de dibujo/CAD.
+  let sketchPanning = false, sketchPanLast = null, sketchPanConRueda = false;
   c.on("mouse:down", (opt) => {
-    if (sketchTool !== "select" || opt.target) return;
+    const conRueda = opt.e.button === 1;
+    if (!conRueda && (sketchTool !== "select" || opt.target)) return;
+    if (conRueda) opt.e.preventDefault(); // evita el ícono de autoscroll del navegador
     sketchPanning = true;
+    sketchPanConRueda = conRueda;
     sketchPanLast = sketchGetClientXY(opt.e);
+    c.setCursor("grabbing");
   });
   c.on("mouse:move", (opt) => {
     if (!sketchPanning) return;
@@ -9854,7 +9863,13 @@ function sketchWireDrawTools() {
     c.relativePan({ x: p.x - sketchPanLast.x, y: p.y - sketchPanLast.y });
     sketchPanLast = p;
   });
-  c.on("mouse:up", () => { sketchPanning = false; });
+  c.on("mouse:up", () => {
+    sketchPanning = false;
+    if (sketchPanConRueda) {
+      sketchPanConRueda = false;
+      c.setCursor(c.defaultCursor);
+    }
+  });
   // Pinch-to-zoom + pan con dos dedos (touch) — Fabric no lo resuelve solo.
   let sketchPinchDist = null, sketchPinchZoomIni = 1, sketchPinchLastMid = null;
   const upperEl = c.upperCanvasEl;
@@ -17142,7 +17157,10 @@ async function abrirCroquis(doc){
   const h=Math.max(320,body.clientHeight||window.innerHeight);
   if(sketchCanvasObj){ sketchCanvasObj.dispose(); sketchCanvasObj=null; }
   const canvasEl=document.getElementById('sketchCanvas');
-  sketchCanvasObj=new fabric.Canvas(canvasEl,{isDrawingMode:false,backgroundColor:'#ffffff'});
+  // fireMiddleClick: Fabric ignora el botón del medio del mouse por
+  // default (ni siquiera dispara mouse:down) — sin esto, el pan con la
+  // rueda presionada no tiene forma de engancharse.
+  sketchCanvasObj=new fabric.Canvas(canvasEl,{isDrawingMode:false,backgroundColor:'#ffffff',fireMiddleClick:true});
   window.sketchCanvasObj=sketchCanvasObj; // expuesto para depuración/tests
   // Padding invisible en el hit-test de cada objeto — sin esto, tocar con
   // el dedo justo sobre una línea fina o diagonal para seleccionarla o
@@ -17346,12 +17364,18 @@ function sketchWireDrawTools(){
   });
   // Desplazamiento (pan) con un dedo/mouse en la herramienta Seleccionar,
   // arrastrando sobre el fondo vacío (no sobre una figura) — mueve la vista
-  // del canvas, no el contenido.
-  let sketchPanning=false, sketchPanLast=null;
+  // del canvas, no el contenido. El botón del medio (rueda) del mouse
+  // también hace pan, sin importar la herramienta activa ni si hay una
+  // figura debajo — es el atajo estándar de apps de dibujo/CAD.
+  let sketchPanning=false, sketchPanLast=null, sketchPanConRueda=false;
   c.on('mouse:down',(opt)=>{
-    if(sketchTool!=='select' || opt.target) return;
+    const conRueda = opt.e.button === 1;
+    if(!conRueda && (sketchTool!=='select' || opt.target)) return;
+    if(conRueda) opt.e.preventDefault(); // evita el ícono de autoscroll del navegador
     sketchPanning=true;
+    sketchPanConRueda=conRueda;
     sketchPanLast=sketchGetClientXY(opt.e);
+    c.setCursor('grabbing');
   });
   c.on('mouse:move',(opt)=>{
     if(!sketchPanning) return;
@@ -17359,7 +17383,10 @@ function sketchWireDrawTools(){
     c.relativePan({x:p.x-sketchPanLast.x,y:p.y-sketchPanLast.y});
     sketchPanLast=p;
   });
-  c.on('mouse:up',()=>{ sketchPanning=false; });
+  c.on('mouse:up',()=>{
+    sketchPanning=false;
+    if(sketchPanConRueda){ sketchPanConRueda=false; c.setCursor(c.defaultCursor); }
+  });
   // Pinch-to-zoom + pan con dos dedos (touch) — Fabric no lo resuelve solo.
   let sketchPinchDist=null, sketchPinchZoomIni=1, sketchPinchLastMid=null;
   const upperEl=c.upperCanvasEl;
