@@ -785,7 +785,7 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 }
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
 .file-actions { flex: none; display: flex; align-items: center; gap: 6px; }
-.btn-qr, .btn-editar-campos, .btn-descargar, .btn-comprimir {
+.btn-qr, .btn-editar-campos, .btn-descargar, .btn-comprimir, .btn-renombrar {
   width: 30px; height: 30px; flex: none;
   display: flex; align-items: center; justify-content: center;
   border: 1px solid var(--line); border-radius: var(--radius);
@@ -796,6 +796,7 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 .btn-editar-campos:active { border-color: var(--accent); color: var(--accent); }
 .btn-descargar:active { border-color: var(--accent2); color: var(--accent2); }
 .btn-comprimir:active { border-color: var(--accent2); color: var(--accent2); }
+.btn-renombrar:active { border-color: var(--accent); color: var(--accent); }
 .btn-comprimir:disabled { opacity: .5; }
 .compress-progress { display: block; font-size: 11px; color: var(--accent2); margin-top: 2px; }
 
@@ -3588,6 +3589,11 @@ function renderArchivos(filtro) {
             <path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/>
           </svg>
         </button>` : ""}
+        <button class="btn-renombrar" data-renombrar-idx="${i}" type="button" title="Renombrar">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+          </svg>
+        </button>
         <button class="btn-descargar" data-descargar-idx="${i}" type="button" title="Descargar">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/>
@@ -3613,6 +3619,7 @@ function renderArchivos(filtro) {
       if (e.target.closest(".btn-editar-campos")) return;
       if (e.target.closest(".btn-descargar")) return;
       if (e.target.closest(".btn-comprimir")) return;
+      if (e.target.closest(".btn-renombrar")) return;
       const f = window._archivos_actuales[Number(el.dataset.idx)];
       if (modoSeleccionArchivos) { alternarSeleccionArchivo(f, el); return; }
       abrirVisor(f);
@@ -3639,6 +3646,13 @@ function renderArchivos(filtro) {
       e.stopPropagation();
       const f = window._archivos_actuales[Number(btn.dataset.editarIdx)];
       abrirEditorPlano(f);
+    });
+  });
+  lista.querySelectorAll(".btn-renombrar").forEach(btn => {
+    btn.addEventListener("click", e => {
+      e.stopPropagation();
+      const f = window._archivos_actuales[Number(btn.dataset.renombrarIdx)];
+      renombrarArchivo(f);
     });
   });
   lista.querySelectorAll(".btn-descargar").forEach(btn => {
@@ -3771,6 +3785,61 @@ function descargarBlob(blob, nombre) {
   a.href = url; a.download = nombre;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// Renombrar un archivo ya guardado (carpeta local o Drive) — el fallback de
+// "modo servidor" (sin f.handle ni f.driveId) no tiene una API de escritura
+// disponible, así que ahí se avisa que no se puede.
+async function renombrarArchivo(f) {
+  const nuevoNombre = prompt("Nuevo nombre del archivo:", f.nombre);
+  if (!nuevoNombre) return;
+  const nombreFinal = nuevoNombre.trim();
+  if (!nombreFinal || nombreFinal === f.nombre) return;
+
+  const hacerRenameDrive = async () => {
+    const resp = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(f.driveId)}`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${driveAccessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ name: nombreFinal }),
+    });
+    if (!resp.ok) throw new Error(`No se pudo renombrar (HTTP ${resp.status})`);
+    await cargarArchivosDrive(state.carpetaActual);
+    showToast("✓ Renombrado a " + nombreFinal);
+  };
+
+  try {
+    if (f.handle) {
+      if (typeof f.handle.move === "function") {
+        // API moderna (Chrome 110+): renombra in-place sin copiar bytes.
+        await f.handle.move(nombreFinal);
+      } else {
+        // Fallback: File System Access no siempre expone .move() — copiar
+        // el contenido a un archivo nuevo y borrar el original logra lo mismo.
+        const dirHandle = state.carpetaActual.handle;
+        const file = await f.handle.getFile();
+        const nuevoHandle = await dirHandle.getFileHandle(nombreFinal, { create: true });
+        const writable = await nuevoHandle.createWritable();
+        await writable.write(await file.arrayBuffer());
+        await writable.close();
+        await dirHandle.removeEntry(f.nombre);
+      }
+      await cargarArchivosFS(state.carpetaActual);
+      showToast("✓ Renombrado a " + nombreFinal);
+    } else if (f.driveId) {
+      if (driveEscrituraConectada()) {
+        await hacerRenameDrive();
+      } else {
+        // Pide el login de escritura (scope drive.file) recién ahora — el
+        // rename se dispara solo apenas conecte, mismo patrón que "Subir a Drive".
+        callbackTrasLoginDrive = hacerRenameDrive;
+        conectarEscrituraDrive();
+      }
+    } else {
+      throw new Error("Este archivo no se puede renombrar desde acá");
+    }
+  } catch (err) {
+    showToast("❌ No se pudo renombrar: " + (err.message || err));
+  }
 }
 
 // ── Compresión Draco de un GLB ya en Drive/carpeta (misma lógica que el visor) ──
