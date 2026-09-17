@@ -10389,35 +10389,28 @@ function aplicarModo(modo, save = true) {
   if (modo === "planos") {
     if (backBtn) backBtn.classList.add("hidden");
     if (splitBtn) splitBtn.classList.add("hidden");
-    // Mobile: "Files" es su propia pestaña — el visor (con lo que sea que
-    // tenga cargado PDF/eDrawings) se oculta, no se destruye. En desktop no
-    // hay pestañas por tipo, así que no tocamos el split (lo maneja el propio
-    // usuario con el divisor, como siempre).
-    if (esMobileUI()) setSplit(false);
+    // "Files" es su propia pestaña — el visor (con lo que sea que tenga
+    // cargado PDF/eDrawings) se oculta, no se destruye. setSplit(false)
+    // también limpia el display:none inline que deja mostrarSoloVisorPara
+    // sobre panelExplorer al entrar a PDF/IMG — sin esto, en desktop Files
+    // quedaba oculto para siempre después de haber visitado PDF/IMG.
+    setSplit(false);
     // Si veníamos de Tareas, volver a Home — Tareas no tiene su propia
     // sub-navegación (a diferencia de Archivos, que sí la necesita).
     if (P.tareas.classList.contains("activa")) irAExp(P.home, P.tareas);
   } else if (modo === "tareas") {
     if (backBtn) backBtn.classList.add("hidden");
     if (splitBtn) splitBtn.classList.add("hidden");
-    if (esMobileUI()) setSplit(false);
+    setSplit(false);
     irAExp(P.tareas, P.home);
     cargarTareas();
   } else if (modo === "pdf" || modo === "edrawing") {
     if (backBtn) backBtn.classList.add("hidden");
     if (splitBtn) splitBtn.classList.add("hidden");
-    if (esMobileUI()) {
-      // Mobile: "PDF/IMG"/"eDrawings" son pestañas propias que ocupan toda
-      // la pantalla — Files ya tiene la suya, no hace falta verla al lado.
-      mostrarSoloVisorPara(modo);
-    } else {
-      // Desktop: mantener Files visible al lado del visor, como en
-      // cualquier otro momento — este tab solo decide qué mostrar del
-      // lado del visor (o habilita el croquis en blanco si no hay nada
-      // abierto), no debería tapar el explorador de archivos.
-      setSplit(true);
-      actualizarVisorSegunModo(modo);
-    }
+    // "PDF/IMG"/"eDrawings" son pestañas propias que ocupan todo el visor,
+    // en mobile y en desktop por igual — Files solo debe aparecer al lado
+    // cuando el usuario presiona explícitamente "Split", nunca por defecto.
+    mostrarSoloVisorPara(modo);
   } else if (modo === "3d") {
     // Entrada de historial: atrás desde 3D vuelve a Planos, no saca de la app
     if (save) pushNav("3d");
