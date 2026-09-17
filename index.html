@@ -10430,13 +10430,16 @@ function aplicarModo(modo, save = true) {
     if (window.innerWidth < 700) { aplicarModo("planos", false); showToast("Split solo en desktop"); return; }
     if (splitBtn) splitBtn.classList.add("hidden");
     setSP(splitPx);
-    document.body.classList.add("mode-split");
     document.getElementById("tab-split-btn").style.display = "flex";
     // "Split" no es un contenido propio — es "mostrar Files al lado de lo
     // que ya estaba abierto" (según se haya entrado desde 3D o desde
     // PDF/IMG/eDrawings), para poder elegir otro archivo sin perder de
     // vista el visor actual.
     if (modoAlEntrarASplit === "3d") {
+      // body.mode-split habilita el #pv-handle (línea azul arrastrable) y
+      // el posicionamiento CSS heredado del viejo split app+3D — solo tiene
+      // sentido en ESTE caso; en PDF/IMG+Split no hay pv-wrap de por medio.
+      document.body.classList.add("mode-split");
       // 3D ocupa la mayor parte a la izquierda, Files un panel angosto a
       // la derecha — acá la "app" solo muestra el explorador: el visor 2D
       // no aplica mientras se está viendo el modelo 3D.
@@ -10458,6 +10461,7 @@ function aplicarModo(modo, save = true) {
       // (visor 2D directamente ausente porque no aplica junto al 3D).
       cargarPV();
     } else {
+      document.body.classList.remove("mode-split");
       // PDF/IMG (o eDrawings): ese modo ya muestra Files al lado del
       // visor 2D por sí solo — acá no hace falta ningún panel 3D.
       app.style.display = "";
