@@ -9817,21 +9817,31 @@ function sketchWireDrawTools() {
   c.on("mouse:dblclick", (opt) => {
     if (sketchTool !== "select") return;
     const target = opt.target;
-    if (!target) return;
-    if (target.type === "i-text" && !target.isEditing) {
+    if (target && target.type === "i-text" && !target.isEditing) {
       c.setActiveObject(target);
       target.enterEditing();
       target.selectAll();
-    } else if (target.isAnnotationGroup) {
+      return;
+    }
+    if (target && target.isAnnotationGroup) {
       sketchEntrarEdicionGrupo(target);
-    } else if (target._rectLabels) {
-      // El rectángulo tiene 3 cotas asociadas (texto libre + ancho + alto) —
-      // ver cuál cayó bajo el doble click para editar esa en particular.
-      const pointer = c.getPointer(opt.e);
-      const hit = target._rectLabels.find(l => l.containsPoint(pointer));
-      if (hit) sketchEditarLabelDeRect(hit);
-    } else if (target.isNotaPin) {
+      return;
+    }
+    if (target && target.isNotaPin) {
       sketchAbrirEditorNota(target, false);
+      return;
+    }
+    // Cotas de ancho/alto de un rectángulo: se dibujan AFUERA del propio
+    // rectángulo (estilo plano técnico), así que clickearlas no las hace
+    // "opt.target" (ahí no hay nada evented bajo el cursor, target es null)
+    // — hay que buscar en todos los rectángulos con cotas cuál cae bajo el
+    // punto clickeado, sin depender de qué objeto haya detectado Fabric.
+    const pointer = c.getPointer(opt.e);
+    for (const obj of c.getObjects()) {
+      if (obj.type === "rect" && obj._rectLabels) {
+        const hit = obj._rectLabels.find(l => l.containsPoint(pointer));
+        if (hit) { sketchEditarLabelDeRect(hit); return; }
+      }
     }
   });
   // Zoom con rueda del mouse (desktop) — mismo rango que los botones.
@@ -10015,7 +10025,7 @@ function sketchActualizarDimensionesRect(rect) {
   if (!rect._rectLabels) return;
   const w = rect.width * rect.scaleX, h = rect.height * rect.scaleY;
   const cx = rect.left + w / 2, cy = rect.top + h / 2;
-  const fmt = (px) => sketchScalePxPerUnit ? (px / sketchScalePxPerUnit).toFixed(2) + " " + sketchUnitLabel : Math.round(px) + " px";
+  const fmt = (px) => sketchScalePxPerUnit ? (px / sketchScalePxPerUnit).toFixed(2) + " " + sketchUnitLabel : Math.round(px) + " mm";
   const [centerLabel, widthLabel, heightLabel] = rect._rectLabels;
   centerLabel.set({ left: cx, top: cy });
   centerLabel.setCoords();
@@ -17337,21 +17347,31 @@ function sketchWireDrawTools(){
   c.on('mouse:dblclick',(opt)=>{
     if(sketchTool!=='select') return;
     const target=opt.target;
-    if(!target) return;
-    if(target.type==='i-text' && !target.isEditing){
+    if(target && target.type==='i-text' && !target.isEditing){
       c.setActiveObject(target);
       target.enterEditing();
       target.selectAll();
-    }else if(target.isAnnotationGroup){
+      return;
+    }
+    if(target && target.isAnnotationGroup){
       sketchEntrarEdicionGrupo(target);
-    }else if(target._rectLabels){
-      // El rectángulo tiene 3 cotas asociadas (texto libre + ancho + alto) —
-      // ver cuál cayó bajo el doble click para editar esa en particular.
-      const pointer=c.getPointer(opt.e);
-      const hit=target._rectLabels.find(l=>l.containsPoint(pointer));
-      if(hit) sketchEditarLabelDeRect(hit);
-    }else if(target.isNotaPin){
+      return;
+    }
+    if(target && target.isNotaPin){
       sketchAbrirEditorNota(target,false);
+      return;
+    }
+    // Cotas de ancho/alto de un rectángulo: se dibujan AFUERA del propio
+    // rectángulo (estilo plano técnico), así que clickearlas no las hace
+    // "opt.target" (ahí no hay nada evented bajo el cursor, target es null)
+    // — hay que buscar en todos los rectángulos con cotas cuál cae bajo el
+    // punto clickeado, sin depender de qué objeto haya detectado Fabric.
+    const pointer=c.getPointer(opt.e);
+    for(const obj of c.getObjects()){
+      if(obj.type==='rect' && obj._rectLabels){
+        const hit=obj._rectLabels.find(l=>l.containsPoint(pointer));
+        if(hit){ sketchEditarLabelDeRect(hit); return; }
+      }
     }
   });
   // Zoom con rueda del mouse (desktop) — mismo rango que los botones.
@@ -17534,7 +17554,7 @@ function sketchActualizarDimensionesRect(rect){
   if(!rect._rectLabels) return;
   const w=rect.width*rect.scaleX, h=rect.height*rect.scaleY;
   const cx=rect.left+w/2, cy=rect.top+h/2;
-  const fmt=(px)=> sketchScalePxPerUnit ? (px/sketchScalePxPerUnit).toFixed(2)+' '+sketchUnitLabel : Math.round(px)+' px';
+  const fmt=(px)=> sketchScalePxPerUnit ? (px/sketchScalePxPerUnit).toFixed(2)+' '+sketchUnitLabel : Math.round(px)+' mm';
   const [centerLabel,widthLabel,heightLabel]=rect._rectLabels;
   centerLabel.set({left:cx,top:cy});
   centerLabel.setCoords();
