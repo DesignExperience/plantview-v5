@@ -10367,7 +10367,18 @@ function aplicarModo(modo, save = true) {
     cargarTareas();
   } else if (modo === "pdf" || modo === "edrawing") {
     if (backBtn) backBtn.classList.add("hidden");
-    mostrarSoloVisorPara(modo);
+    if (esMobileUI()) {
+      // Mobile: "PDF/IMG"/"eDrawings" son pestañas propias que ocupan toda
+      // la pantalla — Files ya tiene la suya, no hace falta verla al lado.
+      mostrarSoloVisorPara(modo);
+    } else {
+      // Desktop: mantener Files visible al lado del visor, como en
+      // cualquier otro momento — este tab solo decide qué mostrar del
+      // lado del visor (o habilita el croquis en blanco si no hay nada
+      // abierto), no debería tapar el explorador de archivos.
+      setSplit(true);
+      actualizarVisorSegunModo(modo);
+    }
   } else if (modo === "3d") {
     // Entrada de historial: atrás desde 3D vuelve a Planos, no saca de la app
     if (save) pushNav("3d");
