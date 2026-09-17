@@ -9613,6 +9613,14 @@ async function abrirCroquis(bgDataUrl, nombre, modoImagen) {
   fabric.Object.prototype.padding = 8;
   sketchCanvasObj.setWidth(w);
   sketchCanvasObj.setHeight(h);
+  // El tamaño real del contenedor a veces cambia después de medirlo acá
+  // (la barra de direcciones del navegador se esconde/aparece en mobile,
+  // por ejemplo) — sin volver a sincronizar, el canvas quedaba más chico
+  // que el espacio disponible y aparecía una franja gris sin usar
+  // alrededor del lienzo blanco. Un reintento en el próximo frame corrige
+  // la medición inicial, y el listener de resize lo mantiene sincronizado
+  // mientras el croquis sigue abierto.
+  requestAnimationFrame(sketchSincronizarTamano);
 
   const draft = sketchLeerDraft();
   let resumido = false;
@@ -9847,6 +9855,26 @@ function sketchZoomBy(factor) {
   const center = { x: sketchCanvasObj.getWidth() / 2, y: sketchCanvasObj.getHeight() / 2 };
   sketchCanvasObj.zoomToPoint(center, zoom);
 }
+
+// Mantiene el canvas del croquis ocupando SIEMPRE todo #sketch-body — si el
+// contenedor cambia de tamaño mientras el croquis está abierto (rotar el
+// celular, ocultarse la barra de direcciones, redimensionar la ventana en
+// desktop) sin esto el canvas quedaba con el tamaño viejo y aparecía una
+// franja gris sin usar al costado del lienzo blanco.
+function sketchSincronizarTamano() {
+  if (!sketchCanvasObj) return;
+  const body = document.getElementById("sketch-body");
+  const w = Math.max(320, body.clientWidth || window.innerWidth);
+  const h = Math.max(320, body.clientHeight || window.innerHeight);
+  if (sketchCanvasObj.getWidth() === w && sketchCanvasObj.getHeight() === h) return;
+  sketchCanvasObj.setWidth(w);
+  sketchCanvasObj.setHeight(h);
+  sketchCanvasObj.requestRenderAll();
+}
+window.addEventListener("resize", () => {
+  const modal = document.getElementById("sketch-modal");
+  if (modal && modal.classList.contains("show")) sketchSincronizarTamano();
+});
 
 // Convierte la línea recién trazada con la herramienta Flecha en un grupo
 // línea+punta de flecha (triángulo orientado según el ángulo del trazo).
@@ -17025,6 +17053,14 @@ async function abrirCroquis(doc){
   fabric.Object.prototype.padding = 8;
   sketchCanvasObj.setWidth(w);
   sketchCanvasObj.setHeight(h);
+  // El tamaño real del contenedor a veces cambia después de medirlo acá
+  // (la barra de direcciones del navegador se esconde/aparece en mobile,
+  // por ejemplo) — sin volver a sincronizar, el canvas quedaba más chico
+  // que el espacio disponible y aparecía una franja gris sin usar
+  // alrededor del lienzo blanco. Un reintento en el próximo frame corrige
+  // la medición inicial, y el listener de resize lo mantiene sincronizado
+  // mientras el croquis sigue abierto.
+  requestAnimationFrame(sketchSincronizarTamano);
 
   const draft=sketchLeerDraft();
   let resumido=false;
@@ -17259,6 +17295,26 @@ function sketchZoomBy(factor){
   const center={x:sketchCanvasObj.getWidth()/2,y:sketchCanvasObj.getHeight()/2};
   sketchCanvasObj.zoomToPoint(center,zoom);
 }
+
+// Mantiene el canvas del croquis ocupando SIEMPRE todo #sketchBody — si el
+// contenedor cambia de tamaño mientras el croquis está abierto (rotar el
+// celular, ocultarse la barra de direcciones, redimensionar la ventana en
+// desktop) sin esto el canvas quedaba con el tamaño viejo y aparecía una
+// franja gris sin usar al costado del lienzo blanco.
+function sketchSincronizarTamano(){
+  if(!sketchCanvasObj) return;
+  const body=document.getElementById('sketchBody');
+  const w=Math.max(320,body.clientWidth||window.innerWidth);
+  const h=Math.max(320,body.clientHeight||window.innerHeight);
+  if(sketchCanvasObj.getWidth()===w && sketchCanvasObj.getHeight()===h) return;
+  sketchCanvasObj.setWidth(w);
+  sketchCanvasObj.setHeight(h);
+  sketchCanvasObj.requestRenderAll();
+}
+window.addEventListener('resize', ()=>{
+  const modal=document.getElementById('sketchModal');
+  if(modal && modal.classList.contains('open')) sketchSincronizarTamano();
+});
 
 // Convierte la línea recién trazada con la herramienta Flecha en un grupo
 // línea+punta de flecha (triángulo orientado según el ángulo del trazo).
