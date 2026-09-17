@@ -11550,6 +11550,18 @@ window.onerror=function(msg,src,line){
     <div class="nota-colores" id="notaColores3D"></div>
   </div>
 
+  <label id="notaZonaRow3D" class="nota-toggle-row">
+    <span>Zona (esfera 3D transparente)</span>
+    <span class="nota-switch">
+      <input type="checkbox" id="notaZona3D">
+      <span class="nota-switch-track"></span>
+    </span>
+  </label>
+  <div id="notaZonaRadioRow3D" class="nota-toggle-row" style="display:none">
+    <span>Tamaño de la esfera</span>
+    <input type="range" id="notaZonaRadio3D" min="0.2" max="3" step="0.05" value="1" style="flex:1;margin-left:10px">
+  </div>
+
   <label id="notaEsTareaRow3D" class="nota-toggle-row">
     <span>Es una tarea / OT</span>
     <span class="nota-switch">
@@ -13233,6 +13245,12 @@ async function buildSceneFromGLB(glbData, selectedIndices){
   zoneGroups={};allMeshes=[];ZONES=[];
   limpiarAristas(); // las líneas viejas ya se fueron con sus meshes (eran hijas), pero hay que soltar las referencias/geometrías
   Object.keys(notaMeshCache).forEach(id=>delete notaMeshCache[id]); // modelo nuevo: las piezas cacheadas del anterior ya no existen
+  // Las esferas de zona son hijas directas de `scene` (no del root del GLB),
+  // así que el barrido de arriba (scene.children) ya se las llevó puestas —
+  // acá solo hace falta soltar las referencias cacheadas, dispose() sobre
+  // un mesh ya removido de la escena no hace falta pero no está de más.
+  Object.values(notaZonaMeshCache).forEach(esfera=>{ esfera.geometry.dispose(); esfera.material.dispose(); });
+  Object.keys(notaZonaMeshCache).forEach(id=>delete notaZonaMeshCache[id]);
   BADGE_ANCHORS.length=0;
   badgesSvg.innerHTML='';
   Object.keys(badgeMarkerEls).forEach(k=>delete badgeMarkerEls[k]); // ídem con los globos de documentos del modelo anterior
@@ -15638,6 +15656,9 @@ function crearSelectorEstadoEn(cont,seleccionado){
 document.getElementById('notaEsTarea3D').addEventListener('change',(e)=>{
   document.getElementById('notaEstadoRow3D').style.display=e.target.checked?'':'none';
 });
+document.getElementById('notaZona3D').addEventListener('change',(e)=>{
+  document.getElementById('notaZonaRadioRow3D').style.display=e.target.checked?'':'none';
+});
 
 const notaMeshCache={};         // id -> THREE.Mesh
 function resolveMeshNota(n){
@@ -15771,6 +15792,110 @@ function actualizarPosicionesNotas(){
       tiposEl.style.right=irIzquierda ? (window.innerWidth-mx+14)+'px' : '';
       tiposEl.style.top=(burbujaTop-(tiposEl.offsetHeight||30)-6)+'px';
     }
+  });
+}
+
+// ── ZONAS (esferas 3D transparentes) ──────────────────────────────────
+// Una "nota de zona" es una nota normal (mismo texto/color/tarea/estado)
+// que además dibuja una esfera semitransparente en la escena — pensada
+// para marcar volúmenes ("acá va tal pieza"), no un punto puntual como el
+// pin. Se ancla igual que el pin (resolveMeshNota + punto local), así que
+// sigue a la pieza durante una explosión. El mesh en sí NO vive en el
+// objeto de la nota (no es serializable / no se guarda en Drive) — se
+// cachea acá aparte, igual que notaMeshCache.
+const notaZonaMeshCache={}; // id de nota -> THREE.Mesh
+
+// Estilo "transparencia de SolidWorks": material claro, brillante, con un
+// leve barniz especular (clearcoat) — más una cáscara de vidrio de color
+// que un simple alpha plano. depthWrite:false + renderOrder alto evita que
+// una esfera tape a otra o "recorte" mal contra las piezas opacas detrás.
+function crearMeshZonaEsfera(color){
+  const geo=new THREE.SphereGeometry(1,32,24);
+  const mat=new THREE.MeshPhysicalMaterial({
+    color, transparent:true, opacity:0.32, roughness:0.08, metalness:0,
+    clearcoat:1, clearcoatRoughness:0.08, side:THREE.DoubleSide, depthWrite:false,
+  });
+  const mesh=new THREE.Mesh(geo,mat);
+  mesh.renderOrder=999;
+  mesh.userData.esZonaEsfera=true;
+  return mesh;
+}
+
+function colorZonaDeNota(n){
+  return n.esTarea ? colorEstadoTarea(n.estado) : (NOTA_COLORES[n.color]||NOTA_COLORES.negro);
+}
+
+// Radio "base" en unidades del modelo: el 60% de la esfera envolvente de
+// la pieza tocada. Así el control de tamaño en el panel es un multiplicador
+// relativo (chico/mediano/grande), no un número absoluto que cambia de
+// sentido según la escala de cada modelo.
+function radioBaseZona(mesh){
+  if(mesh){
+    try{
+      const sph=new THREE.Box3().setFromObject(mesh).getBoundingSphere(new THREE.Sphere());
+      if(sph.radius>0) return sph.radius*0.6;
+    }catch(err){ /* pieza sin geometría medible — usar el fallback */ }
+  }
+  return 0.15;
+}
+
+// Nota de zona todavía sin guardar: se arma leyendo el formulario en vivo
+// (nada se persiste hasta tocar "Guardar"), para que la esfera se vea y se
+// pueda ajustar de tamaño ANTES de confirmar. Al cerrar el panel o destildar
+// "Zona" esto vuelve a dar null y actualizarZonasEsfera() limpia su mesh
+// sola (ver el Set de "activos" más abajo) — no hace falta un cleanup aparte.
+function leerNotaZonaPreviewDesdeFormulario(){
+  if(notaAbiertaId) return null; // editando una nota existente: usa su propio mesh persistente, no un preview
+  if(!notaHitPendiente) return null;
+  if(!document.getElementById('panelNota').classList.contains('show')) return null;
+  if(!document.getElementById('notaZona3D').checked) return null;
+  const hit=notaHitPendiente;
+  const local=hit.object.worldToLocal(hit.point.clone());
+  const estadoSel=document.querySelector('#notaEstados3D .nota-estado-pill.sel');
+  return {
+    id:'__zona_preview__',
+    esTarea:document.getElementById('notaEsTarea3D').checked,
+    estado:estadoSel?estadoSel.dataset.estado:'no_iniciado',
+    color:colorSeleccionadoNota(),
+    radioMult:parseFloat(document.getElementById('notaZonaRadio3D').value)||1,
+    point:{x:hit.point.x,y:hit.point.y,z:hit.point.z},
+    local:{x:local.x,y:local.y,z:local.z},
+    _meshRef:hit.object,
+  };
+}
+
+function actualizarZonasEsfera(){
+  const activos=new Set();
+  const lista=notas3d.filter(n=>n.esZona&&n.point);
+  const preview=leerNotaZonaPreviewDesdeFormulario();
+  if(preview) lista.push(preview);
+
+  lista.forEach(n=>{
+    activos.add(n.id);
+    const mesh=n._meshRef||resolveMeshNota(n);
+    let worldPos=new THREE.Vector3(n.point.x,n.point.y,n.point.z);
+    if(mesh&&n.local) worldPos=mesh.localToWorld(new THREE.Vector3(n.local.x,n.local.y,n.local.z));
+    const radio=radioBaseZona(mesh)*(n.radioMult||1);
+    const color=colorZonaDeNota(n);
+
+    let esfera=notaZonaMeshCache[n.id];
+    if(!esfera){
+      esfera=crearMeshZonaEsfera(color);
+      scene.add(esfera);
+      notaZonaMeshCache[n.id]=esfera;
+    }
+    esfera.position.copy(worldPos);
+    esfera.scale.setScalar(radio);
+    esfera.material.color.set(color);
+  });
+
+  Object.keys(notaZonaMeshCache).forEach(id=>{
+    if(activos.has(id)) return;
+    const esfera=notaZonaMeshCache[id];
+    scene.remove(esfera);
+    esfera.geometry.dispose();
+    esfera.material.dispose();
+    delete notaZonaMeshCache[id];
   });
 }
 
@@ -16037,6 +16162,9 @@ function abrirNota3D(notaId){
   document.getElementById('notaMostrarPin3D').checked=!!n.mostrarPin;
   document.getElementById('notaNegrita3D').checked=!!n.negrita;
   seleccionarColorNota(n.color);
+  document.getElementById('notaZona3D').checked=!!n.esZona;
+  document.getElementById('notaZonaRadio3D').value=n.radioMult||1;
+  document.getElementById('notaZonaRadioRow3D').style.display=n.esZona?'':'none';
   document.getElementById('notaEsTarea3D').checked=!!n.esTarea;
   document.getElementById('notaEstadoRow3D').style.display=n.esTarea?'':'none';
   crearSelectorEstadoEn(document.getElementById('notaEstados3D'), n.estado);
@@ -16064,6 +16192,9 @@ function abrirFormNota3D(hit){
   document.getElementById('notaMostrarPin3D').checked=false;
   document.getElementById('notaNegrita3D').checked=false;
   seleccionarColorNota('negro');
+  document.getElementById('notaZona3D').checked=false;
+  document.getElementById('notaZonaRadio3D').value=1;
+  document.getElementById('notaZonaRadioRow3D').style.display='none';
   document.getElementById('notaEsTarea3D').checked=false;
   document.getElementById('notaEstadoRow3D').style.display='none';
   crearSelectorEstadoEn(document.getElementById('notaEstados3D'), 'no_iniciado');
@@ -16263,13 +16394,15 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
     const mostrarPin=document.getElementById('notaMostrarPin3D').checked;
     const negrita=document.getElementById('notaNegrita3D').checked;
     const color=colorSeleccionadoNota();
+    const esZona=document.getElementById('notaZona3D').checked;
+    const radioMult=parseFloat(document.getElementById('notaZonaRadio3D').value)||1;
     const esTarea=document.getElementById('notaEsTarea3D').checked;
     const estadoSel=document.querySelector('#notaEstados3D .nota-estado-pill.sel');
     const estado=estadoSel?estadoSel.dataset.estado:'no_iniciado';
     let n=null;
     if(notaAbiertaId){
       n=notas3d.find(x=>x.id===notaAbiertaId);
-      if(n){ n.texto=texto; n.mostrarPin=mostrarPin; n.negrita=negrita; n.color=color; n.esTarea=esTarea; n.estado=estado; }
+      if(n){ n.texto=texto; n.mostrarPin=mostrarPin; n.negrita=negrita; n.color=color; n.esZona=esZona; n.radioMult=radioMult; n.esTarea=esTarea; n.estado=estado; }
     }else if(notaHitPendiente){
       const hit=notaHitPendiente;
       // resolverPiezaDeHit: en un mesh fusionado (modelo pesado) da el
@@ -16290,6 +16423,8 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
         mostrarPin,
         negrita,
         color,
+        esZona,
+        radioMult,
         esTarea,
         estado,
         fecha:new Date().toISOString().slice(0,10),
@@ -18566,7 +18701,7 @@ window.addEventListener('unhandledrejection', function(e){
   if(loEl){ loEl.classList.remove('hidden'); loEl.style.display='flex'; }
 });
 
-function animate(){requestAnimationFrame(animate);updateZoom();renderer.render(scene,camera);if(badgesVisible)renderBadges();if(mode==='measure'&&measurePts.length>0)drawMeasureSVG();actualizarPosicionesNotas();}
+function animate(){requestAnimationFrame(animate);updateZoom();renderer.render(scene,camera);if(badgesVisible)renderBadges();if(mode==='measure'&&measurePts.length>0)drawMeasureSVG();actualizarPosicionesNotas();actualizarZonasEsfera();}
 animate();
 
 // Hide loading overlay
