@@ -11194,7 +11194,10 @@ canvas{display:block;width:100%;height:100%}
 #panelNota.dragged{top:0;left:0;transform:none}
 #notaTitulo3D{font-weight:700;font-size:13px}
 #notaCerrar3D{width:28px;height:28px;border:none;background:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1}
-#notaPieza3D{font-family:monospace;font-size:10px;color:#3A6BE8;background:rgba(58,107,232,.08);border:1px solid rgba(58,107,232,.25);border-radius:6px;padding:4px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#notaPieza3D{font-family:monospace;font-size:10px;color:#3A6BE8;background:rgba(58,107,232,.08);border:1px solid rgba(58,107,232,.25);border-radius:6px;padding:4px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+#notaPiezaRow3D{display:flex;align-items:center;gap:6px}
+#notaIrPieza3D{flex:none;width:28px;height:28px;border-radius:7px;border:1px solid rgba(58,107,232,.35);background:rgba(58,107,232,.08);color:#3A6BE8;display:flex;align-items:center;justify-content:center;cursor:pointer}
+#notaIrPieza3D:active{background:#3A6BE8;color:#fff}
 #notaTexto3D{width:100%;resize:vertical;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--text);font-size:17px;padding:8px;line-height:1.5;font-family:inherit}
 #notaMeta3D{font-size:9.5px;color:var(--muted)}
 #notaSinLogin3D{font-size:11px;color:var(--danger);line-height:1.5;display:none}
@@ -11663,7 +11666,12 @@ window.onerror=function(msg,src,line){
     <span id="notaTitulo3D">Nueva nota</span>
     <button id="notaCerrar3D" type="button" aria-label="Cerrar">×</button>
   </div>
-  <div id="notaPieza3D">—</div>
+  <div id="notaPiezaRow3D">
+    <div id="notaPieza3D">—</div>
+    <button id="notaIrPieza3D" type="button" title="Ir a la pieza" aria-label="Ir a la pieza" style="display:none">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+    </button>
+  </div>
   <textarea id="notaTexto3D" rows="3" autocomplete="off" spellcheck="false" placeholder="Escribí la nota… (ej: cambiar por DN80)"></textarea>
 
   <input type="file" id="notaAdjuntoInput3D" accept="image/*,application/pdf" style="display:none">
@@ -16457,6 +16465,7 @@ function abrirNota3D(notaId){
   document.getElementById('notaTitulo3D').textContent='Nota';
   const notaZona=n.zoneId ? ZONES.find(z=>z.id===n.zoneId) : null;
   document.getElementById('notaPieza3D').textContent=n.objName||(notaZona?nombreZona(notaZona):'—');
+  document.getElementById('notaIrPieza3D').style.display=n.point?'flex':'none';
   document.getElementById('notaTexto3D').value=n.texto||'';
   document.getElementById('notaMeta3D').textContent=n.autor?`${n.autor} · ${n.fecha||''}`:'';
   document.getElementById('notaBorrar3D').style.display='block';
@@ -16487,6 +16496,9 @@ function abrirFormNota3D(hit){
   const zone=ZONES.find(z=>z.id===piezaUd.zoneId);
   document.getElementById('notaTitulo3D').textContent='Nueva nota';
   document.getElementById('notaPieza3D').textContent=piezaUd.objName||(zone?nombreZona(zone):'Pieza');
+  // Nota nueva: ya estás mirando la pieza (recién la tocaste para crearla),
+  // no hace falta el botón de "ir a la pieza" todavía.
+  document.getElementById('notaIrPieza3D').style.display='none';
   document.getElementById('notaTexto3D').value='';
   document.getElementById('notaMeta3D').textContent='';
   document.getElementById('notaBorrar3D').style.display='none';
@@ -16601,14 +16613,18 @@ function recentrarPanelNota(){
 
 // Mueve la cámara hasta la pieza de una nota y la abre — así "ubicarla
 // visualmente" no depende de encontrar el pin a ojo en el modelo.
-function volarANota(notaId){
+// Centra la cámara sobre la posición ACTUAL de la pieza de una nota (resuelta
+// en vivo vía resolveMeshNota — sigue la pieza si el modelo está explosionado,
+// a diferencia de usar n.point tal cual, que es la posición fija de cuando se
+// creó la nota). Mantiene la distancia/orientación relativa que ya tenía la
+// cámara, solo la "acerca" hacia ese punto — mismo criterio que un "zoom to
+// selection" de cualquier visor CAD.
+function irACamaraNota(notaId){
   const n=notas3d.find(x=>x.id===notaId);
-  if(!n) return;
-  // Mismo caso que en actualizarPosicionesNotas(): una tarea creada desde
-  // la pantalla Tareas no tiene point (no se ancló a una pieza) — no hay
-  // adónde volar.
-  if(!n.point){ toast('Esta tarea no está anclada a una pieza del modelo'); abrirNota3D(notaId); return; }
-  const p=new THREE.Vector3(n.point.x,n.point.y,n.point.z);
+  if(!n||!n.point){ toast('Esta nota no está anclada a una pieza del modelo'); return; }
+  let p=new THREE.Vector3(n.point.x,n.point.y,n.point.z);
+  const mesh=resolveMeshNota(n);
+  if(mesh&&n.local) p=mesh.localToWorld(new THREE.Vector3(n.local.x,n.local.y,n.local.z));
   const dirActual=camera.position.clone().sub(target);
   const dist=Math.max(dirActual.length()*0.35, targetRadius*0.25, 2);
   const dir=dirActual.lengthSq()>0 ? dirActual.normalize() : new THREE.Vector3(1,0.6,1).normalize();
@@ -16616,8 +16632,21 @@ function volarANota(notaId){
   camera.position.copy(p).addScaledVector(dir,dist);
   camera.lookAt(target);
   actualizarNearFar();
+}
+
+function volarANota(notaId){
+  const n=notas3d.find(x=>x.id===notaId);
+  if(!n) return;
+  // Mismo caso que en actualizarPosicionesNotas(): una tarea creada desde
+  // la pantalla Tareas no tiene point (no se ancló a una pieza) — no hay
+  // adónde volar.
+  if(!n.point){ toast('Esta tarea no está anclada a una pieza del modelo'); abrirNota3D(notaId); return; }
+  irACamaraNota(notaId);
   abrirNota3D(notaId);
 }
+document.getElementById('notaIrPieza3D').addEventListener('click',()=>{
+  if(notaAbiertaId) irACamaraNota(notaAbiertaId);
+});
 
 function abrirListaNotas(){
   const cont=document.getElementById('listaNotasItems');
