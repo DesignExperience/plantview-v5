@@ -507,8 +507,23 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 .exp-folder-name {
   font-family: "Chakra Petch", sans-serif; font-weight: 600;
   font-size: 14px; letter-spacing: .02em; text-transform: uppercase;
-  flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* Breadcrumb de subcarpetas (ver renderBreadcrumbCarpetas) — cada eslabón
+   salvo el último es un botón clickeable, angosto, que no empuja a los
+   demás fuera de pantalla en un camino largo. */
+.exp-folder-path {
+  display: flex; align-items: center; gap: 6px;
+  flex: 1; min-width: 0; overflow: hidden; white-space: nowrap;
+}
+.exp-folder-crumb {
+  font-family: "Chakra Petch", sans-serif; font-weight: 600;
+  font-size: 14px; letter-spacing: .02em; text-transform: uppercase;
+  color: var(--muted); background: none; border: none; padding: 0;
+  cursor: pointer; flex: none; max-width: 140px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.exp-folder-crumb:hover { color: var(--accent); text-decoration: underline; }
 .btn-back-sm {
   height: 30px; padding: 0 10px; flex: none;
   display: flex; align-items: center; gap: 5px;
@@ -2011,7 +2026,12 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
               Inicio
             </button>
             <span class="crumb-sep" aria-hidden="true">›</span>
-            <span class="exp-folder-name" id="folder-title" tabindex="-1">—</span>
+            <!-- Armado por renderBreadcrumbCarpetas(): un <button> clickeable
+                 por cada carpeta del camino, salvo la última (la actual),
+                 que se muestra como texto fijo — mismo criterio que
+                 cualquier breadcrumb de explorador de archivos. -->
+            <span class="exp-folder-path" id="folder-path"></span>
+            <span class="exp-folder-name" id="folder-title" tabindex="-1" style="display:none">—</span>
             <span class="sync-info" id="sync-info"></span>
             <button class="btn-back-sm btn-toggle-sidebar" type="button" title="Ocultar/mostrar gestor de archivos" aria-label="Ocultar/mostrar gestor de archivos" style="display:none">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -2652,6 +2672,12 @@ const state = {
   carpetasFS: [],            // carpetas leídas del filesystem
   archivosFS: {},            // archivos por carpeta
   carpetaActual: null,
+  // Camino completo desde la carpeta de tope (la que aparece en la grilla
+  // de Inicio) hasta la carpeta que se está viendo ahora — permite
+  // navegar más de un nivel de subcarpetas dentro de "Files" (ver
+  // abrirCarpeta/abrirSubcarpeta/renderBreadcrumbCarpetas). Siempre
+  // termina en carpetaActual.
+  carpetaPath: [],
   archivoActual: null,
   // Último archivo de cada tipo — permite que las pestañas PDF / eDrawings
   // del bottom-nav (mobile) recuerden su contenido al volver a ellas, en
@@ -2708,6 +2734,9 @@ function iconoTipo(tipo, size = 20) {
     return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="#FF7A29" stroke-width="1.6"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/><path d="M2.5 10.5a11 5 0 0 0 19 0" stroke-dasharray="1.5 1.8"/></svg>`;
   // Fallback genérico (extensión no reconocida)
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="1.6"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>`;
+}
+function iconoCarpeta(size = 20) {
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="#F5C542" stroke-width="1.6"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`;
 }
 function formatTs(ts) {
   const diff = Date.now() - ts;
@@ -3361,8 +3390,7 @@ function renderRecientes() {
     btn.addEventListener("click", async () => {
       const c = carpetasOrden.find(x => x.id === btn.dataset.cid);
       if (!c) { showToast("Esa carpeta ya no está conectada"); return; }
-      state.carpetaActual = c;
-      document.getElementById("folder-title").textContent = c.nombre;
+      seleccionarCarpetaRaiz(c);
       const archivos = await asegurarArchivosCargados(c);
       const f = archivos.find(x => x.id === btn.dataset.id);
       if (f) abrirVisor(f);
@@ -3437,8 +3465,7 @@ function renderBusquedaGlobal(q) {
     btn.addEventListener("click", async () => {
       const c = carpetasOrden.find(x => x.id === btn.dataset.cid);
       if (!c) return;
-      state.carpetaActual = c;
-      document.getElementById("folder-title").textContent = c.nombre;
+      seleccionarCarpetaRaiz(c);
       const archivos = await asegurarArchivosCargados(c);
       // El listado pudo haberse cargado en background con otra carpeta activa —
       // re-renderizar ahora que carpetaActual es la correcta.
@@ -3460,9 +3487,18 @@ setTimeout(() => { if (!modoEquipoDrive && typeof reconectarCarpetasDriveGuardad
 /* ============================================================
    PANTALLA ARCHIVOS
    ============================================================ */
-function abrirCarpeta(carpeta) {
+// Selecciona una carpeta de TOPE (una de las que aparece en la grilla de
+// Inicio) — reinicia el camino de breadcrumb a un solo eslabón. Cualquier
+// subcarpeta a la que se entre después (ver abrirSubcarpeta) se apila
+// arriba de esta.
+function seleccionarCarpetaRaiz(carpeta) {
   state.carpetaActual = carpeta;
-  document.getElementById("folder-title").textContent = carpeta.nombre;
+  state.carpetaPath = [carpeta];
+  renderBreadcrumbCarpetas();
+}
+
+function abrirCarpeta(carpeta) {
+  seleccionarCarpetaRaiz(carpeta);
   if (carpeta.driveId) {
     cargarArchivosDrive(carpeta);
   } else if (state.rootHandle && carpeta.handle) {
@@ -3472,9 +3508,60 @@ function abrirCarpeta(carpeta) {
   }
   irAExp(P.archivos, P.home);
   pushNav("archivos");
-  // Mover el foco al título de la carpeta: teclado y lectores de pantalla
-  // aterrizan en el contexto nuevo en vez de quedar en la grilla anterior.
-  document.getElementById("folder-title").focus({ preventScroll: true });
+  // Mover el foco al nombre de carpeta actual: teclado y lectores de
+  // pantalla aterrizan en el contexto nuevo en vez de quedar en la grilla
+  // anterior.
+  document.querySelector("#folder-path .exp-folder-name")?.focus({ preventScroll: true });
+}
+
+// Entra a una subcarpeta encontrada DENTRO del listado de archivos (Drive o
+// local) — a diferencia de abrirCarpeta, esto APILA sobre el camino
+// existente en vez de reiniciarlo, para poder bajar cualquier cantidad de
+// niveles y volver con el breadcrumb.
+function abrirSubcarpeta(carpetaRef) {
+  state.carpetaPath.push(carpetaRef);
+  state.carpetaActual = carpetaRef;
+  renderBreadcrumbCarpetas();
+  if (carpetaRef.driveId) {
+    cargarArchivosDrive(carpetaRef);
+  } else if (carpetaRef.handle) {
+    cargarArchivosFS(carpetaRef);
+  } else {
+    renderArchivos();
+  }
+}
+
+// Click en un eslabón intermedio del breadcrumb — vuelve a esa carpeta sin
+// perder el resto del camino hacia arriba (los eslabones más profundos se
+// descartan, como en cualquier explorador de archivos).
+function irACarpetaEnPath(idx) {
+  state.carpetaPath = state.carpetaPath.slice(0, idx + 1);
+  const carpeta = state.carpetaPath[state.carpetaPath.length - 1];
+  state.carpetaActual = carpeta;
+  renderBreadcrumbCarpetas();
+  if (state.archivosFS[carpeta.id]) { renderArchivos(); return; }
+  if (carpeta.driveId) {
+    cargarArchivosDrive(carpeta);
+  } else if (carpeta.handle) {
+    cargarArchivosFS(carpeta);
+  } else {
+    renderArchivos();
+  }
+}
+
+// Dibuja el camino completo en el breadcrumb — todos los eslabones son
+// botones clickeables salvo el último (la carpeta actual), que se muestra
+// como texto fijo, igual que en cualquier explorador de archivos.
+function renderBreadcrumbCarpetas() {
+  const cont = document.getElementById("folder-path");
+  cont.innerHTML = state.carpetaPath.map((c, i) => {
+    const esUltima = i === state.carpetaPath.length - 1;
+    if (esUltima) return `<span class="exp-folder-name" tabindex="-1">${esc(c.nombre)}</span>`;
+    return `<button type="button" class="exp-folder-crumb" data-path-idx="${i}">${esc(c.nombre)}</button><span class="crumb-sep" aria-hidden="true">›</span>`;
+  }).join("");
+  cont.querySelectorAll(".exp-folder-crumb").forEach(btn => {
+    btn.addEventListener("click", () => irACarpetaEnPath(Number(btn.dataset.pathIdx)));
+  });
 }
 
 // Devuelve los archivos reales de una carpeta (local o Drive), cargándolos primero
@@ -3498,8 +3585,25 @@ async function cargarArchivosFS(carpeta) {
   // NO del directorio del servidor — así funciona con CUALQUIER carpeta que se seleccione.
   if (carpeta.handle) {
     const archivos = [];
+    // Subcarpetas locales: antes se saltaban directo (kind!=='file'), así
+    // que cualquier carpeta anidada era invisible — ahora se listan como
+    // filas navegables (ver renderArchivos/abrirSubcarpeta), guardando su
+    // propio FileSystemDirectoryHandle para poder volver a leerla igual
+    // que la carpeta de tope.
+    const subcarpetas = [];
     try {
       for await (const [nombre, entry] of carpeta.handle.entries()) {
+        if (entry.kind === "directory") {
+          subcarpetas.push({
+            id: `${carpeta.id}||${nombre}`,
+            nombre,
+            tipo: "carpeta",
+            esCarpeta: true,
+            ts: 0,
+            handle: entry,
+          });
+          continue;
+        }
         if (entry.kind !== "file" || !esArchivoValido(nombre)) continue;
         const file = await entry.getFile();
         archivos.push({
@@ -3517,7 +3621,8 @@ async function cargarArchivosFS(carpeta) {
       showToast("Error al leer la carpeta");
     }
     archivos.sort((a,b) => b.ts - a.ts);
-    state.archivosFS[carpeta.id] = archivos;
+    subcarpetas.sort((a,b) => a.nombre.localeCompare(b.nombre));
+    state.archivosFS[carpeta.id] = [...subcarpetas, ...archivos];
     renderArchivos();
     marcarSync();
     return;
@@ -3548,6 +3653,15 @@ function renderArchivos(filtro) {
   }
 
   lista.innerHTML = archivos.map((f,i) => {
+    if (f.esCarpeta) {
+      return `
+      <div class="file-item" data-idx="${i}" data-es-carpeta="1" id="file-${esc(f.id)}" role="button" tabindex="0" aria-label="Abrir carpeta ${esc(f.nombre)}">
+        ${iconoCarpeta()}
+        <span class="file-info">
+          <span class="file-name">${esc(f.nombre)}</span>
+        </span>
+      </div>`;
+    }
     const esNuevo  = f.nuevo && !state.conocidos.has(f.id);
     const esActivo = state.archivoActual?.id === f.id;
     const esPDF    = f.tipo === "pdf";
@@ -3621,6 +3735,7 @@ function renderArchivos(filtro) {
       if (e.target.closest(".btn-comprimir")) return;
       if (e.target.closest(".btn-renombrar")) return;
       const f = window._archivos_actuales[Number(el.dataset.idx)];
+      if (f.esCarpeta) { abrirSubcarpeta(f); return; }
       if (modoSeleccionArchivos) { alternarSeleccionArchivo(f, el); return; }
       abrirVisor(f);
     });
@@ -3630,6 +3745,7 @@ function renderArchivos(filtro) {
       if (e.target !== el) return;
       e.preventDefault();
       const f = window._archivos_actuales[Number(el.dataset.idx)];
+      if (f.esCarpeta) { abrirSubcarpeta(f); return; }
       if (modoSeleccionArchivos) { alternarSeleccionArchivo(f, el); return; }
       abrirVisor(f);
     });
@@ -6018,8 +6134,7 @@ document.getElementById("btn-qr-calado-micro").addEventListener("click", async (
   const intentar = () => {
     const c = carpetasOrden.find(x => x.id === cid);
     if (!c) return false;
-    state.carpetaActual = c;
-    document.getElementById("folder-title").textContent = c.nombre;
+    seleccionarCarpetaRaiz(c);
     asegurarArchivosCargados(c).then(archivos => {
       // El explorador debe mostrar la carpeta (del archivo, o directo si es
       // un link "Compartir" de carpeta sin archivo puntual), no quedarse en Home
@@ -6108,8 +6223,7 @@ document.getElementById("btn-notif").addEventListener("click", () => {
         state.nuevos = []; checkNuevos();
         const c = carpetasOrden.find(x => x.id === btn.dataset.cid);
         if (!c) return;
-        state.carpetaActual = c;
-        document.getElementById("folder-title").textContent = c.nombre;
+        seleccionarCarpetaRaiz(c);
         const archivos = await asegurarArchivosCargados(c);
         const f = archivos.find(x => x.id === btn.dataset.id);
         if (f) setTimeout(() => abrirVisor(f), 350);
@@ -8614,8 +8728,9 @@ async function cargarArchivosDrive(carpeta) {
   lista.innerHTML = `<div style="padding:24px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div>`;
   try {
     const hijos = await listarHijosDrive(carpeta.driveId, driveConfig.apiKey);
+    const esCarpetaGoogle = h => h.mimeType === "application/vnd.google-apps.folder";
     const archivos = hijos
-      .filter(h => h.mimeType !== "application/vnd.google-apps.folder" && esArchivoValido(h.name))
+      .filter(h => !esCarpetaGoogle(h) && esArchivoValido(h.name))
       .map(h => {
         const ts = h.modifiedTime ? new Date(h.modifiedTime).getTime() : Date.now();
         return {
@@ -8628,8 +8743,27 @@ async function cargarArchivosDrive(carpeta) {
           driveId: h.id,
         };
       });
-    archivos.sort((a,b) => b.ts - a.ts);
-    state.archivosFS[carpeta.id] = archivos;
+    // Subcarpetas: antes se descartaban acá directamente, así que cualquier
+    // carpeta anidada más allá del primer nivel (el que arma conectarCarpetaDrive)
+    // quedaba invisible para siempre — ahora se listan como filas navegables
+    // (ver renderArchivos/abrirSubcarpeta), sin límite de profundidad.
+    const subcarpetas = hijos
+      .filter(esCarpetaGoogle)
+      .map(h => {
+        const ts = h.modifiedTime ? new Date(h.modifiedTime).getTime() : Date.now();
+        return {
+          id: "drive:" + h.id,
+          nombre: h.name,
+          tipo: "carpeta",
+          esCarpeta: true,
+          ts,
+          driveId: h.id,
+          origenDrive: true,
+          raizDriveId: carpeta.raizDriveId || carpeta.driveId,
+        };
+      });
+    // Carpetas primero (orden estándar de cualquier explorador).
+    state.archivosFS[carpeta.id] = [...subcarpetas, ...archivos];
     renderArchivos();
     marcarSync();
   } catch(e) {
