@@ -13273,13 +13273,56 @@ const AISLAR_STAGE_COLOR='#ffaa00';
 // está en la selección, se muestra el mesh fusionado entero (mismo
 // límite documentado en aplicarMarcaPieza).
 function coincideConAislamiento(mesh,seleccion){
-  for(const {zoneId,objName} of seleccion.values()){
+  for(const {zoneId,objName,pathPrefix} of seleccion.values()){
     if(mesh.userData.zoneId!==zoneId)continue;
+    if(pathPrefix){
+      // Sub-subensamblaje intermedio: comparar por PREFIJO de pathNames en
+      // vez de por objName suelto (ver mostrarSelLevelPopup/pathNames).
+      if(mesh.userData.piezas){
+        if(mesh.userData.piezas.some(p=>coincidePathPrefix(p.userData.pathNames,pathPrefix)))return true;
+      }else if(coincidePathPrefix(mesh.userData.pathNames,pathPrefix)){
+        return true;
+      }
+      continue;
+    }
     if(!objName)return true;
     if(mesh.userData.objName===objName)return true;
     if(mesh.userData.piezas&&mesh.userData.piezas.some(p=>p.userData.objName===objName))return true;
   }
   return false;
+}
+
+function coincidePathPrefix(pathNames,prefix){
+  if(!pathNames||pathNames.length<prefix.length)return false;
+  return prefix.every((n,i)=>pathNames[i]===n);
+}
+
+// Mismo criterio que resolverObjetivoMarca (simples vs. fusionados), pero
+// filtrando por prefijo de pathNames en vez de por objName — usado para
+// aislar un sub-subensamblaje intermedio, que no tiene un objName propio
+// y estable como para reusar resolverObjetivoMarca tal cual.
+function resolverObjetivoMarcaPorPrefix(zone,pathPrefix){
+  const simples=[],fusionados=[];
+  allMeshes.forEach(m=>{
+    if(m.userData.zoneId!==zone.id)return;
+    if(m.userData.piezas){
+      (m.userData.piezas||[]).forEach(p=>{
+        if(coincidePathPrefix(p.userData.pathNames,pathPrefix)) fusionados.push({mesh:m,pieza:p});
+      });
+    }else if(coincidePathPrefix(m.userData.pathNames,pathPrefix)){
+      simples.push(m);
+    }
+  });
+  return {simples,fusionados};
+}
+
+// Clave para el Map de aislar — para un sub-subensamblaje intermedio no
+// hay un objName estable (ver arriba), así que se compone con el prefijo
+// completo en vez de reusar marcaKey (esa sigue siendo solo para
+// pieza/subensamblaje, sin tocar su contrato por las marcas persistentes
+// que ya dependen de ella).
+function claveAislar(zoneId,objName,pathPrefix){
+  return pathPrefix ? zoneId+'::sub::'+pathPrefix.join('§') : marcaKey({id:zoneId},objName);
 }
 
 // La barra tiene dos estados excluyentes — "armando selección" (Aislar/
@@ -13335,14 +13378,14 @@ function limpiarSeleccionTempAislar(){
 // Agrega o quita (toggle) una pieza/subensamblaje de la selección en
 // construcción — reusa resolverObjetivoMarca (misma resolución
 // simples/fusionados que las marcas) para armar el resaltado ámbar.
-function toggleAislarSeleccion(zone,objName){
-  const key=marcaKey(zone,objName);
+function toggleAislarSeleccion(zone,objName,pathPrefix){
+  const key=claveAislar(zone.id,objName,pathPrefix);
   if(aislarSeleccionTemp.has(key)){
     aislarSeleccionTemp.delete(key);
     limpiarOverlayStaged(key);
   }else{
-    aislarSeleccionTemp.set(key,{zoneId:zone.id,objName});
-    const {simples,fusionados}=resolverObjetivoMarca(zone,objName);
+    aislarSeleccionTemp.set(key,{zoneId:zone.id,objName,pathPrefix});
+    const {simples,fusionados}=pathPrefix ? resolverObjetivoMarcaPorPrefix(zone,pathPrefix) : resolverObjetivoMarca(zone,objName);
     const grupo=new THREE.Group();
     simples.forEach(mesh=>{
       const geo=mesh.geometry;
@@ -14709,7 +14752,7 @@ function aplicarVistaGuardada(v) {
   limpiarSeleccionTempAislar();
   if (v.aislamiento && v.aislamiento.length) {
     const seleccion = new Map();
-    v.aislamiento.forEach(entry => seleccion.set(marcaKey({ id: entry.zoneId }, entry.objName), entry));
+    v.aislamiento.forEach(entry => seleccion.set(claveAislar(entry.zoneId, entry.objName, entry.pathPrefix), entry));
     aplicarAislamiento(seleccion);
   } else {
     restaurarVisibilidadTotal();
@@ -15379,17 +15422,19 @@ function elegirNivelDesdePopup(nivel,key){
   document.querySelectorAll('#selLevelPopupBtns .sel-level-btn').forEach(b=>{
     b.classList.toggle('active',b.dataset.nivelKey===key);
   });
-  // Ficha técnica y Aislar dependen de un {zona,objName} único y estable
-  // (se persisten en marcas/vistas guardadas) — un sub-subensamblaje
-  // intermedio todavía no tiene ese contrato, así que por ahora ahí solo
-  // se puede resaltar, no abrir ficha ni aislar desde acá.
+  // Ficha técnica depende de un {zona,objName} único y estable (currentZone/
+  // currentObjName, la misma clave que abre el sidebar) — un sub-subensamblaje
+  // intermedio todavía no tiene ese contrato, así que por ahora ahí solo se
+  // puede resaltar y aislar (ver claveAislar/coincidePathPrefix más arriba,
+  // que sí soportan filtrar por el prefijo de pathNames), no abrir ficha.
   const esExtremo=(nivel==='pieza'||nivel==='subensamblaje');
+  const esIntermedio=!!(nivel&&nivel.tipo==='intermedio');
   const btnFicha=document.getElementById('btnSelLevelFicha');
   btnFicha.disabled=!esExtremo;
   btnFicha.title=esExtremo?'':'Ficha técnica no disponible todavía para un subensamblaje intermedio';
   const btnAislar=document.getElementById('btnSelLevelAislar');
-  btnAislar.disabled=!esExtremo;
-  btnAislar.title=esExtremo?'':'Aislar no está disponible todavía para un subensamblaje intermedio';
+  btnAislar.disabled=!(esExtremo||esIntermedio);
+  btnAislar.title='';
   resaltarNivelSeleccion(selPopupPendiente.hit,nivel);
 }
 
@@ -15406,9 +15451,13 @@ document.getElementById('btnSelLevelFicha').addEventListener('click',abrirFichaD
 document.getElementById('btnSelLevelAislar').addEventListener('click',()=>{
   if(!selPopupPendiente||!selPopupPendiente.nivel) return;
   const {piezaUd,zone,nivel}=selPopupPendiente;
-  if(typeof nivel!=='string') return; // sub-subensamblaje intermedio: sin aislar todavía
-  const objName=nivel==='pieza'?piezaUd.objName:null;
-  toggleAislarSeleccion(zone,objName);
+  if(nivel&&nivel.tipo==='intermedio'){
+    const pathPrefix=(piezaUd.pathNames||[]).slice(0,nivel.profundidad+1);
+    toggleAislarSeleccion(zone,null,pathPrefix);
+  }else{
+    const objName=nivel==='pieza'?piezaUd.objName:null;
+    toggleAislarSeleccion(zone,objName);
+  }
   ocultarSelLevelPopup();
 });
 
