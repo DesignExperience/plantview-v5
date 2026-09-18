@@ -15945,6 +15945,24 @@ function resolveMeshNota(n){
     if(cached && cached.parent) return cached;
   }
   if(!n.zoneId){ notaMeshCache[n.id]=null; return null; }
+  // Camino preciso: si la nota guardó pathNames (cadena completa de
+  // ancestros nombrados, ver parser GLB/STEP), buscar la pieza EXACTA por
+  // esa cadena en vez de por objName suelto. objName puede repetirse en
+  // MUCHAS piezas de ramas distintas (herencia desde un ancestro común,
+  // no el nombre propio de cada una — ver el comentario de buildNode en
+  // el parser), lo que en un layout grande con fusión de meshes hacía que
+  // el candidato "más cercano" de abajo terminara siendo cualquier pieza
+  // random del layout, no la tocada al crear la nota.
+  if(n.pathNames && n.pathNames.length){
+    const clave=n.pathNames.join('§');
+    for(const m of allMeshes){
+      if(m.userData.zoneId!==n.zoneId) continue;
+      const match=m.userData.piezas
+        ? m.userData.piezas.some(p=>p.userData.pathNames && p.userData.pathNames.join('§')===clave)
+        : (m.userData.pathNames && m.userData.pathNames.join('§')===clave);
+      if(match){ notaMeshCache[n.id]=m; return m; }
+    }
+  }
   let candidatos=allMeshes.filter(m=>m.userData.zoneId===n.zoneId && m.userData.objName===n.objName);
   if(candidatos.length===0) candidatos=allMeshes.filter(m=>m.userData.zoneId===n.zoneId);
   let mesh=null;
@@ -16686,6 +16704,12 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
         id:'n'+Date.now()+Math.random().toString(36).slice(2,7),
         zoneId:piezaUd.zoneId||null,
         objName:piezaUd.objName||(zone?zone.name:null),
+        // Cadena completa de nombres (ver pathNames en el parser GLB/STEP) —
+        // a diferencia de objName (que puede repetirse entre MUCHAS piezas
+        // distintas, ver bug documentado en resolveMeshNota), esto identifica
+        // la rama exacta donde se creó la nota, sin ambigüedad en layouts
+        // grandes con mucha reutilización de nombres.
+        pathNames:piezaUd.pathNames||null,
         point:{x:hit.point.x,y:hit.point.y,z:hit.point.z}, // fallback si no se puede re-anclar a la pieza
         local:{x:local.x,y:local.y,z:local.z}, // en espacio local de la pieza — sigue el explode
         texto,
