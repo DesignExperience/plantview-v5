@@ -11618,6 +11618,10 @@ window.onerror=function(msg,src,line){
 <!-- Vista de sección estilo SolidWorks — planos X/Y/Z con offset,
      corta con clipping planes de three.js (ver activarSeccion). -->
 <div class="explode-bar" id="seccionPanel" style="flex-direction:column;align-items:stretch;gap:8px;width:min(280px,calc(100vw - 32px))">
+  <div style="display:flex;align-items:center;gap:8px">
+    <strong style="flex:1;font-size:12px">Vista de sección</strong>
+    <button type="button" class="sheet-close" id="btnSeccionCerrar" title="Cerrar" aria-label="Cerrar">×</button>
+  </div>
   <div style="display:flex;gap:6px">
     <button type="button" class="sel-level-btn seccion-eje-btn" id="btnSeccionX" style="flex:1">Plano X</button>
     <button type="button" class="sel-level-btn seccion-eje-btn" id="btnSeccionY" style="flex:1">Plano Y</button>
@@ -14932,6 +14936,13 @@ document.getElementById('bSeccion').onclick=()=>{
   document.getElementById('seccionPanel').classList.toggle('show');
 };
 document.getElementById('btnSeccionOk').addEventListener('click',()=>{
+  document.getElementById('seccionPanel').classList.remove('show');
+});
+// La "×" es el cierre genérico del panel — mismo criterio que OK (cerrar
+// no apaga el corte), pero siempre disponible, incluso antes de elegir
+// un plano (cuando OK todavía está disabled y no hay otra forma obvia de
+// cerrar sin volver a tocar el botón "Sección" de la barra de arriba).
+document.getElementById('btnSeccionCerrar').addEventListener('click',()=>{
   document.getElementById('seccionPanel').classList.remove('show');
 });
 document.getElementById('btnSeccionX').addEventListener('click',()=>activarSeccion('x'));
