@@ -10800,9 +10800,9 @@ canvas{display:block;width:100%;height:100%}
    toggle fijo de arriba que existía antes — acá la posición (left/top)
    la calcula JS en cada click, position:fixed es solo para que quede
    por encima del canvas sin importar el scroll. */
-.sel-level-popup{position:fixed;z-index:210;display:none;flex-direction:column;gap:6px;background:rgba(255,255,255,.97);border:1px solid var(--border);backdrop-filter:blur(12px);border-radius:12px;padding:8px;box-shadow:0 6px 24px rgba(0,0,0,.18);max-width:220px}
+.sel-level-popup{position:fixed;z-index:210;display:none;flex-direction:column;gap:6px;background:rgba(255,255,255,.97);border:1px solid var(--border);backdrop-filter:blur(12px);border-radius:12px;padding:8px;box-shadow:0 6px 24px rgba(0,0,0,.18);max-width:280px}
 .sel-level-popup-nombre{font-size:10px;font-weight:700;color:var(--text);padding:0 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sel-level-popup-btns{display:flex;gap:3px}
+.sel-level-popup-btns{display:flex;gap:3px;flex-wrap:wrap;justify-content:center}
 .sel-level-btn{display:flex;flex-direction:column;align-items:center;gap:3px;border:1px solid var(--border);background:var(--surf2);border-radius:9px;padding:7px 10px;font-size:9px;font-weight:600;letter-spacing:.03em;color:var(--text);cursor:pointer;white-space:nowrap;font-family:inherit;transition:background .12s,border-color .12s}
 .sel-level-btn svg{width:18px;height:18px;flex-shrink:0}
 .sel-level-btn:hover{background:#eef2ff;border-color:var(--acc)}
@@ -11324,16 +11324,10 @@ window.onerror=function(msg,src,line){
 </div>
 <div class="sel-level-popup" id="selLevelPopup">
   <div class="sel-level-popup-nombre" id="selLevelPopupNombre">—</div>
-  <div class="sel-level-popup-btns">
-    <button type="button" class="sel-level-btn" id="btnNivelPieza" title="Seleccionar solo esta pieza">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
-      <span>Pieza</span>
-    </button>
-    <button type="button" class="sel-level-btn" id="btnNivelSub" title="Seleccionar todo el subensamblaje">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="8" rx="1.2"/><rect x="13" y="3" width="8" height="8" rx="1.2"/><rect x="3" y="13" width="8" height="8" rx="1.2"/><rect x="13" y="13" width="8" height="8" rx="1.2"/></svg>
-      <span>Subensamblaje</span>
-    </button>
-  </div>
+  <!-- Botones armados dinámicamente en mostrarSelLevelPopup() — un GLB con
+       sub-subensamblajes anidados puede tener más de los 2 niveles fijos
+       de antes (Pieza/Subensamblaje), ver pathNames en el parser GLB/STEP. -->
+  <div class="sel-level-popup-btns" id="selLevelPopupBtns"></div>
   <button type="button" class="sel-level-popup-ficha" id="btnSelLevelFicha" disabled title="Elegí Pieza o Subensamblaje primero">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="8" r="0.5" fill="currentColor"/></svg>
     Ver ficha técnica
@@ -12646,15 +12640,20 @@ async function parseSTEPFull(buffer){
   function buildNode(treeNode,userData){
     const g=new THREE.Group();
     const objNamePropio=treeNode.name||userData.objName;
-    g.userData={...userData,objName:objNamePropio};
+    // pathNames: mismo criterio que el parser GLB — cadena completa de
+    // nombres propios para poder ofrecer niveles intermedios en el popup
+    // de selección (ver mostrarSelLevelPopup).
+    let pathNames=userData.pathNames||[];
+    if(treeNode.name&&pathNames[pathNames.length-1]!==treeNode.name) pathNames=[...pathNames,treeNode.name];
+    g.userData={...userData,objName:objNamePropio,pathNames};
     (treeNode.meshes||[]).forEach(mi=>{
       const om=occtMeshes[mi];
       if(!om)return;
       const m=buildMeshFromOcct(om);
-      m.userData={...userData,objName:objNamePropio};
+      m.userData={...userData,objName:objNamePropio,pathNames};
       g.add(m);
     });
-    (treeNode.children||[]).forEach(child=>g.add(buildNode(child,userData)));
+    (treeNode.children||[]).forEach(child=>g.add(buildNode(child,{...userData,pathNames})));
     return g;
   }
 
@@ -12793,7 +12792,15 @@ function parseGLBFull(buffer){
     // hereda los del padre (útil si el exportador solo los pone en el
     // nodo del subensamblaje, no en cada pieza suelta).
     const extrasPropios=(n.extras&&Object.keys(n.extras).length)?n.extras:userData.extras;
-    g.userData={...userData, objName:objNamePropio, extras:extrasPropios};
+    // pathNames: cadena de nombres propios desde el subensamblaje de tope
+    // (ZONES) hasta esta pieza — a diferencia de objName (que solo guarda
+    // el nombre propio MÁS CERCANO, perdiendo cualquier sub-subensamblaje
+    // intermedio), esto preserva TODOS los niveles nombrados para que el
+    // popup de selección pueda ofrecerlos (ver mostrarSelLevelPopup). Dedup
+    // consecutivo: un nodo sin nombre propio no agrega un eslabón nuevo.
+    let pathNames=userData.pathNames||[];
+    if(n.name&&pathNames[pathNames.length-1]!==n.name) pathNames=[...pathNames,n.name];
+    g.userData={...userData, objName:objNamePropio, extras:extrasPropios, pathNames};
     if(n.matrix){g.matrix.fromArray(n.matrix);g.matrix.decompose(g.position,g.quaternion,g.scale);}
     else{
       if(n.translation)g.position.fromArray(n.translation);
@@ -12803,11 +12810,16 @@ function parseGLBFull(buffer){
     if(n.mesh!==undefined){
       gltf.meshes[n.mesh].primitives.forEach(prim=>{
         const m=buildMesh(prim);
-        m.userData={...userData, objName:objNamePropio, extras:extrasPropios};
+        m.userData={...userData, objName:objNamePropio, extras:extrasPropios, pathNames};
         g.add(m);
       });
     }
-    (n.children||[]).forEach(ci=>g.add(buildNode(ci,userData)));
+    // OJO: a los hijos se les sigue pasando el `userData` ORIGINAL (no el
+    // objName/extras ya resueltos de ESTE nodo) — es el mismo criterio de
+    // herencia que ya tenía este parser (no se toca, para no alterar el
+    // anclaje de notas existente); pathNames sí se actualiza porque es una
+    // cadena nueva, sin comportamiento previo que pueda romperse.
+    (n.children||[]).forEach(ci=>g.add(buildNode(ci,{...userData,pathNames})));
     return g;
   }
 
@@ -13303,7 +13315,11 @@ async function buildSceneFromGLB(glbData, selectedIndices){
       const zoneId=`zone-${idx}`;
       let subGrp;
       try {
-        subGrp=buildNode(sub.nodeIndex,{zoneId,objName:sub.name});
+        // pathNames arranca con [sub.name] como "centinela" — el nodo raíz
+        // del subensamblaje suele tener su propio nombre igual a sub.name,
+        // y el dedup de buildNode (no repetir el último eslabón) evita que
+        // se duplique como si fuera ya un nivel intermedio distinto.
+        subGrp=buildNode(sub.nodeIndex,{zoneId,objName:sub.name,pathNames:[sub.name]});
         let mc=0; subGrp.traverse(c=>{if(c.isMesh)mc++;});
         dbg(` ${i+1}/${total} ${sub.name}: ${mc} meshes`);
       } catch(nodeErr){
@@ -15080,7 +15096,8 @@ function _resaltarMeshCompleto(mesh,color){
 
 // Resalta el objeto tocado en modo Selección según el nivel elegido en
 // el popup flotante (ver selLevelPopup) — hit viene del mismo raycast
-// que ya usa handleClick(), nivel es 'pieza' o 'subensamblaje'.
+// que ya usa handleClick(), nivel es 'pieza', 'subensamblaje', o
+// {tipo:'intermedio',profundidad} para un sub-subensamblaje del medio.
 function resaltarNivelSeleccion(hit,nivel){
   limpiarResaltadoNivel();
   const mesh=hit.object;
@@ -15101,10 +15118,11 @@ function resaltarNivelSeleccion(hit,nivel){
     }
     // Sin fusión: el mesh tocado ES la pieza completa.
     _resaltarMeshCompleto(mesh,SELECCION_COLOR);
-  }else{
-    // Subensamblaje: todas las piezas que comparten zoneId, sean o no el
-    // mismo mesh que se tocó (la fusión nunca cruza zonas, ver comentario
-    // en buildSceneFromGLB — cada mesh fusionado pertenece a una sola zona).
+  }else if(nivel==='subensamblaje'){
+    // Subensamblaje de tope: todas las piezas que comparten zoneId, sean o
+    // no el mismo mesh que se tocó (la fusión nunca cruza zonas, ver
+    // comentario en buildSceneFromGLB — cada mesh fusionado pertenece a
+    // una sola zona).
     const zoneId=ud.zoneId;
     let meshesZona=allMeshes.filter(m=>m.userData.zoneId===zoneId);
     if(meshesZona.length>MAX_MESHES_RESALTADO_ZONA){
@@ -15112,6 +15130,30 @@ function resaltarNivelSeleccion(hit,nivel){
       meshesZona=meshesZona.slice(0,MAX_MESHES_RESALTADO_ZONA);
     }
     meshesZona.forEach(m=>_resaltarMeshCompleto(m,SELECCION_COLOR));
+  }else if(nivel&&nivel.tipo==='intermedio'){
+    // Sub-subensamblaje intermedio (entre el subensamblaje de tope y la
+    // pieza): mismo zoneId Y mismo PREFIJO de pathNames hasta la
+    // profundidad elegida — comparar el prefijo completo (no solo el
+    // nombre suelto) evita mezclar dos ramas del árbol que reusen el
+    // mismo nombre de sub-subensamblaje en lugares distintos.
+    // resolverPiezaDeHit (no hit.object.userData directo): en un mesh
+    // fusionado, ud es del mesh combinado entero (=userData de su PRIMERA
+    // pieza) — hace falta el userData de la pieza puntual tocada para
+    // armar el prefijo correcto.
+    const piezaTocada=resolverPiezaDeHit(hit)||ud;
+    const zoneId=ud.zoneId;
+    const profundidad=nivel.profundidad;
+    const prefijo=(piezaTocada.pathNames||[]).slice(0,profundidad+1).join('§');
+    // Nota: para meshes fusionados esto compara contra el userData de su
+    // PRIMERA pieza (mismo criterio aproximado que ya usa el nivel
+    // "Subensamblaje" con la fusión) — si distintas piezas fusionadas en
+    // el mismo mesh cayeran en sub-subensamblajes distintos, el resaltado
+    // sería a nivel del mesh completo, no perfectamente por pieza.
+    let meshesGrupo=allMeshes.filter(m=>m.userData.zoneId===zoneId&&((m.userData.pathNames||[]).slice(0,profundidad+1).join('§'))===prefijo);
+    if(meshesGrupo.length>MAX_MESHES_RESALTADO_ZONA){
+      meshesGrupo=meshesGrupo.slice(0,MAX_MESHES_RESALTADO_ZONA);
+    }
+    meshesGrupo.forEach(m=>_resaltarMeshCompleto(m,SELECCION_COLOR));
   }
 }
 
@@ -15126,12 +15168,38 @@ function resaltarNivelSeleccion(hit,nivel){
 // (click afuera, cambio de modo, o abrir la ficha).
 let selPopupPendiente=null;
 
+const SEL_LEVEL_ICONO_SUB='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="8" rx="1.2"/><rect x="13" y="3" width="8" height="8" rx="1.2"/><rect x="3" y="13" width="8" height="8" rx="1.2"/><rect x="13" y="13" width="8" height="8" rx="1.2"/></svg>';
+const SEL_LEVEL_ICONO_SUB_MINI='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="7" height="7" rx="1.2"/><rect x="13" y="13" width="7" height="7" rx="1.2"/></svg>';
+const SEL_LEVEL_ICONO_PIEZA='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>';
+
 function mostrarSelLevelPopup(cx,cy,hit,piezaUd,zone){
   selPopupPendiente={hit,piezaUd,zone,nivel:null};
   const popup=document.getElementById('selLevelPopup');
   document.getElementById('selLevelPopupNombre').textContent=piezaUd.objName||nombreZona(zone);
-  document.getElementById('btnNivelPieza').classList.remove('active');
-  document.getElementById('btnNivelSub').classList.remove('active');
+
+  // pathNames = [nombreZona, ...intermedios..., nombrePieza] (ver parser
+  // GLB/STEP) — los extremos ya tienen su botón fijo de siempre; acá solo
+  // se agrega un botón por cada eslabón que quede EN EL MEDIO, si los hay.
+  const intermedios=(piezaUd.pathNames||[]).slice(1,-1);
+  const cont=document.getElementById('selLevelPopupBtns');
+  cont.innerHTML='';
+  function crearBotonNivel(key,nivel,icono,label,titulo){
+    const b=document.createElement('button');
+    b.type='button';
+    b.className='sel-level-btn';
+    b.dataset.nivelKey=key;
+    b.title=titulo;
+    b.innerHTML=icono+'<span>'+label+'</span>';
+    b.addEventListener('click',()=>elegirNivelDesdePopup(nivel,key));
+    cont.appendChild(b);
+  }
+  crearBotonNivel('subensamblaje','subensamblaje',SEL_LEVEL_ICONO_SUB,'Subensamblaje','Seleccionar todo el subensamblaje');
+  intermedios.forEach((nombre,j)=>{
+    const etiqueta=nombre.length>14?nombre.slice(0,13)+'…':nombre;
+    crearBotonNivel('intermedio-'+j,{tipo:'intermedio',profundidad:j+1},SEL_LEVEL_ICONO_SUB_MINI,etiqueta,'Seleccionar este subensamblaje intermedio: '+nombre);
+  });
+  crearBotonNivel('pieza','pieza',SEL_LEVEL_ICONO_PIEZA,'Pieza','Seleccionar solo esta pieza');
+
   const btnFicha=document.getElementById('btnSelLevelFicha');
   btnFicha.disabled=true;
   btnFicha.title='Elegí Pieza o Subensamblaje primero';
@@ -15157,27 +15225,33 @@ function ocultarSelLevelPopup(){
 
 // Elegir un nivel SOLO resalta — el popup se queda abierto (con el
 // botón de ficha ya habilitado) para que decidas si además la querés
-// ver, o simplemente comparar Pieza vs Subensamblaje tocando los dos
-// botones sin perder el punto donde clickeaste.
-function elegirNivelDesdePopup(nivel){
+// ver, o simplemente comparar niveles tocando los distintos botones sin
+// perder el punto donde clickeaste. `nivel` es 'pieza', 'subensamblaje',
+// o {tipo:'intermedio',profundidad} para un sub-subensamblaje del medio.
+function elegirNivelDesdePopup(nivel,key){
   if(!selPopupPendiente) return;
   selPopupPendiente.nivel=nivel;
-  document.getElementById('btnNivelPieza').classList.toggle('active',nivel==='pieza');
-  document.getElementById('btnNivelSub').classList.toggle('active',nivel==='subensamblaje');
+  document.querySelectorAll('#selLevelPopupBtns .sel-level-btn').forEach(b=>{
+    b.classList.toggle('active',b.dataset.nivelKey===key);
+  });
+  // Ficha técnica y Aislar dependen de un {zona,objName} único y estable
+  // (se persisten en marcas/vistas guardadas) — un sub-subensamblaje
+  // intermedio todavía no tiene ese contrato, así que por ahora ahí solo
+  // se puede resaltar, no abrir ficha ni aislar desde acá.
+  const esExtremo=(nivel==='pieza'||nivel==='subensamblaje');
   const btnFicha=document.getElementById('btnSelLevelFicha');
-  btnFicha.disabled=false;
-  btnFicha.title='';
+  btnFicha.disabled=!esExtremo;
+  btnFicha.title=esExtremo?'':'Ficha técnica no disponible todavía para un subensamblaje intermedio';
   const btnAislar=document.getElementById('btnSelLevelAislar');
-  btnAislar.disabled=false;
-  btnAislar.title='';
+  btnAislar.disabled=!esExtremo;
+  btnAislar.title=esExtremo?'':'Aislar no está disponible todavía para un subensamblaje intermedio';
   resaltarNivelSeleccion(selPopupPendiente.hit,nivel);
 }
-document.getElementById('btnNivelPieza').addEventListener('click',()=>elegirNivelDesdePopup('pieza'));
-document.getElementById('btnNivelSub').addEventListener('click',()=>elegirNivelDesdePopup('subensamblaje'));
 
 function abrirFichaDesdePopup(){
   if(!selPopupPendiente||!selPopupPendiente.nivel) return;
   const {piezaUd,zone,nivel}=selPopupPendiente;
+  if(typeof nivel!=='string') return; // sub-subensamblaje intermedio: sin ficha técnica todavía
   currentZone=zone;
   currentObjName=nivel==='pieza'?piezaUd.objName:null;
   openSidebar(zone,currentObjName);
@@ -15187,6 +15261,7 @@ document.getElementById('btnSelLevelFicha').addEventListener('click',abrirFichaD
 document.getElementById('btnSelLevelAislar').addEventListener('click',()=>{
   if(!selPopupPendiente||!selPopupPendiente.nivel) return;
   const {piezaUd,zone,nivel}=selPopupPendiente;
+  if(typeof nivel!=='string') return; // sub-subensamblaje intermedio: sin aislar todavía
   const objName=nivel==='pieza'?piezaUd.objName:null;
   toggleAislarSeleccion(zone,objName);
   ocultarSelLevelPopup();
