@@ -17265,7 +17265,7 @@ function renderSidebarBody(zone,objName){
       const idx=parseInt(el.dataset.rowIndex);
       const d=(docStore[key]||[])[idx];
       if(!d)return;
-      if(e.target.closest('.doc-btn-share')){window.open('https://wa.me/?text='+encodeURIComponent('📋 '+d.name),'_blank');}
+      if(e.target.closest('.doc-btn-share')){compartirArchivoPorWhatsApp(d);}
       else openDocViewer(d);
     });
   });
@@ -17397,7 +17397,32 @@ function openDocViewer(doc){
 function closeDocViewer(){document.getElementById('docModal').classList.remove('open');document.getElementById('docModalBody').innerHTML='';currentDocViewer=null;}
 document.getElementById('docModalClose').onclick=closeDocViewer;
 document.getElementById('docModalShare').onclick=()=>{if(!currentDocViewer)return;if(navigator.share){fetch(currentDocViewer.dataUrl).then(r=>r.blob()).then(blob=>{navigator.share({files:[new File([blob],currentDocViewer.name,{type:blob.type})],title:currentDocViewer.name}).catch(()=>{});});}else{navigator.clipboard.writeText(window.location.href).then(()=>toast('Link copiado'));}};
-document.getElementById('docModalWhatsapp').onclick=()=>{if(!currentDocViewer)return;window.open('https://wa.me/?text='+encodeURIComponent('📋 '+currentDocViewer.name),'_blank');};
+// "wa.me/?text=" solo puede llevar texto — no existe ninguna URL pública
+// para adjuntar un archivo y abrir WhatsApp directo, así que el único
+// camino real para que la IMAGEN llegue es el share sheet nativo (Web
+// Share API con el archivo adjunto), donde WhatsApp aparece como una app
+// más para elegir. Antes este botón ignoraba el archivo por completo y
+// solo mandaba el nombre como texto.
+document.getElementById('docModalWhatsapp').onclick=()=>{ compartirArchivoPorWhatsApp(currentDocViewer); };
+async function compartirArchivoPorWhatsApp(doc){
+  if(!doc) return;
+  try{
+    if(navigator.share){
+      const resp=await fetch(doc.dataUrl);
+      const blob=await resp.blob();
+      const file=new File([blob],doc.name,{type:blob.type||doc.type||''});
+      if(!navigator.canShare || navigator.canShare({files:[file]})){
+        await navigator.share({files:[file],title:doc.name});
+        return;
+      }
+    }
+  }catch(err){
+    if(err && err.name==='AbortError') return; // el usuario canceló el share sheet
+  }
+  // Fallback para navegadores sin Web Share API de archivos (ej. desktop):
+  // como mínimo el texto, mejor que no hacer nada.
+  window.open('https://wa.me/?text='+encodeURIComponent('📋 '+doc.name),'_blank');
+}
 
 // ── CROQUIS (sketch/annotation editor) ───────────────────────────────
 let sketchCanvasObj=null;   // instancia fabric.Canvas
