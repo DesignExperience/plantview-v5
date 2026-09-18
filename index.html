@@ -3754,7 +3754,7 @@ function renderArchivos(filtro) {
     btn.addEventListener("click", e => {
       e.stopPropagation();
       const f = window._archivos_actuales[Number(btn.dataset.qrIdx)];
-      mostrarQR(`${CONFIG.APP_URL}/?file=${f.id}`, f.nombre);
+      mostrarQR(`${CONFIG.APP_URL}/?file=${encodeURIComponent(f.id)}`, f.nombre);
     });
   });
   lista.querySelectorAll(".btn-editar-campos").forEach(btn => {
@@ -5917,12 +5917,26 @@ function mostrarQR(link, etiqueta) {
   qrLinkActual = link;
   document.getElementById("qr-filename").textContent = etiqueta;
   document.getElementById("qr-canvas").innerHTML = "";
-  new QRCode(document.getElementById("qr-canvas"), {
-    text: qrLinkActual,
-    width: 180, height: 180,
-    colorDark: "#14161A", colorLight: "#ffffff",
-    correctLevel: QRCode.CorrectLevel.M,
-  });
+  try {
+    // qrcodejs (la librería de abajo) cuenta la capacidad por caracteres,
+    // no por bytes UTF-8 — un link sin encodeURIComponent con letras
+    // acentuadas (ver nombres de archivo reales) podía tirar "code length
+    // overflow" silenciosamente, y como este catch no existía, el modal
+    // nunca llegaba a abrirse: parecía que el QR "no se generaba" en vez
+    // de mostrar el error real. Cada caller ya debería mandar el link con
+    // encodeURIComponent aplicado a cualquier parte con texto libre, pero
+    // este catch queda como red de seguridad.
+    new QRCode(document.getElementById("qr-canvas"), {
+      text: qrLinkActual,
+      width: 180, height: 180,
+      colorDark: "#14161A", colorLight: "#ffffff",
+      correctLevel: QRCode.CorrectLevel.M,
+    });
+  } catch (err) {
+    console.error("Error generando QR:", err);
+    showToast("❌ No se pudo generar el QR para este archivo");
+    return;
+  }
   document.getElementById("modal-qr").classList.add("visible");
 }
 document.getElementById("btn-qr-x").addEventListener("click", () =>
