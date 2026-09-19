@@ -16014,12 +16014,32 @@ function resolveMeshNota(n){
   // random del layout, no la tocada al crear la nota.
   if(n.pathNames && n.pathNames.length){
     const clave=n.pathNames.join('§');
-    for(const m of allMeshes){
-      if(m.userData.zoneId!==n.zoneId) continue;
-      const match=m.userData.piezas
+    const exactos=allMeshes.filter(m=>{
+      if(m.userData.zoneId!==n.zoneId) return false;
+      return m.userData.piezas
         ? m.userData.piezas.some(p=>p.userData.pathNames && p.userData.pathNames.join('§')===clave)
         : (m.userData.pathNames && m.userData.pathNames.join('§')===clave);
-      if(match){ notaMeshCache[n.id]=m; return m; }
+    });
+    if(exactos.length===1){
+      notaMeshCache[n.id]=exactos[0];
+      return exactos[0];
+    }
+    if(exactos.length>1){
+      // Ambiguo a pesar del match exacto: un layout con piezas repetidas
+      // (ej. el mismo soporte/ménsula en cada tramo) puede reusar
+      // literalmente la misma cadena de nombres para cada instancia — sin
+      // este desempate por distancia, se quedaba con la primera que
+      // apareciera en allMeshes (orden arbitrario de construcción), no
+      // necesariamente la instancia realmente tocada al crear la nota.
+      const objetivo=new THREE.Vector3(n.point.x,n.point.y,n.point.z);
+      let mejor=exactos[0],mejorDist=Infinity;
+      exactos.forEach(m=>{
+        const c=new THREE.Box3().setFromObject(m).getCenter(new THREE.Vector3());
+        const d=c.distanceToSquared(objetivo);
+        if(d<mejorDist){mejorDist=d;mejor=m;}
+      });
+      notaMeshCache[n.id]=mejor;
+      return mejor;
     }
   }
   let candidatos=allMeshes.filter(m=>m.userData.zoneId===n.zoneId && m.userData.objName===n.objName);
