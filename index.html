@@ -16192,8 +16192,13 @@ function actualizarPosicionesNotas(){
     const burbujaTop=Math.max(4,my-10);
     // anchoAprox/irIzquierda se calculan siempre (los necesita el ojo para
     // ubicarse aunque la burbuja esté oculta u off), no solo cuando la
-    // burbuja se termina mostrando.
-    const anchoAprox=Math.min(200,burbuja?.offsetWidth||200);
+    // burbuja se termina mostrando. Sin burbuja VISIBLE, el ancho a
+    // reservar es 0 (no 200): un elemento con display:none mide
+    // offsetWidth=0, y como 0 es falsy, "burbuja.offsetWidth||200" caía
+    // siempre en el 200 por defecto — el ojo quedaba corrido bien lejos
+    // del pin como si hubiera un globo enorme invisible ocupando lugar.
+    const burbujaVisible=!!burbuja && !oculto;
+    const anchoAprox=burbujaVisible ? Math.min(200,burbuja.offsetWidth||150) : 0;
     const irIzquierda=(mx+14+anchoAprox)>window.innerWidth;
     if(burbuja){
       if(oculto){
