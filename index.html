@@ -16257,8 +16257,11 @@ function actualizarPosicionesNotas(){
         let zoomTop=my+14;
         if(burbuja) zoomTop=burbujaTop+burbuja.offsetHeight+6;
         if(adjCard) zoomTop=(burbuja ? burbujaTop+burbuja.offsetHeight+6 : my+14)+adjCard.offsetHeight+6;
-        const anchoCtrl=zoomCtrl.offsetWidth||60;
-        zoomCtrl.style.left=(mx-anchoCtrl/2)+'px';
+        // Mismo borde izquierdo/derecho que la burbuja y la tarjeta de
+        // adjunto (columna alineada) — antes quedaba centrado bajo el pin,
+        // corrido hacia la izquierda respecto del resto de los elementos.
+        zoomCtrl.style.left=irIzquierda ? '' : (mx+14)+'px';
+        zoomCtrl.style.right=irIzquierda ? (window.innerWidth-mx+14)+'px' : '';
         zoomCtrl.style.top=zoomTop+'px';
       }
     }
