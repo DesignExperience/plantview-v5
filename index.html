@@ -11360,6 +11360,8 @@ canvas{display:block;width:100%;height:100%}
 .lvi-compartir:active{color:#3A6BE8}
 .lvi-borrar{width:26px;height:26px;border-radius:7px;border:none;background:none;color:var(--muted);font-size:16px;flex-shrink:0;cursor:pointer}
 .lvi-borrar:active{color:#e03050}
+.lvi-renombrar{width:26px;height:26px;border-radius:7px;border:none;background:none;color:var(--muted);flex-shrink:0;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.lvi-renombrar:active{color:#3A6BE8}
 .compass svg{width:20px;height:20px}
 .tap-guide{position:fixed;bottom:calc(104px + var(--safe-bottom));left:16px;background:rgba(232,234,239,.88);border:1px solid var(--border);backdrop-filter:blur(8px);border-radius:12px;padding:8px 12px;font-size:10px;color:var(--muted);z-index:190;pointer-events:none;line-height:1.6}
 .tap-guide strong{color:var(--text);display:block;margin-bottom:2px;font-size:11px}
@@ -14856,6 +14858,26 @@ async function borrarVistaGuardada(id) {
   }
 }
 
+// Renombrar solo toca el texto/nota de la vista — cámara, aislamiento,
+// corte y miniatura quedan intactos, mismo criterio que renombrar un
+// archivo no debería tocar su contenido.
+async function renombrarVistaGuardada(id) {
+  const v = vistasGuardadas.find(x => x.id === id);
+  if (!v) return;
+  const nuevoTexto = prompt('Nuevo nombre de la vista:', v.texto || '');
+  if (nuevoTexto === null) return; // canceló
+  const texto = nuevoTexto.trim();
+  if (!texto || texto === v.texto) return;
+  v.texto = texto;
+  abrirListaVistas();
+  try {
+    await guardarVistasGuardadasDrive();
+    toast('Vista renombrada ✓');
+  } catch (err) {
+    toast('No se pudo guardar el nombre: ' + err.message);
+  }
+}
+
 function abrirListaVistas() {
   const cont = document.getElementById('listaVistasItems');
   cont.innerHTML = '';
@@ -14897,6 +14919,14 @@ function abrirListaVistas() {
       compartir.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="10.6" x2="15.4" y2="6.4"/><line x1="8.6" y1="13.4" x2="15.4" y2="17.6"/></svg>';
       compartir.addEventListener('click', (e) => { e.stopPropagation(); cerrarListaVistas(); abrirModalCompartirVista(v); });
       item.appendChild(compartir);
+
+      const renombrar = document.createElement('button');
+      renombrar.type = 'button';
+      renombrar.className = 'lvi-renombrar';
+      renombrar.title = 'Renombrar vista';
+      renombrar.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+      renombrar.addEventListener('click', (e) => { e.stopPropagation(); renombrarVistaGuardada(v.id); });
+      item.appendChild(renombrar);
 
       const borrar = document.createElement('button');
       borrar.type = 'button';
