@@ -11194,14 +11194,15 @@ canvas{display:block;width:100%;height:100%}
 #listaNotasCerrar{width:28px;height:28px;border:none;background:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1}
 #listaNotasItems{display:flex;flex-direction:column;gap:6px;overflow-y:auto;min-height:0}
 .lista-notas-vacio{font-size:12px;color:var(--muted);text-align:center;padding:16px 0}
-.lista-notas-item{display:flex;flex-direction:column;gap:2px;text-align:left;width:100%;background:var(--surf2);border:1px solid var(--border);border-radius:9px;padding:8px 10px;cursor:pointer;font-family:inherit}
-.lista-notas-item:active{border-color:var(--acc)}
+.lista-notas-item{display:flex;flex-direction:column;gap:2px;text-align:left;width:100%;background:var(--surf2);border:1px solid var(--border);border-radius:9px;padding:8px 10px;font-family:inherit}
 .lni-top{display:flex;align-items:center;gap:5px}
 .lni-num{flex-shrink:0;width:16px;height:16px;border-radius:50%;background:rgba(58,107,232,.85);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace}
 .lni-pieza{font-family:monospace;font-size:10px;color:#3A6BE8;font-weight:700}
 .lni-clip{color:#3A6BE8;flex-shrink:0}
 .lni-texto{font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.lni-borrar{flex-shrink:0;margin-left:auto;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--muted);cursor:pointer}
+.lni-accion{flex-shrink:0;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--muted);cursor:pointer}
+.lni-accion:hover,.lni-accion:active{background:rgba(58,107,232,.14);color:#3A6BE8}
+.lni-borrar:hover,.lni-borrar:active{background:rgba(224,48,80,.14);color:#e03050}
 .lni-borrar:hover,.lni-borrar:active{background:rgba(224,48,80,.14);color:#e03050}
 
 #panelNota{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);display:none;flex-direction:column;gap:10px;width:min(320px,calc(100vw - 32px));background:rgba(240,242,246,.98);border:1px solid var(--border);border-radius:14px;padding:14px;z-index:410;box-shadow:0 12px 40px rgba(0,0,0,.3)}
@@ -17159,8 +17160,34 @@ function abrirListaNotas(){
         top.appendChild(clip);
       }
 
+      // 3 acciones explícitas, cada una con su ícono — antes tocar
+      // cualquier parte del item volaba a la pieza; ahora cada acción es a
+      // propósito, sin navegación accidental al querer editar o borrar.
+      const ubicar=document.createElement('span');
+      ubicar.className='lni-accion';
+      ubicar.style.marginLeft='auto'; // empuja las 3 acciones al margen derecho de la fila
+      ubicar.title='Ubicar en el espacio (ir a la pieza)';
+      ubicar.innerHTML='<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg>';
+      ubicar.addEventListener('click',(e)=>{
+        e.stopPropagation();
+        cerrarListaNotas();
+        volarANota(n.id);
+      });
+      top.appendChild(ubicar);
+
+      const editar=document.createElement('span');
+      editar.className='lni-accion';
+      editar.title='Editar esta nota';
+      editar.innerHTML='<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+      editar.addEventListener('click',(e)=>{
+        e.stopPropagation();
+        cerrarListaNotas();
+        abrirNota3D(n.id);
+      });
+      top.appendChild(editar);
+
       const borrar=document.createElement('span');
-      borrar.className='lni-borrar';
+      borrar.className='lni-accion lni-borrar';
       borrar.title='Borrar esta nota';
       borrar.innerHTML='<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>';
       borrar.addEventListener('click',async (e)=>{
@@ -17176,7 +17203,6 @@ function abrirListaNotas(){
       texto.textContent=n.texto||'';
       item.appendChild(top);
       item.appendChild(texto);
-      item.addEventListener('click',()=>{ cerrarListaNotas(); volarANota(n.id); });
       cont.appendChild(item);
     });
   }
