@@ -11533,6 +11533,10 @@ window.onerror=function(msg,src,line){
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
     Agregar a aislar
   </button>
+  <button type="button" class="sel-level-popup-ficha" id="btnSelLevelIguales" disabled title="Elegí Pieza primero" style="margin-top:6px;background:var(--surf2,#e8eaef);color:var(--text)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+    Nota en piezas iguales
+  </button>
 </div>
 <!-- Barra de aislamiento — dos estados: "armando" (piezas tocadas
      esperando confirmar) y "aislado" (ya aplicado, ofrece volver a ver
@@ -15504,6 +15508,9 @@ function mostrarSelLevelPopup(cx,cy,hit,piezaUd,zone){
   const btnAislar=document.getElementById('btnSelLevelAislar');
   btnAislar.disabled=true;
   btnAislar.title='Elegí Pieza o Subensamblaje primero';
+  const btnIguales=document.getElementById('btnSelLevelIguales');
+  btnIguales.disabled=true;
+  btnIguales.title='Elegí Pieza primero';
   popup.style.display='flex';
 
   // Clamp para que no se salga de la pantalla cerca de los bordes —
@@ -15545,6 +15552,12 @@ function elegirNivelDesdePopup(nivel,key){
   const btnAislar=document.getElementById('btnSelLevelAislar');
   btnAislar.disabled=!(esExtremo||esIntermedio);
   btnAislar.title='';
+  // "Nota en piezas iguales" agrupa por objName — solo tiene sentido para
+  // "Pieza" (un subensamblaje, intermedio o raíz, no es "una pieza" que se
+  // repita de la misma forma).
+  const btnIguales=document.getElementById('btnSelLevelIguales');
+  btnIguales.disabled=(nivel!=='pieza');
+  btnIguales.title=(nivel==='pieza')?'':'Elegí Pieza primero';
   resaltarNivelSeleccion(selPopupPendiente.hit,nivel);
 }
 
@@ -15580,6 +15593,17 @@ document.getElementById('btnSelLevelAislar').addEventListener('click',()=>{
   }
   ocultarSelLevelPopup();
 });
+document.getElementById('btnSelLevelIguales').addEventListener('click',()=>{
+  if(!selPopupPendiente||selPopupPendiente.nivel!=='pieza') return;
+  const {piezaUd,hit}=selPopupPendiente;
+  const instancias=buscarInstanciasIguales(piezaUd.objName);
+  if(instancias.length<=1){ toast('No se encontraron otras piezas iguales a "'+(piezaUd.objName||'')+'"'); return; }
+  abrirFormNota3D(hit);
+  notaGrupoIgualesPendiente=instancias; // seteado DESPUÉS: abrirFormNota3D lo resetea a null
+  document.getElementById('notaTitulo3D').textContent='Nueva nota (grupo)';
+  document.getElementById('notaPieza3D').textContent=`${piezaUd.objName||'Pieza'} — ${instancias.length} piezas iguales`;
+  ocultarSelLevelPopup();
+});
 
 // ── NOTAS 3D (compartidas por Drive, un pin por nota) ─────────────────
 // Marcadores como overlay SVG en pantalla (mismo patrón que los badges de
@@ -15600,6 +15624,50 @@ const notaOcultaTemporal={};    // id -> bool, oculta el globo+adjunto+chips+zoo
 let notaOffsets={};             // id -> {dx,dy} en px, desplazamiento manual del marcador (solo esta sesión)
 let notaAbiertaId=null;         // id de la nota que está en el panel (null = nota nueva)
 let notaHitPendiente=null;      // hit de raycast para la nota nueva sin guardar aún
+let notaGrupoIgualesPendiente=null; // [{mesh,local,zoneId,objName,pathNames}] cuando la nota en edición se va a crear en TODAS las instancias de una pieza repetida (ver "Nota en piezas iguales")
+
+// Devuelve, para un nombre de pieza, TODAS sus instancias en el modelo
+// completo (cualquier zona/subensamblaje) — así se puede anotar de una
+// una pieza que se repite varias veces, sin tener que tocarlas una por una
+// (tipo "Calcular" de SolidWorks, pero agrupando solo por nombre). Soporta
+// tanto meshes simples como "fusionados" (ver mergearGeometriasSimple,
+// modelos pesados), donde varias piezas comparten un único THREE.Mesh y se
+// distinguen por rango de caras (ud.piezas). El punto de anclaje es el
+// centro de la caja envolvente de la pieza en espacio local del mesh — no
+// hay un click real por instancia, a diferencia de una nota tocada a mano.
+function buscarInstanciasIguales(objName){
+  const instancias=[];
+  allMeshes.forEach(mesh=>{
+    const ud=mesh.userData;
+    if(ud.piezas){
+      ud.piezas.forEach(p=>{
+        if(p.userData.objName!==objName) return;
+        const faceIndices=Array.from({length:p.faceCount},(_,i)=>p.faceStart+i);
+        let local=null;
+        let point=null;
+        try{
+          const geo=extraerGeometriaCaras(mesh,faceIndices);
+          geo.computeBoundingBox();
+          const c=new THREE.Vector3();
+          geo.boundingBox.getCenter(c);
+          local={x:c.x,y:c.y,z:c.z};
+          const w=mesh.localToWorld(c.clone());
+          point={x:w.x,y:w.y,z:w.z};
+        }catch(err){ /* pieza sin geometría medible — se descarta esta instancia */ }
+        if(!local||!point) return;
+        instancias.push({mesh,local,point,zoneId:p.userData.zoneId,objName:p.userData.objName,pathNames:p.userData.pathNames||null});
+      });
+    }else if(ud.objName===objName){
+      if(!mesh.geometry) return;
+      if(!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+      const c=new THREE.Vector3();
+      mesh.geometry.boundingBox.getCenter(c);
+      const w=mesh.localToWorld(c.clone());
+      instancias.push({mesh,local:{x:c.x,y:c.y,z:c.z},point:{x:w.x,y:w.y,z:w.z},zoneId:ud.zoneId,objName:ud.objName,pathNames:ud.pathNames||null});
+    }
+  });
+  return instancias;
+}
 let notasReqSeq=0;
 const notasReqPendientes={};    // reqId -> {resolve,reject}
 
@@ -16787,6 +16855,7 @@ function abrirNota3D(notaId){
 function abrirFormNota3D(hit){
   notaAbiertaId=null;
   notaHitPendiente=hit;
+  notaGrupoIgualesPendiente=null;
   notaAdjuntoNuevo=null;
   notaAdjuntoQuitar=false;
   document.getElementById('notaAdjuntoInput3D').value='';
@@ -16829,6 +16898,7 @@ function cerrarPanelNota3D(){
   document.getElementById('panelNota').classList.remove('show');
   notaAbiertaId=null;
   notaHitPendiente=null;
+  notaGrupoIgualesPendiente=null;
   notaAdjuntoNuevo=null;
   notaAdjuntoQuitar=false;
 }
@@ -17075,9 +17145,32 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
     const estadoSel=document.querySelector('#notaEstados3D .nota-estado-pill.sel');
     const estado=estadoSel?estadoSel.dataset.estado:'no_iniciado';
     let n=null;
+    let notasCreadas=null; // solo en modo grupo: todas las notas recién creadas (para el adjunto, más abajo)
     if(notaAbiertaId){
       n=notas3d.find(x=>x.id===notaAbiertaId);
       if(n){ n.texto=texto; n.mostrarPin=mostrarPin; n.negrita=negrita; n.color=color; n.tamano=tamano; n.numeroManual=numeroManual; n.esZona=esZona; n.radioMult=radioMult; n.esTarea=esTarea; n.estado=estado; }
+    }else if(notaGrupoIgualesPendiente && notaGrupoIgualesPendiente.length){
+      // Una nota por instancia, mismo texto/color/etc — el número manual NO
+      // se repite igual en todas (perdería su propósito de numeración única),
+      // así que en modo grupo directamente se ignora y cada una queda con
+      // numeración automática.
+      notasCreadas=notaGrupoIgualesPendiente.map(inst=>{
+        const ni={
+          id:'n'+Date.now()+Math.random().toString(36).slice(2,7),
+          zoneId:inst.zoneId||null,
+          objName:inst.objName||null,
+          pathNames:inst.pathNames||null,
+          point:{x:inst.point.x,y:inst.point.y,z:inst.point.z}, // fallback fijo — igual que en una nota tocada a mano, ver comentario más abajo
+          local:{x:inst.local.x,y:inst.local.y,z:inst.local.z},
+          texto, mostrarPin, negrita, color, tamano,
+          numeroManual:null,
+          esZona, radioMult, esTarea, estado,
+          fecha:new Date().toISOString().slice(0,10),
+        };
+        notaMeshCache[ni.id]=inst.mesh;
+        notas3d.push(ni);
+        return ni;
+      });
     }else if(notaHitPendiente){
       const hit=notaHitPendiente;
       // resolverPiezaDeHit: en un mesh fusionado (modelo pesado) da el
@@ -17116,7 +17209,14 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
       notas3d.push(n);
     }
 
-    if(n && notaAdjuntoNuevo){
+    if(notasCreadas && notaAdjuntoNuevo){
+      // Un solo archivo subido, referenciado por TODAS las notas del grupo —
+      // no tiene sentido duplicar el mismo adjunto N veces en Drive.
+      const ext=(notaAdjuntoNuevo.name.match(/\.[a-zA-Z0-9]+$/)||[''])[0];
+      const nombreAdj=`plantview-adjunto-grupo-${Date.now()}${ext}`;
+      const fileId=await subirArchivoADriveDesdeVisor(nombreAdj, notaAdjuntoNuevo, carpetaDriveIdActual);
+      notasCreadas.forEach(ni=>{ ni.adjunto={fileId, nombre:notaAdjuntoNuevo.name, mime:notaAdjuntoNuevo.type}; });
+    }else if(n && notaAdjuntoNuevo){
       const ext=(notaAdjuntoNuevo.name.match(/\.[a-zA-Z0-9]+$/)||[''])[0];
       const nombreAdj=`plantview-adjunto-${n.id}${ext}`;
       const fileId=await subirArchivoADriveDesdeVisor(nombreAdj, notaAdjuntoNuevo, carpetaDriveIdActual);
@@ -17125,10 +17225,12 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
       delete n.adjunto;
     }
 
+    const cantidadGrupo=notasCreadas?notasCreadas.length:0;
+    notaGrupoIgualesPendiente=null;
     renderPinesNotas();
     if(currentZone) renderSidebarBody(currentZone,currentObjName);
     await guardarNotasDrive();
-    toast('Nota guardada ✓');
+    toast(cantidadGrupo?`✓ Nota creada en ${cantidadGrupo} piezas iguales`:'Nota guardada ✓');
     cerrarPanelNota3D();
   }catch(err){
     toast('No se pudo guardar: '+err.message);
