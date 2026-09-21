@@ -11754,7 +11754,7 @@ window.onerror=function(msg,src,line){
     <div class="nota-colores" id="notaColores3D"></div>
   </div>
   <div class="nota-color-row">
-    <span>Número del pin</span>
+    <span id="notaNumeroManualLabel3D">Número del pin</span>
     <input type="number" id="notaNumeroManual3D" placeholder="Auto" min="1" step="1" style="width:70px;text-align:center;padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:var(--surf2);color:var(--text);font-family:inherit;font-size:12.5px">
   </div>
 
@@ -15612,6 +15612,7 @@ document.getElementById('btnSelLevelIguales').addEventListener('click',()=>{
   notaGrupoIgualesPendiente=instancias; // seteado DESPUÉS: abrirFormNota3D lo resetea a null
   document.getElementById('notaTitulo3D').textContent='Nueva nota (grupo)';
   document.getElementById('notaPieza3D').textContent=`${piezaUd.objName||'Pieza'} — ${instancias.length} piezas iguales`;
+  document.getElementById('notaNumeroManualLabel3D').textContent='Número base (se agrega letra: 2-A, 2-B…)';
   ocultarSelLevelPopup();
 });
 document.getElementById('btnSelLevelIgualesAislar').addEventListener('click',()=>{
@@ -15685,6 +15686,20 @@ function buscarInstanciasIguales(objName){
     }
   });
   return instancias;
+}
+
+// Letra de instancia dentro de un grupo de "piezas iguales" (0→A, 1→B, …
+// 25→Z, 26→AA, 27→AB…) — mismo esquema que las columnas de una planilla,
+// para no quedarse sin letras en un grupo con muchas repeticiones.
+function letraDeIndice(i){
+  let s='';
+  i++;
+  while(i>0){
+    const r=(i-1)%26;
+    s=String.fromCharCode(65+r)+s;
+    i=Math.floor((i-1)/26);
+  }
+  return s;
 }
 
 // Agrega TODAS las instancias de una pieza repetida (cualquier zona) a la
@@ -16868,9 +16883,11 @@ function abrirNota3D(notaId){
   if(!n) return;
   notaAbiertaId=notaId;
   notaHitPendiente=null;
+  notaGrupoIgualesPendiente=null;
   notaAdjuntoNuevo=null;
   notaAdjuntoQuitar=false;
   document.getElementById('notaAdjuntoInput3D').value='';
+  document.getElementById('notaNumeroManualLabel3D').textContent='Número del pin';
   document.getElementById('notaTitulo3D').textContent='Nota';
   const notaZona=n.zoneId ? ZONES.find(z=>z.id===n.zoneId) : null;
   document.getElementById('notaPieza3D').textContent=n.objName||(notaZona?nombreZona(notaZona):'—');
@@ -16917,6 +16934,7 @@ function abrirFormNota3D(hit){
   document.getElementById('notaNegrita3D').checked=false;
   seleccionarColorNota('negro');
   document.getElementById('notaNumeroManual3D').value='';
+  document.getElementById('notaNumeroManualLabel3D').textContent='Número del pin';
   document.getElementById('notaZona3D').checked=false;
   seleccionarTamanoZona(1);
   document.getElementById('notaZonaRadioRow3D').style.display='none';
@@ -17192,11 +17210,14 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
       n=notas3d.find(x=>x.id===notaAbiertaId);
       if(n){ n.texto=texto; n.mostrarPin=mostrarPin; n.negrita=negrita; n.color=color; n.tamano=tamano; n.numeroManual=numeroManual; n.esZona=esZona; n.radioMult=radioMult; n.esTarea=esTarea; n.estado=estado; }
     }else if(notaGrupoIgualesPendiente && notaGrupoIgualesPendiente.length){
-      // Una nota por instancia, mismo texto/color/etc — el número manual NO
-      // se repite igual en todas (perdería su propósito de numeración única),
-      // así que en modo grupo directamente se ignora y cada una queda con
-      // numeración automática.
-      notasCreadas=notaGrupoIgualesPendiente.map(inst=>{
+      // Una nota por instancia, mismo texto/color/etc. Si se escribió un
+      // número base (ej. "2"), se mantiene igual en todas y se distingue
+      // cada instancia con una letra (2-A, 2-B, 2-C…) — así el conjunto
+      // sigue leyéndose como "una" pieza numerada, con sus repeticiones
+      // identificadas, en vez de una numeración independiente sin relación
+      // entre ellas. Si se deja vacío, cada una queda con numeración
+      // automática normal (orden en la lista).
+      notasCreadas=notaGrupoIgualesPendiente.map((inst,i)=>{
         const ni={
           id:'n'+Date.now()+Math.random().toString(36).slice(2,7),
           zoneId:inst.zoneId||null,
@@ -17205,7 +17226,7 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
           point:{x:inst.point.x,y:inst.point.y,z:inst.point.z}, // fallback fijo — igual que en una nota tocada a mano, ver comentario más abajo
           local:{x:inst.local.x,y:inst.local.y,z:inst.local.z},
           texto, mostrarPin, negrita, color, tamano,
-          numeroManual:null,
+          numeroManual:numeroManual!=null?`${numeroManual}-${letraDeIndice(i)}`:null,
           esZona, radioMult, esTarea, estado,
           fecha:new Date().toISOString().slice(0,10),
         };
