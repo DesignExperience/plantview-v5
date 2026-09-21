@@ -17189,10 +17189,12 @@ function volarANota(notaId){
   if(!n) return;
   // Mismo caso que en actualizarPosicionesNotas(): una tarea creada desde
   // la pantalla Tareas no tiene point (no se ancló a una pieza) — no hay
-  // adónde volar.
+  // adónde volar. Ahí sí tiene sentido abrir la edición como fallback, ya
+  // que no hay ubicación 3D que mostrar en su lugar.
   if(!n.point){ toast('Esta tarea no está anclada a una pieza del modelo'); abrirNota3D(notaId); return; }
+  // Solo mueve la cámara — "Ubicar" no debe abrir el panel de edición
+  // (eso es lo que hace el ícono de "Editar", al lado).
   irACamaraNota(notaId);
-  abrirNota3D(notaId);
 }
 document.getElementById('notaIrPieza3D').addEventListener('click',()=>{
   if(notaAbiertaId) irACamaraNota(notaAbiertaId);
