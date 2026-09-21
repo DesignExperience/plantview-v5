@@ -11232,6 +11232,9 @@ canvas{display:block;width:100%;height:100%}
 /* Toggle "Mostrar nota en el pin" — activa la burbuja de texto pegada al
    marcador en el modelo, para leerla sin abrir este panel cada vez. */
 .nota-toggle-row{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12.5px;color:var(--text);cursor:pointer}
+.nota-zona-tamanos{display:flex;gap:4px;flex:none}
+.nota-zona-tamano-btn{padding:5px 9px;border-radius:7px;border:1px solid var(--border);background:var(--surf2);color:var(--text);font-family:inherit;font-size:10.5px;font-weight:600;cursor:pointer}
+.nota-zona-tamano-btn.sel{background:#3A6BE8;color:#fff;border-color:#3A6BE8}
 .nota-switch{position:relative;width:36px;height:20px;flex-shrink:0}
 .nota-switch input{position:absolute;inset:0;opacity:0;margin:0;cursor:pointer;z-index:1}
 .nota-switch-track{position:absolute;inset:0;background:var(--border);border-radius:999px;transition:background .15s}
@@ -11764,7 +11767,11 @@ window.onerror=function(msg,src,line){
   </label>
   <div id="notaZonaRadioRow3D" class="nota-toggle-row" style="display:none">
     <span>Tamaño de la esfera</span>
-    <input type="range" id="notaZonaRadio3D" min="0.2" max="3" step="0.05" value="1" style="flex:1;margin-left:10px">
+    <div class="nota-zona-tamanos" id="notaZonaTamanos3D">
+      <button type="button" class="nota-zona-tamano-btn" data-radio-mult="1">Normal</button>
+      <button type="button" class="nota-zona-tamano-btn" data-radio-mult="2">Intermedio</button>
+      <button type="button" class="nota-zona-tamano-btn" data-radio-mult="3.5">Grande</button>
+    </div>
   </div>
 
   <label id="notaEsTareaRow3D" class="nota-toggle-row">
@@ -16096,6 +16103,28 @@ function colorSeleccionadoNota(){
   return sel ? sel.dataset.color : 'negro';
 }
 
+// 3 niveles fijos en vez de un slider continuo — más rápido de elegir y
+// más consistente entre notas (todas las "Grande" del modelo quedan
+// exactamente igual de grandes, no aproximadas a ojo con un slider).
+document.querySelectorAll('#notaZonaTamanos3D .nota-zona-tamano-btn').forEach(b=>{
+  b.addEventListener('click',()=>seleccionarTamanoZona(parseFloat(b.dataset.radioMult)));
+});
+function seleccionarTamanoZona(mult){
+  const botones=[...document.querySelectorAll('#notaZonaTamanos3D .nota-zona-tamano-btn')];
+  // Nota vieja con un valor de slider "entre medio" (ej. 1.6): se queda
+  // con el preset más cercano en vez de no marcar ninguno.
+  let elegido=botones[0],mejorDist=Infinity;
+  botones.forEach(b=>{
+    const d=Math.abs(parseFloat(b.dataset.radioMult)-mult);
+    if(d<mejorDist){mejorDist=d;elegido=b;}
+  });
+  botones.forEach(b=>b.classList.toggle('sel',b===elegido));
+}
+function tamanoZonaSeleccionado(){
+  const sel=document.querySelector('#notaZonaTamanos3D .nota-zona-tamano-btn.sel');
+  return sel ? parseFloat(sel.dataset.radioMult) : 1;
+}
+
 // ── TAREA / OT ──────────────────────────────────────────────────────
 // Una nota puede marcarse como tarea/orden de trabajo, con un estado
 // (no iniciado / en proceso / finalizado) que tiñe el pin en el modelo
@@ -16439,7 +16468,7 @@ function leerNotaZonaPreviewDesdeFormulario(){
     esTarea:document.getElementById('notaEsTarea3D').checked,
     estado:estadoSel?estadoSel.dataset.estado:'no_iniciado',
     color:colorSeleccionadoNota(),
-    radioMult:parseFloat(document.getElementById('notaZonaRadio3D').value)||1,
+    radioMult:tamanoZonaSeleccionado(),
     point:{x:hit.point.x,y:hit.point.y,z:hit.point.z},
     local:{x:local.x,y:local.y,z:local.z},
     _meshRef:hit.object,
@@ -16748,7 +16777,7 @@ function abrirNota3D(notaId){
   document.getElementById('notaGrande3D').checked=n.tamano==='grande';
   document.getElementById('notaNumeroManual3D').value=n.numeroManual!=null?n.numeroManual:'';
   document.getElementById('notaZona3D').checked=!!n.esZona;
-  document.getElementById('notaZonaRadio3D').value=n.radioMult||1;
+  seleccionarTamanoZona(n.radioMult||1);
   document.getElementById('notaZonaRadioRow3D').style.display=n.esZona?'':'none';
   document.getElementById('notaEsTarea3D').checked=!!n.esTarea;
   document.getElementById('notaEstadoRow3D').style.display=n.esTarea?'':'none';
@@ -16783,7 +16812,7 @@ function abrirFormNota3D(hit){
   document.getElementById('notaGrande3D').checked=false;
   document.getElementById('notaNumeroManual3D').value='';
   document.getElementById('notaZona3D').checked=false;
-  document.getElementById('notaZonaRadio3D').value=1;
+  seleccionarTamanoZona(1);
   document.getElementById('notaZonaRadioRow3D').style.display='none';
   document.getElementById('notaEsTarea3D').checked=false;
   document.getElementById('notaEstadoRow3D').style.display='none';
@@ -17046,7 +17075,7 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
     const numeroManualRaw=document.getElementById('notaNumeroManual3D').value.trim();
     const numeroManual=numeroManualRaw?parseInt(numeroManualRaw,10):null;
     const esZona=document.getElementById('notaZona3D').checked;
-    const radioMult=parseFloat(document.getElementById('notaZonaRadio3D').value)||1;
+    const radioMult=tamanoZonaSeleccionado();
     const esTarea=document.getElementById('notaEsTarea3D').checked;
     const estadoSel=document.querySelector('#notaEstados3D .nota-estado-pill.sel');
     const estado=estadoSel?estadoSel.dataset.estado:'no_iniciado';
