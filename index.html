@@ -10987,6 +10987,17 @@ canvas{display:block;width:100%;height:100%}
 .explode-bar.show{display:flex}
 .explode-bar input[type=range]{flex:1; accent-color:#5B8BFF; cursor:pointer}
 #explodeLabel{flex:none; font-size:11px; font-weight:700; min-width:32px; text-align:right; font-variant-numeric:tabular-nums}
+
+/* La barra de aislar reusa .explode-bar pero con hasta 4 botones de
+   texto en vez de un slider — .vista-guardar-btn trae width:100% (pensado
+   para un solo botón apilado en un panel), que acá hacía que cada botón
+   peleara por el 100% del ancho de la barra y el texto se saliera del
+   contenedor. Mismo criterio que el fab-dock: ancho por contenido, con
+   scroll horizontal como red de seguridad en mobile angosto. */
+#aislarBar{width:max-content;max-width:calc(100vw - 24px);overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+#aislarBar::-webkit-scrollbar{display:none}
+#aislarBar .vista-guardar-btn{width:auto;flex:none;white-space:nowrap}
+#aislarBarCount{flex:none;white-space:nowrap}
 .msr-title{font-size:9px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
 .msr-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px}
 .msr-cell{background:var(--surf2);border-radius:10px;padding:8px;text-align:center}
