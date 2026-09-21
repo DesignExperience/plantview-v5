@@ -16421,41 +16421,7 @@ function resolveMeshNota(n){
   return notaMeshCache[n.id];
 }
 
-// Separación mínima entre pines en pantalla (px) antes de considerarlos
-// "encimados" — con un layout denso (varias notas de un grupo de piezas
-// iguales muy juntas, ver "Nota en piezas iguales"/"Nota a estas piezas")
-// sus burbujas quedaban todas apiladas literalmente una arriba de la otra,
-// ilegibles. calcularAutoOffsetsNotas() les da a las que colisionan un
-// corrimiento vertical automático (solo a las que el usuario no arrastró
-// a mano — notaOffsets sigue mandando si existe), escalonándolas como una
-// pila en vez de superponerse.
-const NOTA_AUTO_MIN_DIST=34;
-const NOTA_AUTO_STEP=30;
-function calcularAutoOffsetsNotas(visibles){
-  const autoOffsets={};
-  const colocados=[]; // {x,y} ya ocupados este frame, manual o auto
-  visibles.forEach(({id,p})=>{
-    const manual=notaOffsets[id];
-    if(manual&&(manual.dx!==0||manual.dy!==0)){
-      colocados.push({x:p.x+manual.dx,y:p.y+manual.dy});
-    }
-  });
-  visibles.forEach(({id,p})=>{
-    const manual=notaOffsets[id];
-    if(manual&&(manual.dx!==0||manual.dy!==0)) return; // el usuario ya la movió a mano — no tocar
-    let y=p.y,intentos=0;
-    while(colocados.some(c=>Math.abs(c.x-p.x)<NOTA_AUTO_MIN_DIST&&Math.abs(c.y-y)<NOTA_AUTO_MIN_DIST)&&intentos<40){
-      y+=NOTA_AUTO_STEP;
-      intentos++;
-    }
-    colocados.push({x:p.x,y});
-    if(y!==p.y) autoOffsets[id]={dx:0,dy:y-p.y};
-  });
-  return autoOffsets;
-}
-
 function actualizarPosicionesNotas(){
-  const visibles=[];
   Object.keys(notaMarkerEls).forEach(id=>{
     const n=notas3d.find(x=>x.id===id);
     const refs=notaMarkerEls[id];
@@ -16497,14 +16463,7 @@ function actualizarPosicionesNotas(){
       return;
     }
     refs.g.style.display='';
-    visibles.push({id,p});
-  });
-
-  const autoOffsets=calcularAutoOffsetsNotas(visibles);
-
-  visibles.forEach(({id,p})=>{
-    const refs=notaMarkerEls[id];
-    const off=notaOffsets[id]||autoOffsets[id]||{dx:0,dy:0};
+    const off=notaOffsets[id]||{dx:0,dy:0};
     const mx=p.x+off.dx,my=p.y+off.dy;
     const tieneOffset=off.dx!==0||off.dy!==0;
     refs.leader.setAttribute('x1',p.x);refs.leader.setAttribute('y1',p.y);
