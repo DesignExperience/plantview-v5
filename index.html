@@ -13225,6 +13225,10 @@ function aplicarMarcaPieza(zone,objName){
   const tieneColorUOpacidad=marca&&(marca.color||(marca.opacidad!=null&&marca.opacidad<1));
 
   simples.forEach(mesh=>{
+    // Ocultar: solo se puede en piezas "simples" (un mesh = una pieza real)
+    // — en una fusionada no hay forma de tapar solo un rango de caras sin
+    // tocar la geometría entera, mismo límite ya documentado para "Borde".
+    mesh.visible=!(marca&&marca.oculto);
     if(!marcaMatOriginal.has(mesh)) marcaMatOriginal.set(mesh,mesh.material);
     const original=marcaMatOriginal.get(mesh);
     if(tieneColorUOpacidad){
@@ -13235,7 +13239,9 @@ function aplicarMarcaPieza(zone,objName){
     }else{
       mesh.material=original;
     }
-    if(marca&&marca.borde){
+    // Sin sentido dibujar un borde sobre una pieza que a la vez está
+    // oculta — quedaría flotando el contorno de algo invisible.
+    if(marca&&marca.borde&&!marca.oculto){
       const edges=new THREE.EdgesGeometry(mesh.geometry,15);
       const linea=new THREE.LineSegments(edges,new THREE.LineBasicMaterial({color:marca.color||'#111111'}));
       linea.matrix.copy(mesh.matrixWorld);linea.matrixAutoUpdate=false;
@@ -17586,6 +17592,10 @@ function renderSidebarBody(zone,objName){
           </span>
           <input type="range" id="marcaOpacidadInput" min="0" max="90" value="${transparenciaPct}" style="width:100%">
         </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
+          <input type="checkbox" id="marcaOcultarCheck" ${marcaActual.oculto?'checked':''}>
+          Ocultar
+        </label>
         <div style="display:flex;gap:8px">
           <button id="marcaAplicarBtn" type="button" class="import-btn" style="flex:1">Aplicar</button>
           <button id="marcaQuitarBtn" type="button" class="import-btn" style="flex:1;background:var(--surf2);color:var(--text)">Quitar</button>
@@ -17654,6 +17664,7 @@ function wireMarcaPiezaForm(zone,objName){
   const opacidadCheck=document.getElementById('marcaOpacidadCheck');
   const opacidadInput=document.getElementById('marcaOpacidadInput');
   const opacidadVal=document.getElementById('marcaOpacidadVal');
+  const ocultarCheck=document.getElementById('marcaOcultarCheck');
   const btnAplicar=document.getElementById('marcaAplicarBtn');
   const btnQuitar=document.getElementById('marcaQuitarBtn');
   if(!btnAplicar||!btnQuitar) return;
@@ -17665,10 +17676,11 @@ function wireMarcaPiezaForm(zone,objName){
     const borde=bordeCheck.checked;
     const color=colorCheck.checked?colorInput.value:null;
     const opacidad=opacidadCheck.checked?(1-(Number(opacidadInput.value)/100)):null;
-    if(!borde&&!color&&opacidad==null){
+    const oculto=ocultarCheck.checked;
+    if(!borde&&!color&&opacidad==null&&!oculto){
       delete marcasPiezas[key];
     }else{
-      marcasPiezas[key]={zoneId:zone.id,objName:objName||null,color,opacidad,borde};
+      marcasPiezas[key]={zoneId:zone.id,objName:objName||null,color,opacidad,borde,oculto};
     }
     aplicarMarcaPieza(zone,objName);
     guardarMarcasDrive().then(()=>toast('✅ Marca guardada')).catch(err=>toast('❌ '+err.message));
@@ -17678,7 +17690,7 @@ function wireMarcaPiezaForm(zone,objName){
     const key=marcaKey(zone,objName);
     delete marcasPiezas[key];
     aplicarMarcaPieza(zone,objName);
-    bordeCheck.checked=false;colorCheck.checked=false;opacidadCheck.checked=false;
+    bordeCheck.checked=false;colorCheck.checked=false;opacidadCheck.checked=false;ocultarCheck.checked=false;
     opacidadInput.value=0;opacidadVal.textContent='0';
     guardarMarcasDrive().then(()=>toast('🗑️ Marca quitada')).catch(err=>toast('❌ '+err.message));
   });
