@@ -11187,10 +11187,11 @@ canvas{display:block;width:100%;height:100%}
    se sienta como un dropdown y no un parpadeo — patrón estándar. */
 #panelListaNotas{position:fixed;top:calc(var(--safe-top) + 48px);left:50%;transform:translateX(-50%) translateY(-6px);display:flex;flex-direction:column;gap:10px;width:min(320px,calc(100vw - 32px));max-height:min(420px,calc(100vh - 140px));background:rgba(240,242,246,.98);border:1px solid var(--border);border-radius:14px;padding:14px;z-index:410;box-shadow:0 12px 40px rgba(0,0,0,.3);opacity:0;visibility:hidden;pointer-events:none;transition:opacity .16s ease,transform .16s ease,visibility 0s linear .16s}
 #panelListaNotas.show{opacity:1;visibility:visible;pointer-events:auto;transform:translateX(-50%) translateY(0);transition:opacity .16s ease,transform .16s ease}
-.lista-notas-head{display:flex;align-items:center;gap:8px;flex-shrink:0}
-.lista-notas-head>span{font-weight:700;font-size:13px}
-.lista-notas-head-btns{display:flex;align-items:center;gap:6px;margin-left:auto}
-.lista-notas-toggle-burbujas{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);cursor:pointer}
+.lista-notas-head{display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.lista-notas-head span{font-weight:700;font-size:13px}
+.lista-notas-head-btns{display:flex;align-items:center;gap:6px}
+.lista-notas-toggle-burbujas{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);cursor:pointer;flex-shrink:0;margin:2px 0 4px}
+.lista-notas-toggle-burbujas span{font-weight:400;font-size:11px}
 .lista-notas-toggle-burbujas .nota-switch{width:30px;height:17px}
 .lista-notas-toggle-burbujas .nota-switch-track::after{width:13px;height:13px}
 .lista-notas-toggle-burbujas input:checked~.nota-switch-track::after{transform:translateX(13px)}
@@ -11204,6 +11205,12 @@ canvas{display:block;width:100%;height:100%}
 .lni-pieza{font-family:monospace;font-size:10px;color:#3A6BE8;font-weight:700}
 .lni-clip{color:#3A6BE8;flex-shrink:0}
 .lni-texto{font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lni-toggle{position:relative;width:26px;height:15px;flex-shrink:0;cursor:pointer}
+.lni-toggle input{position:absolute;inset:0;opacity:0;margin:0;cursor:pointer;z-index:1}
+.lni-toggle .nota-switch-track{position:absolute;inset:0;background:var(--border);border-radius:999px;transition:background .15s}
+.lni-toggle .nota-switch-track::after{content:'';position:absolute;top:2px;left:2px;width:11px;height:11px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform .15s}
+.lni-toggle input:checked~.nota-switch-track{background:#3A6BE8}
+.lni-toggle input:checked~.nota-switch-track::after{transform:translateX(11px)}
 .lni-accion{flex-shrink:0;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--muted);cursor:pointer}
 .lni-accion:hover,.lni-accion:active{background:rgba(58,107,232,.14);color:#3A6BE8}
 .lni-borrar:hover,.lni-borrar:active{background:rgba(224,48,80,.14);color:#e03050}
@@ -11804,18 +11811,18 @@ window.onerror=function(msg,src,line){
 <div id="panelListaNotas">
   <div class="lista-notas-head">
     <span>Notas del modelo</span>
-    <label class="lista-notas-toggle-burbujas" title="Mostrar/ocultar los globos de texto sobre el modelo — con la lista alcanza para leerlas, así no se amontonan en pantalla">
-      <span>Burbujas</span>
-      <span class="nota-switch">
-        <input type="checkbox" id="notasBurbujasGlobalToggle" checked>
-        <span class="nota-switch-track"></span>
-      </span>
-    </label>
     <div class="lista-notas-head-btns">
       <button id="listaNotasAgregar" type="button" aria-label="Agregar nota" title="Agregar nota">+</button>
       <button id="listaNotasCerrar" type="button" aria-label="Cerrar">×</button>
     </div>
   </div>
+  <label class="lista-notas-toggle-burbujas" title="Activa o desactiva la burbuja de texto de TODAS las notas de una — cada nota abajo tiene su propio toggle individual para ajustarlas una por una después">
+    <span class="nota-switch">
+      <input type="checkbox" id="notasBurbujasGlobalToggle" checked>
+      <span class="nota-switch-track"></span>
+    </span>
+    <span>Mostrar todas las burbujas</span>
+  </label>
   <div id="listaNotasItems"></div>
 </div>
 
@@ -15645,15 +15652,15 @@ const notaTiposEls={};          // id -> div.nota-burbuja-tipos (solo si n.mostr
 const notaAdjExpandido={};      // id -> bool, si la tarjeta de adjunto está revelada (se togglea tocando el chip) — solo memoria de esta sesión, no se persiste
 const notaZoomEls={};           // id -> div.nota-zoom-ctrl (para toda nota con punto anclado, tenga o no burbuja)
 const notaOjoEls={};            // id -> button.nota-ojo-toggle (para toda nota con punto anclado)
-const notaOcultaTemporal={};    // id -> bool, oculta el globo+adjunto+chips+zoom de ESTA nota (el pin numerado sigue viéndose) — solo memoria de esta sesión, no se persiste
-// Master switch (toggle "Burbujas" en el panel "Notas del modelo"): oculta
-// el globo+adjunto+chips+zoom de TODAS las notas de una — para un layout
-// denso con muchas notas muy juntas es más práctico ver solo los pines
-// numerados y leer el texto en la lista lateral, que ir apagando nota por
-// nota con el ojo. Mientras está activo pisa el estado individual de cada
-// ojo (ver notaOcultaTemporal) — es un "todo apagado", no un default que
-// se pueda overridear nota por nota.
-let notasBurbujasGlobalOcultas=false;
+// id -> bool, oculta el globo+adjunto+chips+zoom de ESTA nota (el pin
+// numerado sigue viéndose) — solo memoria de esta sesión, no se persiste.
+// Editable individualmente con el ojo flotante en el modelo O con el
+// toggle de esa nota en la lista "Notas del modelo" (mismo estado, dos
+// lugares para tocarlo). El switch "Mostrar todas las burbujas" del header
+// de la lista es una acción de una vez ("prender/apagar todas ahora"),
+// no un override permanente — después de tocarlo cada nota se puede volver
+// a ajustar individualmente sin que nada la pise.
+const notaOcultaTemporal={};
 let notaOffsets={};             // id -> {dx,dy} en px, desplazamiento manual del marcador (solo esta sesión)
 let notaAbiertaId=null;         // id de la nota que está en el panel (null = nota nueva)
 let notaHitPendiente=null;      // hit de raycast para la nota nueva sin guardar aún
@@ -16495,7 +16502,7 @@ function actualizarPosicionesNotas(){
     // notaOcultaTemporal: el ojo de al lado de la burbuja apaga todo este
     // grupo (burbuja+adjunto+chips+zoom) sin tocar la nota en sí — el pin
     // numerado de arriba sigue viéndose siempre, así se puede reactivar.
-    const oculto=!!notaOcultaTemporal[id]||notasBurbujasGlobalOcultas;
+    const oculto=!!notaOcultaTemporal[id];
     const burbuja=notaBurbujaEls[id];
     const burbujaTop=Math.max(4,my-10);
     // anchoAprox/irIzquierda se calculan siempre (los necesita el ojo para
@@ -17228,12 +17235,34 @@ function abrirListaNotas(){
         top.appendChild(clip);
       }
 
+      // Toggle individual: activa/desactiva la burbuja de ESTA nota en el
+      // modelo (mismo estado que el ojo flotante sobre el pin — ver
+      // notaOcultaTemporal). El switch "Mostrar todas las burbujas" del
+      // header solo hace una pasada de una vez ("prender/apagar todas
+      // ahora"), este toggle es el ajuste fino nota por nota.
+      const toggleBurbuja=document.createElement('label');
+      toggleBurbuja.className='lni-toggle';
+      toggleBurbuja.style.marginLeft='auto'; // empuja el toggle + las 3 acciones al margen derecho de la fila
+      toggleBurbuja.title='Mostrar/ocultar la burbuja de esta nota en el modelo';
+      toggleBurbuja.addEventListener('click',e=>e.stopPropagation());
+      const toggleInput=document.createElement('input');
+      toggleInput.type='checkbox';
+      toggleInput.checked=!notaOcultaTemporal[n.id];
+      toggleInput.addEventListener('change',(e)=>{
+        notaOcultaTemporal[n.id]=!e.target.checked;
+        actualizarPosicionesNotas();
+      });
+      const toggleTrack=document.createElement('span');
+      toggleTrack.className='nota-switch-track';
+      toggleBurbuja.appendChild(toggleInput);
+      toggleBurbuja.appendChild(toggleTrack);
+      top.appendChild(toggleBurbuja);
+
       // 3 acciones explícitas, cada una con su ícono — antes tocar
       // cualquier parte del item volaba a la pieza; ahora cada acción es a
       // propósito, sin navegación accidental al querer editar o borrar.
       const ubicar=document.createElement('span');
       ubicar.className='lni-accion';
-      ubicar.style.marginLeft='auto'; // empuja las 3 acciones al margen derecho de la fila
       ubicar.title='Ubicar en el espacio (ir a la pieza)';
       ubicar.innerHTML='<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg>';
       ubicar.addEventListener('click',(e)=>{
@@ -17282,7 +17311,12 @@ function cerrarListaNotas(){
 
 document.getElementById('listaNotasCerrar').addEventListener('click', cerrarListaNotas);
 document.getElementById('notasBurbujasGlobalToggle').addEventListener('change',(e)=>{
-  notasBurbujasGlobalOcultas=!e.target.checked;
+  // Acción de una vez ("prender/apagar todas ahora"), no un override
+  // permanente — pisa el estado individual de cada nota UNA vez y listo,
+  // cada una se puede reajustar después sin que nada la vuelva a tapar.
+  const mostrar=e.target.checked;
+  notas3d.forEach(n=>{ notaOcultaTemporal[n.id]=!mostrar; });
+  if(document.getElementById('panelListaNotas').classList.contains('show')) abrirListaNotas();
   actualizarPosicionesNotas();
 });
 document.getElementById('listaNotasAgregar').addEventListener('click', ()=>{
