@@ -11554,6 +11554,7 @@ window.onerror=function(msg,src,line){
   <button type="button" id="btnAislarCancelar" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;background:transparent;color:var(--text);border:1px solid var(--border)">Cancelar</button>
   <button type="button" id="btnAislarGuardarEstado" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none;background:transparent;color:var(--text);border:1px solid var(--border)" title="Guardar este aislamiento como estado de visualización">💾 Guardar estado</button>
   <button type="button" id="btnAislarVerEstados" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none;background:transparent;color:var(--text);border:1px solid var(--border)" title="Ver estados de visualización guardados">📂 Ver estados</button>
+  <button type="button" id="btnAislarNota" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none;background:transparent;color:var(--text);border:1px solid var(--border)" title="Crear una nota en todas las piezas aisladas">📝 Nota a estas piezas</button>
   <button type="button" id="btnMostrarTodo" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none">👁 Mostrar todo</button>
 </div>
 <div id="canvas-wrap"><canvas id="cv"></canvas></div>
@@ -13431,17 +13432,18 @@ function actualizarBarraAislar(){
   const btnMostrarTodo=document.getElementById('btnMostrarTodo');
   const btnGuardarEstado=document.getElementById('btnAislarGuardarEstado');
   const btnVerEstados=document.getElementById('btnAislarVerEstados');
+  const btnNota=document.getElementById('btnAislarNota');
   if(count>0){
     bar.classList.add('show');
     document.getElementById('aislarBarCount').textContent=count+(count===1?' pieza seleccionada':' piezas seleccionadas');
     btnConfirmar.style.display='';btnCancelar.style.display='';
-    btnMostrarTodo.style.display='none';btnGuardarEstado.style.display='none';btnVerEstados.style.display='none';
+    btnMostrarTodo.style.display='none';btnGuardarEstado.style.display='none';btnVerEstados.style.display='none';btnNota.style.display='none';
   }else if(aislamientoActivo){
     bar.classList.add('show');
     const n=aislamientoActivo.size;
     document.getElementById('aislarBarCount').textContent='Aislado — '+n+(n===1?' selección':' selecciones');
     btnConfirmar.style.display='none';btnCancelar.style.display='none';
-    btnMostrarTodo.style.display='';btnGuardarEstado.style.display='';btnVerEstados.style.display='';
+    btnMostrarTodo.style.display='';btnGuardarEstado.style.display='';btnVerEstados.style.display='';btnNota.style.display='';
   }else{
     bar.classList.remove('show');
   }
@@ -13520,6 +13522,16 @@ document.getElementById('btnAislarGuardarEstado').addEventListener('click',()=>{
 });
 document.getElementById('btnAislarVerEstados').addEventListener('click',()=>{
   abrirListaVistas();
+});
+document.getElementById('btnAislarNota').addEventListener('click',()=>{
+  if(!aislamientoActivo||aislamientoActivo.size===0) return;
+  const instancias=instanciasDesdeAislamiento(aislamientoActivo);
+  if(instancias.length===0){ toast('No se encontraron piezas en el aislamiento actual'); return; }
+  abrirFormNota3D(null);
+  notaGrupoIgualesPendiente=instancias; // seteado DESPUÉS: abrirFormNota3D lo resetea a null
+  document.getElementById('notaTitulo3D').textContent='Nueva nota (grupo)';
+  document.getElementById('notaPieza3D').textContent=`${instancias.length} piezas aisladas`;
+  document.getElementById('notaNumeroManualLabel3D').textContent='Número base (2.1, 2.2, 2.3…)';
 });
 
 // ── BUILD SCENE FROM GLB — respeta posiciones originales del ensamblaje ──
@@ -15615,7 +15627,7 @@ document.getElementById('btnSelLevelIguales').addEventListener('click',()=>{
   notaGrupoIgualesPendiente=instancias; // seteado DESPUÉS: abrirFormNota3D lo resetea a null
   document.getElementById('notaTitulo3D').textContent='Nueva nota (grupo)';
   document.getElementById('notaPieza3D').textContent=`${piezaUd.objName||'Pieza'} — ${instancias.length} piezas iguales`;
-  document.getElementById('notaNumeroManualLabel3D').textContent='Número base (se agrega letra: 2-A, 2-B…)';
+  document.getElementById('notaNumeroManualLabel3D').textContent='Número base (2.1, 2.2, 2.3…)';
   ocultarSelLevelPopup();
 });
 document.getElementById('btnSelLevelIgualesAislar').addEventListener('click',()=>{
@@ -15657,6 +15669,31 @@ let notaGrupoIgualesPendiente=null; // [{mesh,local,zoneId,objName,pathNames}] c
 // distinguen por rango de caras (ud.piezas). El punto de anclaje es el
 // centro de la caja envolvente de la pieza en espacio local del mesh — no
 // hay un click real por instancia, a diferencia de una nota tocada a mano.
+// Centro (local al mesh + mundial) de un mesh simple entero — punto de
+// anclaje para una nota cuando no hay un click real de por medio.
+function centroMeshSimple(mesh){
+  if(!mesh.geometry) return null;
+  if(!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+  const c=new THREE.Vector3();
+  mesh.geometry.boundingBox.getCenter(c);
+  const w=mesh.localToWorld(c.clone());
+  return {local:{x:c.x,y:c.y,z:c.z},point:{x:w.x,y:w.y,z:w.z}};
+}
+// Mismo cálculo que centroMeshSimple pero para UNA pieza dentro de un mesh
+// "fusionado" (modelo pesado, ver mergearGeometriasSimple) — acota el
+// cálculo al rango de caras de esa pieza puntual, no al mesh entero.
+function centroPiezaFusionada(mesh,pieza){
+  const faceIndices=Array.from({length:pieza.faceCount},(_,i)=>pieza.faceStart+i);
+  try{
+    const geo=extraerGeometriaCaras(mesh,faceIndices);
+    geo.computeBoundingBox();
+    const c=new THREE.Vector3();
+    geo.boundingBox.getCenter(c);
+    const w=mesh.localToWorld(c.clone());
+    return {local:{x:c.x,y:c.y,z:c.z},point:{x:w.x,y:w.y,z:w.z}};
+  }catch(err){ return null; } // pieza sin geometría medible — se descarta esta instancia
+}
+
 function buscarInstanciasIguales(objName){
   const instancias=[];
   allMeshes.forEach(mesh=>{
@@ -15664,45 +15701,51 @@ function buscarInstanciasIguales(objName){
     if(ud.piezas){
       ud.piezas.forEach(p=>{
         if(p.userData.objName!==objName) return;
-        const faceIndices=Array.from({length:p.faceCount},(_,i)=>p.faceStart+i);
-        let local=null;
-        let point=null;
-        try{
-          const geo=extraerGeometriaCaras(mesh,faceIndices);
-          geo.computeBoundingBox();
-          const c=new THREE.Vector3();
-          geo.boundingBox.getCenter(c);
-          local={x:c.x,y:c.y,z:c.z};
-          const w=mesh.localToWorld(c.clone());
-          point={x:w.x,y:w.y,z:w.z};
-        }catch(err){ /* pieza sin geometría medible — se descarta esta instancia */ }
-        if(!local||!point) return;
-        instancias.push({mesh,local,point,zoneId:p.userData.zoneId,objName:p.userData.objName,pathNames:p.userData.pathNames||null});
+        const c=centroPiezaFusionada(mesh,p);
+        if(!c) return;
+        instancias.push({mesh,local:c.local,point:c.point,zoneId:p.userData.zoneId,objName:p.userData.objName,pathNames:p.userData.pathNames||null});
       });
     }else if(ud.objName===objName){
-      if(!mesh.geometry) return;
-      if(!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
-      const c=new THREE.Vector3();
-      mesh.geometry.boundingBox.getCenter(c);
-      const w=mesh.localToWorld(c.clone());
-      instancias.push({mesh,local:{x:c.x,y:c.y,z:c.z},point:{x:w.x,y:w.y,z:w.z},zoneId:ud.zoneId,objName:ud.objName,pathNames:ud.pathNames||null});
+      const c=centroMeshSimple(mesh);
+      if(!c) return;
+      instancias.push({mesh,local:c.local,point:c.point,zoneId:ud.zoneId,objName:ud.objName,pathNames:ud.pathNames||null});
     }
   });
   return instancias;
 }
 
-// Letra de instancia dentro de un grupo de "piezas iguales" (0→A, 1→B, …
-// 25→Z, 26→AA, 27→AB…) — mismo esquema que las columnas de una planilla,
-// para no quedarse sin letras en un grupo con muchas repeticiones.
-function letraDeIndice(i){
-  let s='';
-  i++;
-  while(i>0){
-    const r=(i-1)%26;
-    s=String.fromCharCode(65+r)+s;
-    i=Math.floor((i-1)/26);
-  }
-  return s;
+// Convierte una selección de aislar ya armada (aislarSeleccionTemp o
+// aislamientoActivo, mismo formato Map key->{zoneId,objName,pathPrefix})
+// en instancias de pieza individuales — reusa resolverObjetivoMarca/
+// resolverObjetivoMarcaPorPrefix (mismo criterio simples/fusionados que ya
+// usa el resaltado ámbar de la selección), para poder anotar TODAS las
+// piezas que quedaron aisladas de una, sin importar cómo se armó esa
+// selección (por nombre repetido, a mano pieza por pieza, o por
+// subensamblaje/prefijo).
+function instanciasDesdeAislamiento(seleccion){
+  const instancias=[];
+  const vistos=new Set(); // evita duplicar si dos entradas de la selección matchean la misma pieza
+  seleccion.forEach(({zoneId,objName,pathPrefix})=>{
+    const zone=ZONES.find(z=>z.id===zoneId);
+    if(!zone) return;
+    const {simples,fusionados}=pathPrefix ? resolverObjetivoMarcaPorPrefix(zone,pathPrefix) : resolverObjetivoMarca(zone,objName);
+    simples.forEach(mesh=>{
+      if(vistos.has(mesh.uuid)) return;
+      vistos.add(mesh.uuid);
+      const c=centroMeshSimple(mesh);
+      if(!c) return;
+      instancias.push({mesh,local:c.local,point:c.point,zoneId:mesh.userData.zoneId,objName:mesh.userData.objName,pathNames:mesh.userData.pathNames||null});
+    });
+    fusionados.forEach(({mesh,pieza})=>{
+      const key=mesh.uuid+'::'+pieza.faceStart;
+      if(vistos.has(key)) return;
+      vistos.add(key);
+      const c=centroPiezaFusionada(mesh,pieza);
+      if(!c) return;
+      instancias.push({mesh,local:c.local,point:c.point,zoneId:pieza.userData.zoneId,objName:pieza.userData.objName,pathNames:pieza.userData.pathNames||null});
+    });
+  });
+  return instancias;
 }
 
 // Agrega TODAS las instancias de una pieza repetida (cualquier zona) a la
@@ -16921,12 +16964,16 @@ function abrirFormNota3D(hit){
   notaAdjuntoNuevo=null;
   notaAdjuntoQuitar=false;
   document.getElementById('notaAdjuntoInput3D').value='';
+  // hit puede venir null (nota de grupo armada desde una selección de
+  // aislar ya confirmada, sin un click puntual de por medio — ver
+  // btnAislarNota) — el que llama así se encarga de completar el título/
+  // pieza mostrados después.
   // resolverPiezaDeHit: si se tocó un mesh fusionado (modelo pesado), esto
   // da el userData de la pieza puntual tocada, no el del mesh fusionado.
-  const piezaUd=resolverPiezaDeHit(hit);
-  const zone=ZONES.find(z=>z.id===piezaUd.zoneId);
+  const piezaUd=hit?resolverPiezaDeHit(hit):null;
+  const zone=piezaUd?ZONES.find(z=>z.id===piezaUd.zoneId):null;
   document.getElementById('notaTitulo3D').textContent='Nueva nota';
-  document.getElementById('notaPieza3D').textContent=piezaUd.objName||(zone?nombreZona(zone):'Pieza');
+  document.getElementById('notaPieza3D').textContent=piezaUd?(piezaUd.objName||(zone?nombreZona(zone):'Pieza')):'—';
   // Nota nueva: ya estás mirando la pieza (recién la tocaste para crearla),
   // no hace falta el botón de "ir a la pieza" todavía.
   document.getElementById('notaIrPieza3D').style.display='none';
@@ -17269,7 +17316,7 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
           point:{x:inst.point.x,y:inst.point.y,z:inst.point.z}, // fallback fijo — igual que en una nota tocada a mano, ver comentario más abajo
           local:{x:inst.local.x,y:inst.local.y,z:inst.local.z},
           texto, mostrarPin, negrita, color, tamano,
-          numeroManual:numeroManual!=null?`${numeroManual}-${letraDeIndice(i)}`:null,
+          numeroManual:numeroManual!=null?`${numeroManual}.${i+1}`:null,
           esZona, radioMult, esTarea, estado,
           fecha:new Date().toISOString().slice(0,10),
         };
