@@ -11273,8 +11273,6 @@ canvas{display:block;width:100%;height:100%}
 .nota-ojo-toggle.apagado .nota-ojo-num{background:var(--muted)}
 .nota-ojo-icono{display:flex;align-items:center;justify-content:center;flex:none}
 .nota-burbuja{position:fixed;max-width:200px;background:var(--surf);border:1px solid rgba(58,107,232,.35);border-radius:10px;padding:7px 9px;font-size:11.5px;line-height:1.4;color:var(--text);pointer-events:none;z-index:87}
-.nota-burbuja.intermedio{max-width:240px;padding:9px 11px;font-size:13.5px;border-width:1.5px}
-.nota-burbuja.grande{max-width:280px;padding:11px 14px;font-size:16px;border-width:2px}
 .nota-burbuja.negrita{font-weight:700}
 /* Tarjeta de preview del adjunto — elemento PROPIO, separado de la
    burbuja de texto (no metido adentro), colgando debajo con su propia
@@ -11746,14 +11744,6 @@ window.onerror=function(msg,src,line){
   <div class="nota-color-row">
     <span>Color</span>
     <div class="nota-colores" id="notaColores3D"></div>
-  </div>
-  <div id="notaGrandeRow3D" class="nota-toggle-row">
-    <span>Tamaño del texto</span>
-    <div class="nota-zona-tamanos" id="notaTamanoTexto3D">
-      <button type="button" class="nota-zona-tamano-btn" data-tamano="normal">Normal</button>
-      <button type="button" class="nota-zona-tamano-btn" data-tamano="intermedio">Intermedio</button>
-      <button type="button" class="nota-zona-tamano-btn" data-tamano="grande">Grande</button>
-    </div>
   </div>
   <div class="nota-color-row">
     <span>Número del pin</span>
@@ -15993,8 +15983,6 @@ function sincronizarBurbujasNotas(){
     if(notaBurbujaEls[n.id]){
       const div=notaBurbujaEls[n.id];
       div.classList.toggle('negrita',!!n.negrita);
-      div.classList.toggle('intermedio',n.tamano==='intermedio');
-      div.classList.toggle('grande',n.tamano==='grande');
       div.style.color=NOTA_COLORES[n.color]||NOTA_COLORES.negro;
       // El borde de la burbuja tiene que coincidir con el color del pin: el
       // del estado de la tarea/OT si es una tarea, o el elegido en "Color"
@@ -16130,22 +16118,6 @@ function seleccionarTamanoZona(mult){
 function tamanoZonaSeleccionado(){
   const sel=document.querySelector('#notaZonaTamanos3D .nota-zona-tamano-btn.sel');
   return sel ? parseFloat(sel.dataset.radioMult) : 1;
-}
-
-document.querySelectorAll('#notaTamanoTexto3D .nota-zona-tamano-btn').forEach(b=>{
-  b.addEventListener('click',()=>seleccionarTamanoTexto(b.dataset.tamano));
-});
-function seleccionarTamanoTexto(valor){
-  const botones=[...document.querySelectorAll('#notaTamanoTexto3D .nota-zona-tamano-btn')];
-  // Nota vieja con el toggle binario ("grande" o null/undefined): null cae
-  // en "normal", así una nota sin tamaño guardado no queda sin ningún botón
-  // marcado.
-  const norm=valor==='grande'||valor==='intermedio' ? valor : 'normal';
-  botones.forEach(b=>b.classList.toggle('sel',b.dataset.tamano===norm));
-}
-function tamanoTextoSeleccionado(){
-  const sel=document.querySelector('#notaTamanoTexto3D .nota-zona-tamano-btn.sel');
-  return sel ? sel.dataset.tamano : 'normal';
 }
 
 // ── TAREA / OT ──────────────────────────────────────────────────────
@@ -16797,7 +16769,6 @@ function abrirNota3D(notaId){
   document.getElementById('notaMostrarPin3D').checked=!!n.mostrarPin;
   document.getElementById('notaNegrita3D').checked=!!n.negrita;
   seleccionarColorNota(n.color);
-  seleccionarTamanoTexto(n.tamano||'normal');
   document.getElementById('notaNumeroManual3D').value=n.numeroManual!=null?n.numeroManual:'';
   document.getElementById('notaZona3D').checked=!!n.esZona;
   seleccionarTamanoZona(n.radioMult||1);
@@ -16832,7 +16803,6 @@ function abrirFormNota3D(hit){
   document.getElementById('notaMostrarPin3D').checked=false;
   document.getElementById('notaNegrita3D').checked=false;
   seleccionarColorNota('negro');
-  seleccionarTamanoTexto('normal');
   document.getElementById('notaNumeroManual3D').value='';
   document.getElementById('notaZona3D').checked=false;
   seleccionarTamanoZona(1);
@@ -17094,8 +17064,7 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
     const mostrarPin=document.getElementById('notaMostrarPin3D').checked;
     const negrita=document.getElementById('notaNegrita3D').checked;
     const color=colorSeleccionadoNota();
-    const tamanoSel=tamanoTextoSeleccionado();
-    const tamano=tamanoSel==='normal'?null:tamanoSel;
+    const tamano=null;
     const numeroManualRaw=document.getElementById('notaNumeroManual3D').value.trim();
     const numeroManual=numeroManualRaw?parseInt(numeroManualRaw,10):null;
     const esZona=document.getElementById('notaZona3D').checked;
