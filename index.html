@@ -11196,7 +11196,7 @@ canvas{display:block;width:100%;height:100%}
 .lista-notas-vacio{font-size:12px;color:var(--muted);text-align:center;padding:16px 0}
 .lista-notas-item{display:flex;flex-direction:column;gap:2px;text-align:left;width:100%;background:var(--surf2);border:1px solid var(--border);border-radius:9px;padding:8px 10px;font-family:inherit}
 .lni-top{display:flex;align-items:center;gap:5px}
-.lni-num{flex-shrink:0;width:16px;height:16px;border-radius:50%;background:rgba(58,107,232,.85);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace}
+.lni-num{flex-shrink:0;box-sizing:border-box;min-width:16px;height:16px;padding:0 3px;border-radius:8px;background:rgba(58,107,232,.85);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace}
 .lni-pieza{font-family:monospace;font-size:10px;color:#3A6BE8;font-weight:700}
 .lni-clip{color:#3A6BE8;flex-shrink:0}
 .lni-texto{font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -11272,7 +11272,7 @@ canvas{display:block;width:100%;height:100%}
 .nota-ojo-toggle{position:fixed;height:26px;padding:0 8px 0 2px;border-radius:13px;border:1px solid rgba(58,107,232,.35);background:var(--surf);color:#3a6be8;display:flex;align-items:center;gap:5px;cursor:pointer;pointer-events:auto;box-shadow:0 2px 6px rgba(0,0,0,.12);z-index:89}
 .nota-ojo-toggle.apagado{color:var(--muted);border-color:var(--border)}
 .nota-ojo-toggle:active{background:#3a6be8;color:#fff}
-.nota-ojo-num{width:20px;height:20px;border-radius:50%;background:#3a6be8;color:#fff;font-size:10.5px;font-weight:700;font-family:"DM Mono",monospace;display:flex;align-items:center;justify-content:center;flex:none}
+.nota-ojo-num{box-sizing:border-box;min-width:20px;height:20px;padding:0 4px;border-radius:10px;background:#3a6be8;color:#fff;font-size:10.5px;font-weight:700;font-family:"DM Mono",monospace;display:flex;align-items:center;justify-content:center;flex:none}
 .nota-ojo-toggle.apagado .nota-ojo-num{background:var(--muted)}
 .nota-ojo-icono{display:flex;align-items:center;justify-content:center;flex:none}
 .nota-burbuja{position:fixed;max-width:200px;background:var(--surf);border:1px solid rgba(58,107,232,.35);border-radius:10px;padding:7px 9px;font-size:11.5px;line-height:1.4;color:var(--text);pointer-events:none;z-index:87}
@@ -15778,6 +15778,20 @@ function nombreArchivoNotas(){
   return archivoDriveIdActual ? `plantview-notas-${archivoDriveIdActual}.json` : null;
 }
 
+// Ensancha el pin (dot/halo, ver crearMarcadorNota) según el largo del
+// número mostrado — un numeroManual de grupo tipo "2.1"/"10.3" no entra en
+// el círculo chico pensado para un solo dígito, así que en vez de recortar
+// el texto el pin se vuelve una píldora más ancha (rx>ry) para números de
+// 2+ caracteres, con la fuente un poco más chica para que siga entrando.
+function ajustarAnchoPinNota(refs,texto){
+  const len=texto.length;
+  const rx=len<=1?7.5:Math.max(7.5,5+len*2.3);
+  const halo=rx+1.5;
+  refs.dot.setAttribute('rx',rx);
+  refs.halo.setAttribute('rx',halo);
+  refs.num.setAttribute('font-size',len<=1?8.5:len===2?7.8:len===3?7:6.4);
+}
+
 function crearMarcadorNota(n){
   const svgns='http://www.w3.org/2000/svg';
   const g=document.createElementNS(svgns,'g');
@@ -15800,12 +15814,19 @@ function crearMarcadorNota(n){
   handle.style.pointerEvents='auto';
   handle.style.cursor='pointer';
   handle.style.touchAction='none';
-  const halo=document.createElementNS(svgns,'circle');
-  halo.setAttribute('r','9');
+  // ellipse en vez de circle: para un número de pin largo (ej. "2.1", "2.3"
+  // de una nota de grupo — ver numeroManual) el pin se ensancha en vez de
+  // recortar el texto (ver ajustarAnchoPinNota, se llama junto con
+  // num.textContent en cada render). rx===ry al inicio se ve idéntico a un
+  // círculo normal para el caso común de un solo dígito.
+  const halo=document.createElementNS(svgns,'ellipse');
+  halo.setAttribute('rx','9');
+  halo.setAttribute('ry','9');
   halo.setAttribute('fill','rgba(58,107,232,.16)');
   handle.appendChild(halo);
-  const dot=document.createElementNS(svgns,'circle');
-  dot.setAttribute('r','7.5');
+  const dot=document.createElementNS(svgns,'ellipse');
+  dot.setAttribute('rx','7.5');
+  dot.setAttribute('ry','7.5');
   dot.setAttribute('fill','rgba(58,107,232,.85)');
   dot.setAttribute('stroke','#fff');
   dot.setAttribute('stroke-width','1.2');
@@ -16047,6 +16068,7 @@ function renderPinesNotas(){
     // de creación.
     const numeroMostrado=n.numeroManual!=null?n.numeroManual:idx+1;
     notaMarkerEls[n.id].num.textContent=String(numeroMostrado);
+    ajustarAnchoPinNota(notaMarkerEls[n.id],String(numeroMostrado));
     pintarPinSegunEstado(n,notaMarkerEls[n.id]);
     pintarAdjuntoNota(n,notaMarkerEls[n.id]);
     // El número del ojo tiene que ser el MISMO que el del pin — es la
