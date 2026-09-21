@@ -11270,6 +11270,7 @@ canvas{display:block;width:100%;height:100%}
 .nota-ojo-toggle.apagado .nota-ojo-num{background:var(--muted)}
 .nota-ojo-icono{display:flex;align-items:center;justify-content:center;flex:none}
 .nota-burbuja{position:fixed;max-width:200px;background:var(--surf);border:1px solid rgba(58,107,232,.35);border-radius:10px;padding:7px 9px;font-size:11.5px;line-height:1.4;color:var(--text);pointer-events:none;z-index:87}
+.nota-burbuja.grande{max-width:280px;padding:11px 14px;font-size:16px;border-width:2px}
 .nota-burbuja.negrita{font-weight:700}
 /* Tarjeta de preview del adjunto — elemento PROPIO, separado de la
    burbuja de texto (no metido adentro), colgando debajo con su propia
@@ -11741,6 +11742,17 @@ window.onerror=function(msg,src,line){
   <div class="nota-color-row">
     <span>Color</span>
     <div class="nota-colores" id="notaColores3D"></div>
+  </div>
+  <label id="notaGrandeRow3D" class="nota-toggle-row">
+    <span>Texto grande</span>
+    <span class="nota-switch">
+      <input type="checkbox" id="notaGrande3D">
+      <span class="nota-switch-track"></span>
+    </span>
+  </label>
+  <div class="nota-color-row">
+    <span>Número del pin</span>
+    <input type="number" id="notaNumeroManual3D" placeholder="Auto" min="1" step="1" style="width:70px;text-align:center;padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:var(--surf2);color:var(--text);font-family:inherit;font-size:12.5px">
   </div>
 
   <label id="notaZonaRow3D" class="nota-toggle-row">
@@ -15780,11 +15792,12 @@ function pintarAdjuntoNota(n,refs){
 }
 
 // Tiñe el pin (dot + halo) con el color del estado de la tarea/OT si la
-// nota está marcada como tal — así se distingue de un vistazo en el
-// modelo sin abrirla. Notas normales (no tarea) mantienen el azul de
-// siempre, independiente del color de texto elegido por el usuario.
+// nota está marcada como tal, o con el color elegido en "Color" para una
+// nota común — así el pin, el borde de la burbuja y el texto siempre
+// coinciden, en vez de que el pin se quede fijo en azul sin importar qué
+// color se haya elegido.
 function pintarPinSegunEstado(n,refs){
-  const color=n.esTarea ? colorEstadoTarea(n.estado) : '#3a6be8';
+  const color=n.esTarea ? colorEstadoTarea(n.estado) : (NOTA_COLORES[n.color]||'#3a6be8');
   refs.dot.setAttribute('fill',color);
   refs.halo.setAttribute('fill',color+'29');
 }
@@ -15854,14 +15867,19 @@ function renderPinesNotas(){
   // Numerar los marcadores según el orden de la lista — así "nota 3" en el
   // pin y "nota 3" en el panel de lista son la misma.
   notas3d.forEach((n,idx)=>{
-    notaMarkerEls[n.id].num.textContent=String(idx+1);
+    // numeroManual: override opcional (ver #notaNumeroManual3D) — por
+    // default sigue siendo el orden en la lista, pero a veces conviene que
+    // el número coincida con un plano/numeración externa en vez del orden
+    // de creación.
+    const numeroMostrado=n.numeroManual!=null?n.numeroManual:idx+1;
+    notaMarkerEls[n.id].num.textContent=String(numeroMostrado);
     pintarPinSegunEstado(n,notaMarkerEls[n.id]);
     pintarAdjuntoNota(n,notaMarkerEls[n.id]);
     // El número del ojo tiene que ser el MISMO que el del pin — es la
     // referencia visual de "a qué nota pertenece este ojo" cuando el
     // globo de texto está apagado y no queda otra pista en pantalla.
     const numOjo=notaOjoEls[n.id]?.querySelector('.nota-ojo-num');
-    if(numOjo) numOjo.textContent=String(idx+1);
+    if(numOjo) numOjo.textContent=String(numeroMostrado);
   });
   sincronizarBurbujasNotas();
   actualizarBadgeNotas();
@@ -15917,7 +15935,8 @@ function sincronizarOjoNotas(){
       btn.className='nota-ojo-toggle';
       btn.title='Ocultar/mostrar el globo de esta nota';
       const idx=notas3d.indexOf(n);
-      btn.innerHTML=`<span class="nota-ojo-num">${idx+1}</span><span class="nota-ojo-icono">${svgOjo(true)}</span>`;
+      const numeroMostrado=n.numeroManual!=null?n.numeroManual:idx+1;
+      btn.innerHTML=`<span class="nota-ojo-num">${numeroMostrado}</span><span class="nota-ojo-icono">${svgOjo(true)}</span>`;
       btn.addEventListener('click',(e)=>{
         e.stopPropagation();
         notaOcultaTemporal[n.id]=!notaOcultaTemporal[n.id];
@@ -15963,11 +15982,12 @@ function sincronizarBurbujasNotas(){
     if(notaBurbujaEls[n.id]){
       const div=notaBurbujaEls[n.id];
       div.classList.toggle('negrita',!!n.negrita);
+      div.classList.toggle('grande',n.tamano==='grande');
       div.style.color=NOTA_COLORES[n.color]||NOTA_COLORES.negro;
       // El borde de la burbuja tiene que coincidir con el color del pin: el
-      // del estado de la tarea/OT si es una tarea, o el azul de siempre
+      // del estado de la tarea/OT si es una tarea, o el elegido en "Color"
       // si es una nota común — mismo criterio que pintarPinSegunEstado().
-      const colorPin=n.esTarea ? colorEstadoTarea(n.estado) : '#3a6be8';
+      const colorPin=n.esTarea ? colorEstadoTarea(n.estado) : (NOTA_COLORES[n.color]||'#3a6be8');
       div.style.borderColor=colorPin;
       div.textContent=n.texto||'';
     }
@@ -16725,6 +16745,8 @@ function abrirNota3D(notaId){
   document.getElementById('notaMostrarPin3D').checked=!!n.mostrarPin;
   document.getElementById('notaNegrita3D').checked=!!n.negrita;
   seleccionarColorNota(n.color);
+  document.getElementById('notaGrande3D').checked=n.tamano==='grande';
+  document.getElementById('notaNumeroManual3D').value=n.numeroManual!=null?n.numeroManual:'';
   document.getElementById('notaZona3D').checked=!!n.esZona;
   document.getElementById('notaZonaRadio3D').value=n.radioMult||1;
   document.getElementById('notaZonaRadioRow3D').style.display=n.esZona?'':'none';
@@ -16758,6 +16780,8 @@ function abrirFormNota3D(hit){
   document.getElementById('notaMostrarPin3D').checked=false;
   document.getElementById('notaNegrita3D').checked=false;
   seleccionarColorNota('negro');
+  document.getElementById('notaGrande3D').checked=false;
+  document.getElementById('notaNumeroManual3D').value='';
   document.getElementById('notaZona3D').checked=false;
   document.getElementById('notaZonaRadio3D').value=1;
   document.getElementById('notaZonaRadioRow3D').style.display='none';
@@ -16960,7 +16984,7 @@ function abrirListaNotas(){
       top.className='lni-top';
       const num=document.createElement('span');
       num.className='lni-num';
-      num.textContent=String(idx+1);
+      num.textContent=String(n.numeroManual!=null?n.numeroManual:idx+1);
       top.appendChild(num);
       const pieza=document.createElement('span');
       pieza.className='lni-pieza';
@@ -17018,6 +17042,9 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
     const mostrarPin=document.getElementById('notaMostrarPin3D').checked;
     const negrita=document.getElementById('notaNegrita3D').checked;
     const color=colorSeleccionadoNota();
+    const tamano=document.getElementById('notaGrande3D').checked?'grande':null;
+    const numeroManualRaw=document.getElementById('notaNumeroManual3D').value.trim();
+    const numeroManual=numeroManualRaw?parseInt(numeroManualRaw,10):null;
     const esZona=document.getElementById('notaZona3D').checked;
     const radioMult=parseFloat(document.getElementById('notaZonaRadio3D').value)||1;
     const esTarea=document.getElementById('notaEsTarea3D').checked;
@@ -17026,7 +17053,7 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
     let n=null;
     if(notaAbiertaId){
       n=notas3d.find(x=>x.id===notaAbiertaId);
-      if(n){ n.texto=texto; n.mostrarPin=mostrarPin; n.negrita=negrita; n.color=color; n.esZona=esZona; n.radioMult=radioMult; n.esTarea=esTarea; n.estado=estado; }
+      if(n){ n.texto=texto; n.mostrarPin=mostrarPin; n.negrita=negrita; n.color=color; n.tamano=tamano; n.numeroManual=numeroManual; n.esZona=esZona; n.radioMult=radioMult; n.esTarea=esTarea; n.estado=estado; }
     }else if(notaHitPendiente){
       const hit=notaHitPendiente;
       // resolverPiezaDeHit: en un mesh fusionado (modelo pesado) da el
@@ -17053,6 +17080,8 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
         mostrarPin,
         negrita,
         color,
+        tamano,
+        numeroManual,
         esZona,
         radioMult,
         esTarea,
