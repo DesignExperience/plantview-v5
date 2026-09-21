@@ -15533,15 +15533,15 @@ function elegirNivelDesdePopup(nivel,key){
     b.classList.toggle('active',b.dataset.nivelKey===key);
   });
   // Ficha técnica depende de un {zona,objName} único y estable (currentZone/
-  // currentObjName, la misma clave que abre el sidebar) — un sub-subensamblaje
-  // intermedio todavía no tiene ese contrato, así que por ahora ahí solo se
-  // puede resaltar y aislar (ver claveAislar/coincidePathPrefix más arriba,
-  // que sí soportan filtrar por el prefijo de pathNames), no abrir ficha.
+  // currentObjName, la misma clave que abre el sidebar). Un sub-subensamblaje
+  // intermedio usa su propio nombre (pathNames[profundidad]) como objName —
+  // mismo criterio (y misma limitación conocida de colisión de nombres
+  // repetidos) que ya se acepta para "Pieza".
   const esExtremo=(nivel==='pieza'||nivel==='subensamblaje');
   const esIntermedio=!!(nivel&&nivel.tipo==='intermedio');
   const btnFicha=document.getElementById('btnSelLevelFicha');
-  btnFicha.disabled=!esExtremo;
-  btnFicha.title=esExtremo?'':'Ficha técnica no disponible todavía para un subensamblaje intermedio';
+  btnFicha.disabled=!(esExtremo||esIntermedio);
+  btnFicha.title=(esExtremo||esIntermedio)?'':'Elegí Pieza o Subensamblaje primero';
   const btnAislar=document.getElementById('btnSelLevelAislar');
   btnAislar.disabled=!(esExtremo||esIntermedio);
   btnAislar.title='';
@@ -15551,9 +15551,11 @@ function elegirNivelDesdePopup(nivel,key){
 function abrirFichaDesdePopup(){
   if(!selPopupPendiente||!selPopupPendiente.nivel) return;
   const {piezaUd,zone,nivel}=selPopupPendiente;
-  if(typeof nivel!=='string') return; // sub-subensamblaje intermedio: sin ficha técnica todavía
+  let objName=null;
+  if(nivel==='pieza') objName=piezaUd.objName;
+  else if(nivel&&nivel.tipo==='intermedio') objName=(piezaUd.pathNames||[])[nivel.profundidad]||null;
   currentZone=zone;
-  currentObjName=nivel==='pieza'?piezaUd.objName:null;
+  currentObjName=objName;
   openSidebar(zone,currentObjName);
   ocultarSelLevelPopup();
 }
