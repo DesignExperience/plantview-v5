@@ -11537,6 +11537,10 @@ window.onerror=function(msg,src,line){
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
     Nota en piezas iguales
   </button>
+  <button type="button" class="sel-level-popup-ficha" id="btnSelLevelIgualesAislar" disabled title="Elegí Pieza primero" style="margin-top:6px;background:var(--surf2,#e8eaef);color:var(--text)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" opacity="0.55"/></svg>
+    Seleccionar y aislar iguales
+  </button>
 </div>
 <!-- Barra de aislamiento — dos estados: "armando" (piezas tocadas
      esperando confirmar) y "aislado" (ya aplicado, ofrece volver a ver
@@ -15511,6 +15515,9 @@ function mostrarSelLevelPopup(cx,cy,hit,piezaUd,zone){
   const btnIguales=document.getElementById('btnSelLevelIguales');
   btnIguales.disabled=true;
   btnIguales.title='Elegí Pieza primero';
+  const btnIgualesAislar=document.getElementById('btnSelLevelIgualesAislar');
+  btnIgualesAislar.disabled=true;
+  btnIgualesAislar.title='Elegí Pieza primero';
   popup.style.display='flex';
 
   // Clamp para que no se salga de la pantalla cerca de los bordes —
@@ -15558,6 +15565,9 @@ function elegirNivelDesdePopup(nivel,key){
   const btnIguales=document.getElementById('btnSelLevelIguales');
   btnIguales.disabled=(nivel!=='pieza');
   btnIguales.title=(nivel==='pieza')?'':'Elegí Pieza primero';
+  const btnIgualesAislar=document.getElementById('btnSelLevelIgualesAislar');
+  btnIgualesAislar.disabled=(nivel!=='pieza');
+  btnIgualesAislar.title=(nivel==='pieza')?'':'Elegí Pieza primero';
   resaltarNivelSeleccion(selPopupPendiente.hit,nivel);
 }
 
@@ -15602,6 +15612,14 @@ document.getElementById('btnSelLevelIguales').addEventListener('click',()=>{
   notaGrupoIgualesPendiente=instancias; // seteado DESPUÉS: abrirFormNota3D lo resetea a null
   document.getElementById('notaTitulo3D').textContent='Nueva nota (grupo)';
   document.getElementById('notaPieza3D').textContent=`${piezaUd.objName||'Pieza'} — ${instancias.length} piezas iguales`;
+  ocultarSelLevelPopup();
+});
+document.getElementById('btnSelLevelIgualesAislar').addEventListener('click',()=>{
+  if(!selPopupPendiente||selPopupPendiente.nivel!=='pieza') return;
+  const {piezaUd}=selPopupPendiente;
+  const {instancias,zonas}=seleccionarIgualesParaAislar(piezaUd.objName);
+  if(instancias<=1){ toast('No se encontraron otras piezas iguales a "'+(piezaUd.objName||'')+'"'); return; }
+  toast(zonas>0 ? `${instancias} piezas iguales agregadas a la selección — tocá "Confirmar" para aislar` : 'Esa selección ya estaba agregada');
   ocultarSelLevelPopup();
 });
 
@@ -15667,6 +15685,30 @@ function buscarInstanciasIguales(objName){
     }
   });
   return instancias;
+}
+
+// Agrega TODAS las instancias de una pieza repetida (cualquier zona) a la
+// selección de aislar en construcción (aislarSeleccionTemp) — mismo paso
+// que "Agregar a aislar" pieza por pieza, pero para todas de una — el
+// usuario todavía tiene que tocar "Confirmar" en la barra para que se
+// aplique, igual que agregando una sola. Como aislarSeleccionTemp está
+// scopeado por zona (ver claveAislar/coincideConAislamiento), agrega una
+// entrada por cada zona distinta donde aparece la pieza, no una sola
+// entrada global.
+function seleccionarIgualesParaAislar(objName){
+  const instancias=buscarInstanciasIguales(objName);
+  const zoneIds=new Set(instancias.map(i=>i.zoneId).filter(Boolean));
+  let agregadas=0;
+  zoneIds.forEach(zid=>{
+    const zone=ZONES.find(z=>z.id===zid);
+    if(!zone) return;
+    const key=claveAislar(zid,objName,null);
+    if(!aislarSeleccionTemp.has(key)){
+      toggleAislarSeleccion(zone,objName);
+      agregadas++;
+    }
+  });
+  return {instancias:instancias.length,zonas:agregadas};
 }
 let notasReqSeq=0;
 const notasReqPendientes={};    // reqId -> {resolve,reject}
