@@ -11201,6 +11201,8 @@ canvas{display:block;width:100%;height:100%}
 .lni-pieza{font-family:monospace;font-size:10px;color:#3A6BE8;font-weight:700}
 .lni-clip{color:#3A6BE8;flex-shrink:0}
 .lni-texto{font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lni-borrar{flex-shrink:0;margin-left:auto;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--muted);cursor:pointer}
+.lni-borrar:hover,.lni-borrar:active{background:rgba(224,48,80,.14);color:#e03050}
 
 #panelNota{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);display:none;flex-direction:column;gap:10px;width:min(320px,calc(100vw - 32px));background:rgba(240,242,246,.98);border:1px solid var(--border);border-radius:14px;padding:14px;z-index:410;box-shadow:0 12px 40px rgba(0,0,0,.3)}
 #panelNota.show{display:flex}
@@ -17130,8 +17132,11 @@ function abrirListaNotas(){
     cont.appendChild(vacio);
   }else{
     notas3d.forEach((n,idx)=>{
-      const item=document.createElement('button');
-      item.type='button';
+      // div en vez de button: adentro va otro control clickeable (borrar),
+      // y un <button> no puede anidar otro <button> válidamente.
+      const item=document.createElement('div');
+      item.setAttribute('role','button');
+      item.tabIndex=0;
       item.className='lista-notas-item';
 
       const top=document.createElement('div');
@@ -17153,6 +17158,18 @@ function abrirListaNotas(){
         clip.innerHTML='<path d="M21.44 11.05l-9.19 9.19a5 5 0 0 1-7.07-7.07l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>';
         top.appendChild(clip);
       }
+
+      const borrar=document.createElement('span');
+      borrar.className='lni-borrar';
+      borrar.title='Borrar esta nota';
+      borrar.innerHTML='<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>';
+      borrar.addEventListener('click',async (e)=>{
+        e.stopPropagation();
+        if(!confirm('¿Borrar esta nota?\n\n'+(n.texto||'').slice(0,80))) return;
+        await borrarNota3D(n.id);
+        abrirListaNotas(); // re-renderiza la lista sin cerrarla, para poder seguir borrando varias
+      });
+      top.appendChild(borrar);
 
       const texto=document.createElement('span');
       texto.className='lni-texto';
@@ -17302,9 +17319,11 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
   }
 });
 
-document.getElementById('notaBorrar3D').addEventListener('click', async ()=>{
-  if(!notaAbiertaId) return;
-  notas3d=notas3d.filter(n=>n.id!==notaAbiertaId);
+// Compartida por el botón "Borrar" del panel de edición y por el ícono de
+// borrar en la lista de notas (ver abrirListaNotas) — mismo efecto en
+// ambos lugares, nomás cambia qué se hace con el panel al terminar.
+async function borrarNota3D(id){
+  notas3d=notas3d.filter(n=>n.id!==id);
   renderPinesNotas();
   if(currentZone) renderSidebarBody(currentZone,currentObjName);
   try{
@@ -17313,6 +17332,11 @@ document.getElementById('notaBorrar3D').addEventListener('click', async ()=>{
   }catch(err){
     toast('No se pudo borrar: '+err.message);
   }
+}
+
+document.getElementById('notaBorrar3D').addEventListener('click', async ()=>{
+  if(!notaAbiertaId) return;
+  await borrarNota3D(notaAbiertaId);
   cerrarPanelNota3D();
 });
 
