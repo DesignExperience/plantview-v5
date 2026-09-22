@@ -11502,9 +11502,6 @@ window.onerror=function(msg,src,line){
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
     <span class="notif-dot" id="importDot"></span>
   </button>
-  <button class="topbar-btn on" id="bBadges" title="Globos">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="10" r="7"/><path d="M12 17v4M9 21h6"/><circle cx="12" cy="10" r="2.5" fill="currentColor" stroke="none"/></svg>
-  </button>
   <button class="topbar-btn" id="bZones" title="Zonas">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
   </button>
@@ -11844,8 +11841,6 @@ window.onerror=function(msg,src,line){
   <button class="fab" id="bSeccion" title="Vista de sección"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h18v18H3z"/><path d="M3 9h18"/><path d="M9 3v6"/></svg><span>Sección</span></button>
   <div class="fab-sep"></div>
   <button class="fab" id="bClear" title="Limpiar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg><span>Limpiar</span></button>
-  <div class="fab-sep"></div>
-  <button class="fab" id="bCroquis" title="Croquis en blanco"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg><span>Croquis</span></button>
 </div>
 
 <!-- Barra de explosión — slider estilo eDrawings, separa subensamblajes desde el centro -->
@@ -14094,7 +14089,10 @@ function limpiarAristas(){
 }
 
 // ── BADGE SYSTEM ─────────────────────────────────────────────────────
-let badgesVisible=true;
+// El toggle "Globos" del topbar (bBadges) se sacó a pedido — sin control
+// manual para prenderlos, quedan directamente apagados por default en vez
+// de forzados siempre encendidos.
+let badgesVisible=false;
 const badgesSvg=document.getElementById('badges-svg');
 const BADGE_ANCHORS=[];
 
@@ -14150,8 +14148,9 @@ function crearMarcadorBadge(key){
 
 function renderBadges(){
   // No hace falta chequear !badgesVisible acá — animate() ya solo llama a
-  // renderBadges() cuando badgesVisible es true (ver el toggle de abajo
-  // para el caso contrario, que limpia el SVG + este caché directamente).
+  // renderBadges() cuando badgesVisible es true. Sin el toggle "Globos"
+  // (se sacó del topbar), badgesVisible queda siempre en false por
+  // default, así que esta función directamente nunca se llega a correr.
   const keysVisibles=new Set();
   for(const anchor of BADGE_ANCHORS){
     const total=getTotalDocCount(anchor.key);
@@ -19135,8 +19134,6 @@ document.getElementById('docModalCroquis').addEventListener('click',()=>{
   if(!currentDocViewer||currentDocViewer.type==='pdf'){ toast('El croquis solo está disponible sobre imágenes'); return; }
   abrirCroquis(currentDocViewer);
 });
-document.getElementById('bCroquis').addEventListener('click',()=>abrirCroquis(null));
-
 // ── IMPORT SHEET ─────────────────────────────────────────────────────
 let importRawData=null;  // { buffer, name, size, ext, glbParsed? }
 let glbSelectedZones=new Set();
@@ -19397,16 +19394,6 @@ function renderImportLibrary(){
 }
 
 // ── BADGES TOGGLE ────────────────────────────────────────────────────
-document.getElementById('bBadges').onclick=()=>{
-  badgesVisible=!badgesVisible;
-  document.getElementById('bBadges').classList.toggle('on',badgesVisible);
-  if(!badgesVisible){
-    badgesSvg.innerHTML='';
-    Object.keys(badgeMarkerEls).forEach(k=>delete badgeMarkerEls[k]); // si no, al reactivar quedarían apuntando a nodos ya sacados del DOM
-  }
-  toast(badgesVisible?'Globos activados':'Globos desactivados');
-};
-
 // ── ARISTAS TOGGLE ───────────────────────────────────────────────────
 document.getElementById('bEdges').onclick=()=>{
   edgesTocadoPorUsuario=true;
