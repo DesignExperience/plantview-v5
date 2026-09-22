@@ -11101,10 +11101,16 @@ canvas{display:block;width:100%;height:100%}
 .doc-modal.open{transform:translateY(0)}
 .doc-modal-hdr{display:flex;align-items:center;gap:12px;padding:calc(14px + var(--safe-top)) 16px 12px;background:var(--surf);border-bottom:1px solid var(--border);flex-shrink:0}
 .doc-modal-title{flex:1;font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.doc-modal-contador{font-size:11px;color:var(--muted);font-family:"DM Mono",monospace;flex-shrink:0}
 .doc-modal-close{width:34px;height:34px;border-radius:10px;background:var(--surf2);border:1px solid var(--border);color:var(--muted);font-size:20px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}
+.doc-modal-body-wrap{position:relative;flex:1;min-height:0;display:flex}
 .doc-modal-body{flex:1;overflow:auto;display:flex;align-items:center;justify-content:center;padding:16px;-webkit-overflow-scrolling:touch}
 .doc-modal-body iframe{width:100%;height:100%;border:none;border-radius:12px;background:#fff}
 .doc-modal-body img{max-width:100%;max-height:100%;border-radius:12px;object-fit:contain}
+.doc-modal-nav{position:absolute;top:50%;transform:translateY(-50%);width:44px;height:44px;border-radius:50%;border:none;background:rgba(0,0,0,.5);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2}
+.doc-modal-nav:active{background:rgba(0,0,0,.75)}
+.doc-modal-nav-prev{left:10px}
+.doc-modal-nav-next{right:10px}
 .doc-modal-footer{padding:12px 16px calc(12px + var(--safe-bottom));border-top:1px solid var(--border);display:flex;gap:8px;background:var(--surf);flex-shrink:0}
 .doc-modal-btn{flex:1;height:44px;border-radius:12px;border:none;font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;font-family:inherit}
 .doc-modal-btn.primary{background:var(--acc);color:#fff}
@@ -11996,8 +12002,22 @@ window.onerror=function(msg,src,line){
   <div class="doc-modal-hdr">
     <button class="doc-modal-close" id="docModalClose">×</button>
     <span class="doc-modal-title" id="docModalTitle">—</span>
+    <span class="doc-modal-contador" id="docModalContador" style="display:none"></span>
   </div>
-  <div class="doc-modal-body" id="docModalBody"></div>
+  <div class="doc-modal-body-wrap">
+    <div class="doc-modal-body" id="docModalBody"></div>
+    <!-- Siblings de docModalBody (no adentro): openDocViewer reemplaza
+         TODO el innerHTML de docModalBody en cada navegación, así que
+         cualquier cosa puesta adentro se perdería en el primer click.
+         Solo se muestran cuando el visor abrió con una galería de 2+
+         fotos/PDF de la misma nota (ver galeriaVisibleDeNota/openDocViewer). -->
+    <button type="button" class="doc-modal-nav doc-modal-nav-prev" id="docModalPrev" title="Anterior" style="display:none">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>
+    <button type="button" class="doc-modal-nav doc-modal-nav-next" id="docModalNext" title="Siguiente" style="display:none">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+    </button>
+  </div>
   <div class="doc-modal-footer">
     <button class="doc-modal-btn secondary" id="docModalShare"><svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>Compartir</button>
     <button class="doc-modal-btn primary" id="docModalWhatsapp"><svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>WhatsApp</button>
@@ -15920,6 +15940,16 @@ function todosAdjuntosNota(n){
   return lista;
 }
 
+// Subconjunto de todosAdjuntosNota() que el visor grande puede mostrar
+// (imagen/pdf, con URL real) — es la "galería" navegable de una nota:
+// abrir cualquiera de sus fotos/PDF deja avanzar/retroceder entre las
+// demás sin volver a la burbuja para elegir la siguiente a mano.
+function galeriaVisibleDeNota(n){
+  return todosAdjuntosNota(n)
+    .filter(a=>{ const t=tipoAdjunto(a); return (t==='imagen'||t==='pdf')&&a.fileId; })
+    .map(a=>({name:a.nombre||'adjunto', dataUrl:urlAdjuntoDrive(a.fileId), type:tipoAdjunto(a), fileId:a.fileId}));
+}
+
 function tipoAdjunto(a){
   const n=(a.nombre||'').toLowerCase();
   const m=a.mime||'';
@@ -16259,7 +16289,9 @@ function sincronizarBurbujasNotas(){
         e.stopPropagation();
         const t=e.target.closest('[data-tipo]');
         if(t && t.dataset.fileid && (t.dataset.tipo==='imagen'||t.dataset.tipo==='pdf')){
-          openDocViewer({name:t.dataset.nombre||'adjunto', dataUrl:urlAdjuntoDrive(t.dataset.fileid), type:t.dataset.tipo});
+          const galeria=galeriaVisibleDeNota(n);
+          const idx=galeria.findIndex(g=>g.fileId===t.dataset.fileid);
+          openDocViewer(idx>=0?galeria[idx]:{name:t.dataset.nombre||'adjunto',dataUrl:urlAdjuntoDrive(t.dataset.fileid),type:t.dataset.tipo}, galeria, idx>=0?idx:0);
           return;
         }
         abrirNota3D(n.id);
@@ -16983,7 +17015,11 @@ function renderAdjuntoPreview(){
     cont.appendChild(crearItemAdjunto({
       esImagen, previewUrl:esImagen?url:null, nombre:a.nombre,
       onQuitar:()=>{ notaAdjuntosExistentesQuitar.add(a.fileId); renderAdjuntoPreview(); },
-      onVer:(tipo==='imagen'||tipo==='pdf')?(()=>openDocViewer({name:a.nombre||'adjunto',dataUrl:url,type:tipo})):null,
+      onVer:(tipo==='imagen'||tipo==='pdf')?(()=>{
+        const galeria=galeriaVisibleDeNota(n);
+        const idx=galeria.findIndex(g=>g.fileId===a.fileId);
+        openDocViewer(idx>=0?galeria[idx]:{name:a.nombre||'adjunto',dataUrl:url,type:tipo}, galeria, idx>=0?idx:0);
+      }):null,
     }));
   });
   notaAdjuntosNuevos.forEach((file,idx)=>{
@@ -18253,16 +18289,48 @@ function uploadFile(file,key){
   reader.readAsDataURL(file);
 }
 
-function openDocViewer(doc){
+// galeria/indice: opcional — cuando la nota tiene 2+ fotos/PDF (ver
+// galeriaVisibleDeNota), esto deja navegar entre ellas con las flechas
+// del visor grande sin tener que cerrar y volver a elegir cada una desde
+// la burbuja/editor. Sin galería (o con un solo ítem) el visor se
+// comporta igual que antes.
+let currentDocGaleria=null;
+let currentDocIndice=-1;
+function openDocViewer(doc,galeria,indice){
   if(!doc||!doc.dataUrl){toast('No se puede previsualizar');return;}
   currentDocViewer=doc;
+  currentDocGaleria=(galeria&&galeria.length>1)?galeria:null;
+  currentDocIndice=currentDocGaleria?indice:-1;
   document.getElementById('docModalTitle').textContent=doc.name;
   const body=document.getElementById('docModalBody');
   if(doc.type==='pdf')body.innerHTML=`<iframe src="${doc.dataUrl}" style="width:100%;height:100%;border:none;border-radius:12px;background:#fff"></iframe>`;
   else body.innerHTML=`<img src="${doc.dataUrl}" alt="${doc.name}">`;
   document.getElementById('docModal').classList.add('open');
+  actualizarNavGaleriaDoc();
 }
-function closeDocViewer(){document.getElementById('docModal').classList.remove('open');document.getElementById('docModalBody').innerHTML='';currentDocViewer=null;}
+function actualizarNavGaleriaDoc(){
+  const hay=!!currentDocGaleria;
+  document.getElementById('docModalPrev').style.display=hay?'flex':'none';
+  document.getElementById('docModalNext').style.display=hay?'flex':'none';
+  const contador=document.getElementById('docModalContador');
+  contador.style.display=hay?'':'none';
+  if(hay) contador.textContent=(currentDocIndice+1)+' / '+currentDocGaleria.length;
+}
+function navegarGaleriaDoc(delta){
+  if(!currentDocGaleria) return;
+  const total=currentDocGaleria.length;
+  currentDocIndice=(currentDocIndice+delta+total)%total; // wrap-around: de la última pasa a la primera y viceversa
+  openDocViewer(currentDocGaleria[currentDocIndice],currentDocGaleria,currentDocIndice);
+}
+document.getElementById('docModalPrev').addEventListener('click',()=>navegarGaleriaDoc(-1));
+document.getElementById('docModalNext').addEventListener('click',()=>navegarGaleriaDoc(1));
+function closeDocViewer(){
+  document.getElementById('docModal').classList.remove('open');
+  document.getElementById('docModalBody').innerHTML='';
+  currentDocViewer=null;
+  currentDocGaleria=null;
+  currentDocIndice=-1;
+}
 document.getElementById('docModalClose').onclick=closeDocViewer;
 document.getElementById('docModalShare').onclick=()=>{if(!currentDocViewer)return;if(navigator.share){fetch(currentDocViewer.dataUrl).then(r=>r.blob()).then(blob=>{navigator.share({files:[new File([blob],currentDocViewer.name,{type:blob.type})],title:currentDocViewer.name}).catch(()=>{});});}else{navigator.clipboard.writeText(window.location.href).then(()=>toast('Link copiado'));}};
 // "wa.me/?text=" solo puede llevar texto — no existe ninguna URL pública
