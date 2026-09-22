@@ -287,16 +287,19 @@ input  { font-family: inherit; }
   font-size: 10px; color: #6b7280; letter-spacing: .1em; text-transform: uppercase;
 }
 
-/* Split handle */
+/* Split handle — línea neutra por default (no azul fija), se resalta con
+   el acento solo al pasar el mouse/arrastrar, para que siga marcando
+   dónde se puede arrastrar sin quedar como una línea azul permanente. */
 #pv-handle {
   position: fixed; top: calc(var(--bar-h) + var(--safe-t)); bottom: 0;
   width: 5px; z-index: 50; cursor: col-resize;
-  background: var(--accent); display: none;
+  background: var(--border); display: none;
 }
+#pv-handle:hover, #pv-handle.dragging { background: var(--accent); }
 
 /* Split mode */
 body.mode-split #app      { position: fixed; top: calc(var(--bar-h) + var(--safe-t)); left: 0; right: auto; bottom: 0; }
-body.mode-split #pv-wrap  { left: var(--sp, 50%); border-left: 3px solid var(--accent); }
+body.mode-split #pv-wrap  { left: var(--sp, 50%); }
 body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -2.5px; }
 
 /* ============================================================
@@ -10777,6 +10780,7 @@ document.querySelectorAll(".mode-tab, .bnav-tab").forEach(tab => {
 let dragH = false;
 pvHandle.addEventListener("pointerdown", e => {
   dragH = true; pvHandle.setPointerCapture(e.pointerId);
+  pvHandle.classList.add("dragging"); // :hover se pierde si el cursor se corre del handle mientras se arrastra
   pvIframe.style.pointerEvents = "none"; e.preventDefault();
 });
 document.addEventListener("pointermove", e => {
@@ -10787,6 +10791,7 @@ document.addEventListener("pointermove", e => {
 });
 document.addEventListener("pointerup", () => {
   if (!dragH) return; dragH = false;
+  pvHandle.classList.remove("dragging");
   pvIframe.style.pointerEvents = "";
   localStorage.setItem("pv_split_px", Math.round(splitPx));
 });
