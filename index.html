@@ -11286,6 +11286,8 @@ canvas{display:block;width:100%;height:100%}
 .nota-ojo-num{box-sizing:border-box;min-width:20px;height:20px;padding:0 4px;border-radius:10px;background:#3a6be8;color:#fff;font-size:10.5px;font-weight:700;font-family:"DM Mono",monospace;display:flex;align-items:center;justify-content:center;flex:none}
 .nota-ojo-toggle.apagado .nota-ojo-num{background:var(--muted)}
 .nota-ojo-icono{display:flex;align-items:center;justify-content:center;flex:none}
+.nota-ojo-ubicar{display:none;align-items:center;justify-content:center;flex:none;padding-left:1px;border-left:1px solid var(--border)}
+.nota-ojo-toggle.apagado .nota-ojo-ubicar{display:flex;color:#3a6be8}
 .nota-burbuja{position:fixed;max-width:200px;background:var(--surf);border:1px solid rgba(58,107,232,.35);border-radius:10px;padding:7px 9px;font-size:11.5px;line-height:1.4;color:var(--text);pointer-events:none;z-index:87}
 .nota-burbuja.negrita{font-weight:700}
 /* Tarjeta de preview del adjunto — elemento PROPIO, separado de la
@@ -16161,13 +16163,23 @@ function sincronizarOjoNotas(){
       btn.title='Ocultar/mostrar el globo de esta nota';
       const idx=notas3d.indexOf(n);
       const numeroMostrado=n.numeroManual!=null?n.numeroManual:idx+1;
-      btn.innerHTML=`<span class="nota-ojo-num">${numeroMostrado}</span><span class="nota-ojo-icono">${svgOjo(true)}</span>`;
+      // El ícono de "ubicar" (mismo target/crosshair que en la lista y en
+      // el control de zoom) solo aparece acá cuando la burbuja está
+      // apagada — con la burbuja prendida ya está el botón "Ubicar" del
+      // control de zoom debajo; con la burbuja apagada ese control
+      // desaparece junto con ella, así que sin esto no quedaba forma
+      // rápida de recentrar la cámara sin prenderla de nuevo primero.
+      btn.innerHTML=`<span class="nota-ojo-num">${numeroMostrado}</span><span class="nota-ojo-icono">${svgOjo(true)}</span><span class="nota-ojo-ubicar" title="Ubicar en el espacio"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg></span>`;
       btn.addEventListener('click',(e)=>{
         e.stopPropagation();
         notaOcultaTemporal[n.id]=!notaOcultaTemporal[n.id];
         btn.querySelector('.nota-ojo-icono').innerHTML=svgOjo(!notaOcultaTemporal[n.id]);
         btn.classList.toggle('apagado',!!notaOcultaTemporal[n.id]);
         actualizarPosicionesNotas();
+      });
+      btn.querySelector('.nota-ojo-ubicar').addEventListener('click',(e)=>{
+        e.stopPropagation();
+        irACamaraNota(n.id);
       });
       notasBurbujasEl.appendChild(btn);
       notaOjoEls[n.id]=btn;
