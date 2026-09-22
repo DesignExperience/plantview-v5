@@ -15786,14 +15786,28 @@ function nombreArchivoNotas(){
 // Ensancha el pin (dot/halo, ver crearMarcadorNota) según el largo del
 // número mostrado — un numeroManual de grupo tipo "2.1"/"10.3" no entra en
 // el círculo chico pensado para un solo dígito, así que en vez de recortar
-// el texto el pin se vuelve una píldora más ancha (rx>ry) para números de
-// 2+ caracteres, con la fuente un poco más chica para que siga entrando.
+// el texto el pin se vuelve una píldora más ancha para números de 2+
+// caracteres, con la fuente un poco más chica para que siga entrando.
+// Píldora real (rect con esquinas 100% redondeadas en los extremos, alto
+// fijo), no una elipse: una elipse estira TODA la curva al ensancharse y
+// queda con forma de balón de rugby — el rect con rx=alto/2 mantiene los
+// extremos semicirculares prolijos, igual look que el badge del ojo
+// (.nota-ojo-num, CSS border-radius) — mismo criterio, ahora en SVG.
 function ajustarAnchoPinNota(refs,texto){
   const len=texto.length;
-  const rx=len<=1?7.5:Math.max(7.5,5+len*2.3);
-  const halo=rx+1.5;
-  refs.dot.setAttribute('rx',rx);
-  refs.halo.setAttribute('rx',halo);
+  const mitadAncho=len<=1?7.5:Math.max(7.5,5+len*2.3);
+  const altoDot=15,altoHalo=18;
+  refs.dot.setAttribute('x',-mitadAncho);
+  refs.dot.setAttribute('y',-altoDot/2);
+  refs.dot.setAttribute('width',mitadAncho*2);
+  refs.dot.setAttribute('height',altoDot);
+  refs.dot.setAttribute('rx',altoDot/2);
+  const mitadAnchoHalo=mitadAncho+1.5;
+  refs.halo.setAttribute('x',-mitadAnchoHalo);
+  refs.halo.setAttribute('y',-altoHalo/2);
+  refs.halo.setAttribute('width',mitadAnchoHalo*2);
+  refs.halo.setAttribute('height',altoHalo);
+  refs.halo.setAttribute('rx',altoHalo/2);
   refs.num.setAttribute('font-size',len<=1?8.5:len===2?7.8:len===3?7:6.4);
 }
 
@@ -15819,19 +15833,22 @@ function crearMarcadorNota(n){
   handle.style.pointerEvents='auto';
   handle.style.cursor='pointer';
   handle.style.touchAction='none';
-  // ellipse en vez de circle: para un número de pin largo (ej. "2.1", "2.3"
-  // de una nota de grupo — ver numeroManual) el pin se ensancha en vez de
-  // recortar el texto (ver ajustarAnchoPinNota, se llama junto con
-  // num.textContent en cada render). rx===ry al inicio se ve idéntico a un
-  // círculo normal para el caso común de un solo dígito.
-  const halo=document.createElementNS(svgns,'ellipse');
+  // rect (píldora, rx=alto/2) en vez de circle: para un número de pin largo
+  // (ej. "2.1", "2.3" de una nota de grupo — ver numeroManual) el pin se
+  // ensancha en vez de recortar el texto (ver ajustarAnchoPinNota, se llama
+  // junto con num.textContent en cada render). Con width=height y rx=mitad
+  // del alto se ve idéntico a un círculo normal para el caso común de un
+  // solo dígito.
+  const halo=document.createElementNS(svgns,'rect');
+  halo.setAttribute('x','-9');halo.setAttribute('y','-9');
+  halo.setAttribute('width','18');halo.setAttribute('height','18');
   halo.setAttribute('rx','9');
-  halo.setAttribute('ry','9');
   halo.setAttribute('fill','rgba(58,107,232,.16)');
   handle.appendChild(halo);
-  const dot=document.createElementNS(svgns,'ellipse');
+  const dot=document.createElementNS(svgns,'rect');
+  dot.setAttribute('x','-7.5');dot.setAttribute('y','-7.5');
+  dot.setAttribute('width','15');dot.setAttribute('height','15');
   dot.setAttribute('rx','7.5');
-  dot.setAttribute('ry','7.5');
   dot.setAttribute('fill','rgba(58,107,232,.85)');
   dot.setAttribute('stroke','#fff');
   dot.setAttribute('stroke-width','1.2');
@@ -16103,7 +16120,14 @@ function sincronizarControlesZoomNotas(){
       const btnMenos=document.createElement('button');
       btnMenos.type='button'; btnMenos.textContent='−'; btnMenos.title='Alejar de la pieza';
       btnMenos.addEventListener('click',(e)=>{ e.stopPropagation(); zoomNotaPaso(n.id,1/0.6); });
-      div.appendChild(btnMas); div.appendChild(btnMenos);
+      // Mismo ícono/acción que "Ubicar" en la lista de notas — acá al lado
+      // de +/- porque ya estás mirando esta nota puntual, sirve para
+      // recentrar la cámara sin ir a buscarla en la lista.
+      const btnUbicar=document.createElement('button');
+      btnUbicar.type='button'; btnUbicar.title='Ubicar en el espacio (recentrar cámara)';
+      btnUbicar.innerHTML='<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg>';
+      btnUbicar.addEventListener('click',(e)=>{ e.stopPropagation(); irACamaraNota(n.id); });
+      div.appendChild(btnMas); div.appendChild(btnMenos); div.appendChild(btnUbicar);
       notasBurbujasEl.appendChild(div);
       notaZoomEls[n.id]=div;
     }else if(!debeExistir && existe){
