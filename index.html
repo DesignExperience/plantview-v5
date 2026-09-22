@@ -11309,16 +11309,16 @@ canvas{display:block;width:100%;height:100%}
    (PDF/DWG/otro — no hay forma barata de previsualizar la primera
    página de un PDF acá sin cargar pdf.js por cada pin visible). */
 .nota-burbuja-adj{position:fixed;width:150px;background:var(--surf);border:1px solid rgba(58,107,232,.35);border-radius:10px;overflow:hidden;pointer-events:none;z-index:86}
-.nota-burbuja-adj-titulo{font-size:9px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--text);padding:6px 8px 5px;border-bottom:1px solid rgba(58,107,232,.18)}
+.nota-burbuja-adj-titulo{display:flex;align-items:center;gap:4px;font-size:9px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--text);padding:5px 6px;border-bottom:1px solid rgba(58,107,232,.18)}
+.nota-burbuja-adj-titulo span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nota-burbuja-adj img{width:100%;height:90px;object-fit:cover;display:block}
 .nota-burbuja-adj-icon{display:flex;align-items:center;gap:6px;padding:8px;font-size:20px}
 .nota-burbuja-adj-icon span{font-size:9.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:"IBM Plex Mono",monospace;min-width:0}
-/* Varios adjuntos en la misma nota (caso normal en una tarea/OT con
-   documentación cargada desde el drawer de Tareas): fila de miniaturas
-   chicas en vez de una preview grande por archivo. */
-.nota-burbuja-adj-fila{display:flex;flex-wrap:wrap;gap:5px;padding:7px}
-.nota-burbuja-adj-mini{width:32px;height:32px;border-radius:6px;object-fit:cover;flex-shrink:0}
-.nota-burbuja-adj-mini-icono{background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-size:15px}
+/* Navegar entre varios adjuntos de la misma nota de a uno — antes se
+   apilaban TODOS en la tarjeta (con 6+ archivos, una columna interminable
+   de imágenes) — ver htmlAdjuntoBurbuja/notaAdjBurbujaIndice. */
+.nota-burbuja-adj-nav{flex:none;width:18px;height:18px;border-radius:50%;border:none;background:rgba(58,107,232,.14);color:#3A6BE8;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.nota-burbuja-adj-nav:active{background:#3A6BE8;color:#fff}
 
 /* Selector de color del texto de la nota — mismos colores disponibles
    para el toggle "negrita" y la burbuja en el modelo. */
@@ -15996,41 +15996,46 @@ function htmlChipsTipoNota(n){
   }).join('');
 }
 
-// Contenido de la tarjeta de adjuntos (título + preview) — el contenedor
-// .nota-burbuja-adj en sí es un elemento propio (ver sincronizarBurbujasNotas),
-// separado de la burbuja de texto, esto solo arma lo de adentro. Con un
-// solo adjunto: imagen real si es foto, ícono+nombre si no (no hay forma
-// barata de previsualizar la primera página de un PDF acá sin cargar
-// pdf.js por cada pin visible en pantalla). Con varios: título con el
-// total + una fila de miniaturas/íconos chicos, uno por archivo.
+// id -> índice del adjunto que se está mostrando en la tarjeta expandida
+// (ver htmlAdjuntoBurbuja) — solo memoria de esta sesión, no se persiste.
+// Con 2+ adjuntos, antes se apilaban TODOS a la vez (con 6+ archivos la
+// tarjeta se volvía una columna interminable, además de un bug de CSS que
+// hacía que hasta las miniaturas se vieran a tamaño completo) — ahora se
+// muestra uno a la vez con flechas ◀▶, sin importar cuántos haya.
+const notaAdjBurbujaIndice={};
+
+// Contenido de la tarjeta de adjuntos (título + preview + nav) — el
+// contenedor .nota-burbuja-adj en sí es un elemento propio (ver
+// sincronizarBurbujasNotas), separado de la burbuja de texto, esto solo
+// arma lo de adentro. Imagen real si es foto, ícono+nombre si no (no hay
+// forma barata de previsualizar la primera página de un PDF acá sin
+// cargar pdf.js por cada pin visible en pantalla).
 function htmlAdjuntoBurbuja(n){
   const lista=todosAdjuntosNota(n);
   if(!lista.length) return '';
+  const idx=Math.min(Math.max(notaAdjBurbujaIndice[n.id]||0,0),lista.length-1);
+  const a=lista[idx], tipo=tipoAdjunto(a);
   // data-fileid/data-tipo/data-nombre: el click de la tarjeta (ver
   // sincronizarBurbujasNotas) los lee por delegación para saber CUÁL
   // adjunto puntual abrir en el visor grande — solo imagen/pdf tienen
   // ese botón "abrir en grande", dxf/glb no llevan data-fileid.
-  if(lista.length===1){
-    const a=lista[0], tipo=tipoAdjunto(a);
-    if(tipo==='imagen'){
-      const url=urlAdjuntoDrive(a.fileId);
-      if(url) return `<div class="nota-burbuja-adj-titulo">${ADJUNTO_TIPO_TITULO.imagen}</div><img data-fileid="${escNota(a.fileId)}" data-tipo="imagen" data-nombre="${escNota(a.nombre||'')}" src="${escNota(url)}" alt="${escNota(a.nombre||'')}" loading="lazy">`;
-    }
+  const titulo=lista.length>1
+    ? `Adjuntos (${idx+1}/${lista.length}):`
+    : ADJUNTO_TIPO_TITULO[tipo];
+  const nav=lista.length>1
+    ? `<button type="button" class="nota-burbuja-adj-nav nota-burbuja-adj-nav-prev" data-nav="-1" title="Adjunto anterior"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>`+
+      `<button type="button" class="nota-burbuja-adj-nav nota-burbuja-adj-nav-next" data-nav="1" title="Adjunto siguiente"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>`
+    : '';
+  let preview;
+  if(tipo==='imagen'){
+    const url=urlAdjuntoDrive(a.fileId);
+    preview=url?`<img data-fileid="${escNota(a.fileId)}" data-tipo="imagen" data-nombre="${escNota(a.nombre||'')}" src="${escNota(url)}" alt="${escNota(a.nombre||'')}" loading="lazy">`:'';
+  }else{
     const puedeAbrir=tipo==='pdf';
     const attrs=puedeAbrir?` data-fileid="${escNota(a.fileId||'')}" data-tipo="${tipo}" data-nombre="${escNota(a.nombre||'')}"`:'';
-    return `<div class="nota-burbuja-adj-titulo">${ADJUNTO_TIPO_TITULO[tipo]}</div><div class="nota-burbuja-adj-icon"${attrs}>${iconoAdjuntoNota(tipo,17)}<span>${escNota(a.nombre||'adjunto')}</span></div>`;
+    preview=`<div class="nota-burbuja-adj-icon"${attrs}>${iconoAdjuntoNota(tipo,17)}<span>${escNota(a.nombre||'adjunto')}</span></div>`;
   }
-  const filas=lista.map(a=>{
-    const tipo=tipoAdjunto(a);
-    if(tipo==='imagen'){
-      const url=urlAdjuntoDrive(a.fileId);
-      if(url) return `<img class="nota-burbuja-adj-mini" data-fileid="${escNota(a.fileId)}" data-tipo="imagen" data-nombre="${escNota(a.nombre||'')}" src="${escNota(url)}" alt="${escNota(a.nombre||'')}" loading="lazy" title="${escNota(a.nombre||'')}">`;
-    }
-    const puedeAbrir=tipo==='pdf';
-    const attrs=puedeAbrir?` data-fileid="${escNota(a.fileId||'')}" data-tipo="${tipo}" data-nombre="${escNota(a.nombre||'')}"`:'';
-    return `<div class="nota-burbuja-adj-mini nota-burbuja-adj-mini-icono"${attrs} title="${escNota(a.nombre||'')}">${iconoAdjuntoNota(tipo,17)}</div>`;
-  }).join('');
-  return `<div class="nota-burbuja-adj-titulo">Adjuntos (${lista.length}):</div><div class="nota-burbuja-adj-fila">${filas}</div>`;
+  return `<div class="nota-burbuja-adj-titulo">${nav}<span>${titulo}</span></div>${preview}`;
 }
 
 // Color del badge del pin: el del primer adjunto (si hay varios tipos
@@ -16104,7 +16109,7 @@ function renderPinesNotas(){
     if(!idsActuales.has(id)){ notaBurbujaEls[id].remove(); delete notaBurbujaEls[id]; }
   });
   Object.keys(notaAdjBurbujaEls).forEach(id=>{
-    if(!idsActuales.has(id)){ notaAdjBurbujaEls[id].remove(); delete notaAdjBurbujaEls[id]; }
+    if(!idsActuales.has(id)){ notaAdjBurbujaEls[id].remove(); delete notaAdjBurbujaEls[id]; delete notaAdjBurbujaIndice[id]; }
   });
   Object.keys(notaTiposEls).forEach(id=>{
     if(!idsActuales.has(id)){ notaTiposEls[id].remove(); delete notaTiposEls[id]; }
@@ -16292,6 +16297,14 @@ function sincronizarBurbujasNotas(){
       // cae al comportamiento de siempre: abrir la nota para editarla.
       div.addEventListener('click',(e)=>{
         e.stopPropagation();
+        const nav=e.target.closest('[data-nav]');
+        if(nav){
+          const lista=todosAdjuntosNota(n);
+          const actual=Math.min(Math.max(notaAdjBurbujaIndice[n.id]||0,0),lista.length-1);
+          notaAdjBurbujaIndice[n.id]=(actual+parseInt(nav.dataset.nav,10)+lista.length)%lista.length;
+          notaAdjBurbujaEls[n.id].innerHTML=htmlAdjuntoBurbuja(n);
+          return;
+        }
         const t=e.target.closest('[data-tipo]');
         if(t && t.dataset.fileid && (t.dataset.tipo==='imagen'||t.dataset.tipo==='pdf')){
           const galeria=galeriaVisibleDeNota(n);
