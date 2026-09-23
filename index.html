@@ -9094,6 +9094,11 @@ const EJECUTORES_DRIVE = {
   subidaDrive: ejecutarSubidaDrive,
   resolverCarpetaVistas: (p) => ejecutarResolverCarpeta({ ...p, sufijo: "vistas guardadas", tipoRespuesta: "resolverCarpetaVistas" }),
   resolverCarpetaNotas: (p) => ejecutarResolverCarpeta({ ...p, sufijo: "notas", tipoRespuesta: "resolverCarpetaNotas" }),
+  // Misma mecánica (buscar/crear subcarpeta) pero con el nombre de la PIEZA
+  // en vez del modelo — ejecutarResolverCarpeta arma "<nombreGlb> - <sufijo>",
+  // acá "nombreGlb" es en realidad el objName de la pieza a la que están
+  // asociados los adjuntos (ver resolverCarpetaAdjuntosDrive en el visor 3D).
+  resolverCarpetaAdjuntos: (p) => ejecutarResolverCarpeta({ nombreGlb: p.objName, carpetaPadreId: p.carpetaPadreId, reqId: p.reqId, sufijo: "adjuntos", tipoRespuesta: "resolverCarpetaAdjuntos" }),
   borrarArchivoDrive: ejecutarBorrarArchivoDrive,
 };
 window.addEventListener("message", (e) => {
@@ -16932,6 +16937,22 @@ function resolverCarpetaNotasDrive(){
   });
 }
 
+// Resuelve (o crea) la subcarpeta "<pieza> - adjuntos" para los archivos
+// que se adjuntan a una nota — así quedan agrupados por la pieza a la que
+// están asociados (ej. "TB19 - adjuntos") en vez de sueltos todos juntos
+// en la carpeta del modelo con nombres tipo "plantview-adjunto-n1789...",
+// ilegibles para encontrar algo a mano en Drive. Mismo mecanismo que
+// resolverCarpetaNotasDrive (requiere token de escritura, pasa por la app
+// externa).
+function resolverCarpetaAdjuntosDrive(objName){
+  return new Promise((resolve, reject) => {
+    if(!carpetaDriveIdActual){ reject(new Error('No hay carpeta de Drive asociada a este modelo')); return; }
+    const reqId=++notasReqSeq;
+    notasReqPendientes[reqId]={resolve,reject};
+    window.parent.postMessage({ tipo:'resolverCarpetaAdjuntos', reqId, objName: objName||'Sin pieza', carpetaPadreId: carpetaDriveIdActual }, '*');
+  });
+}
+
 function guardarNotasDrive(){
   const archivo=nombreArchivoNotas();
   if(!archivo) return Promise.reject(new Error('No hay carpeta de Drive asociada a este modelo'));
@@ -16964,6 +16985,12 @@ window.addEventListener('message',(e)=>{
     delete notasReqPendientes[e.data.reqId];
   }else if(e.data.tipo==='resolverCarpetaNotasError' && notasReqPendientes[e.data.reqId]){
     notasReqPendientes[e.data.reqId].reject(new Error(e.data.error||'Error al resolver la carpeta de notas'));
+    delete notasReqPendientes[e.data.reqId];
+  }else if(e.data.tipo==='resolverCarpetaAdjuntosOK' && notasReqPendientes[e.data.reqId]){
+    notasReqPendientes[e.data.reqId].resolve(e.data.carpetaId);
+    delete notasReqPendientes[e.data.reqId];
+  }else if(e.data.tipo==='resolverCarpetaAdjuntosError' && notasReqPendientes[e.data.reqId]){
+    notasReqPendientes[e.data.reqId].reject(new Error(e.data.error||'Error al resolver la carpeta de adjuntos'));
     delete notasReqPendientes[e.data.reqId];
   }else if(e.data.tipo==='consultaLoginDriveResp' && notasReqPendientes[e.data.reqId]){
     notasReqPendientes[e.data.reqId].resolve(!!e.data.conectado);
@@ -17538,11 +17565,15 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
     if(notasCreadas && notaAdjuntosNuevos.length){
       // Cada archivo se sube UNA sola vez y se referencia desde TODAS las
       // notas del grupo — no tiene sentido duplicarlos N veces en Drive.
+      // Van a la carpeta "<pieza> - adjuntos" de la PRIMERA instancia del
+      // grupo — con "Nota en piezas iguales" todas comparten el mismo
+      // objName, así que da igual cuál; con "Nota a estas piezas" (armada
+      // desde un aislamiento con piezas de distinto nombre) es la mejor
+      // aproximación posible para un único archivo compartido.
+      const carpetaAdj=await resolverCarpetaAdjuntosDrive(notasCreadas[0].objName);
       const subidos=[];
       for(const file of notaAdjuntosNuevos){
-        const ext=(file.name.match(/\.[a-zA-Z0-9]+$/)||[''])[0];
-        const nombreAdj=`plantview-adjunto-grupo-${Date.now()}-${Math.random().toString(36).slice(2,6)}${ext}`;
-        const fileId=await subirArchivoADriveDesdeVisor(nombreAdj, file, carpetaDriveIdActual);
+        const fileId=await subirArchivoADriveDesdeVisor(file.name, file, carpetaAdj);
         subidos.push({nombre:file.name, driveId:fileId, mime:file.type});
       }
       // Copia independiente por nota — si compartieran la misma referencia
@@ -17557,15 +17588,17 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
         if(n.adjunto && notaAdjuntosExistentesQuitar.has(n.adjunto.fileId)) delete n.adjunto;
         if(Array.isArray(n.adjuntos)) n.adjuntos=n.adjuntos.filter(a=>!notaAdjuntosExistentesQuitar.has(a.driveId));
       }
-      // Subir y agregar los archivos nuevos — siempre a n.adjuntos (plural),
-      // así una nota puede terminar con varios sin importar si ya tenía uno
-      // solo guardado en el campo legado n.adjunto.
-      for(const file of notaAdjuntosNuevos){
-        const ext=(file.name.match(/\.[a-zA-Z0-9]+$/)||[''])[0];
-        const nombreAdj=`plantview-adjunto-${n.id}-${Date.now()}-${Math.random().toString(36).slice(2,6)}${ext}`;
-        const fileId=await subirArchivoADriveDesdeVisor(nombreAdj, file, carpetaDriveIdActual);
-        if(!Array.isArray(n.adjuntos)) n.adjuntos=[];
-        n.adjuntos.push({nombre:file.name, driveId:fileId, mime:file.type});
+      // Subir y agregar los archivos nuevos a la carpeta "<pieza> -
+      // adjuntos" — siempre a n.adjuntos (plural), así una nota puede
+      // terminar con varios sin importar si ya tenía uno solo guardado en
+      // el campo legado n.adjunto.
+      if(notaAdjuntosNuevos.length){
+        const carpetaAdj=await resolverCarpetaAdjuntosDrive(n.objName);
+        for(const file of notaAdjuntosNuevos){
+          const fileId=await subirArchivoADriveDesdeVisor(file.name, file, carpetaAdj);
+          if(!Array.isArray(n.adjuntos)) n.adjuntos=[];
+          n.adjuntos.push({nombre:file.name, driveId:fileId, mime:file.type});
+        }
       }
     }
 
