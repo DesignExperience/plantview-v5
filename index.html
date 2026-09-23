@@ -9093,12 +9093,11 @@ async function ejecutarBorrarArchivoDrive(payload) {
 const EJECUTORES_DRIVE = {
   subidaDrive: ejecutarSubidaDrive,
   resolverCarpetaVistas: (p) => ejecutarResolverCarpeta({ ...p, sufijo: "vistas guardadas", tipoRespuesta: "resolverCarpetaVistas" }),
-  resolverCarpetaNotas: (p) => ejecutarResolverCarpeta({ ...p, sufijo: "notas", tipoRespuesta: "resolverCarpetaNotas" }),
-  // Misma mecánica (buscar/crear subcarpeta) pero con el nombre de la PIEZA
-  // en vez del modelo — ejecutarResolverCarpeta arma "<nombreGlb> - <sufijo>",
-  // acá "nombreGlb" es en realidad el objName de la pieza a la que están
-  // asociados los adjuntos (ver resolverCarpetaAdjuntosDrive en el visor 3D).
-  resolverCarpetaAdjuntos: (p) => ejecutarResolverCarpeta({ nombreGlb: p.objName, carpetaPadreId: p.carpetaPadreId, reqId: p.reqId, sufijo: "Documentos y notas", tipoRespuesta: "resolverCarpetaAdjuntos" }),
+  // "<nombreGlb> - Documentos y notas": UNA sola carpeta por modelo con
+  // todo lo de notas — el JSON con todas las notas Y los adjuntos
+  // (fotos/PDF) de cualquier pieza, todo junto (antes había una carpeta
+  // separada por pieza para los adjuntos; se unificó a pedido).
+  resolverCarpetaNotas: (p) => ejecutarResolverCarpeta({ ...p, sufijo: "Documentos y notas", tipoRespuesta: "resolverCarpetaNotas" }),
   borrarArchivoDrive: ejecutarBorrarArchivoDrive,
 };
 window.addEventListener("message", (e) => {
@@ -16839,11 +16838,19 @@ async function cargarNotasDrive(){
   if(!archivo || !driveApiKeyActual || !carpetaDriveIdActual || !appBaseUrlActual) return;
   try{
     const nombreGlb=(archivoNombreActual||'modelo').replace(/\.[a-zA-Z0-9]+$/,'');
-    const carpetaNotasId=await buscarSubcarpetaDrive(`${nombreGlb} - notas`, carpetaDriveIdActual);
-    // Compatibilidad: notas guardadas antes de que existiera la subcarpeta
-    // "<modelo> - notas" quedaron sueltas directo en la carpeta del modelo —
-    // si no aparece en la subcarpeta nueva, se busca ahí como respaldo.
+    // "<modelo> - Documentos y notas": UNA sola carpeta por modelo con todo
+    // lo de notas — el JSON con todas las notas Y los adjuntos (fotos/PDF)
+    // de cualquier pieza, todo junto (ver resolverCarpetaNotasDrive).
+    const carpetaNotasId=await buscarSubcarpetaDrive(`${nombreGlb} - Documentos y notas`, carpetaDriveIdActual);
     let found=carpetaNotasId ? await buscarArchivoEnCarpeta(archivo, carpetaNotasId) : null;
+    // Compatibilidad con dos esquemas viejos: la carpeta "<modelo> - notas"
+    // (antes de unificarse con los adjuntos) y, más atrás todavía, notas
+    // sueltas directo en la carpeta del modelo (antes de que existiera
+    // cualquier subcarpeta).
+    if(!found){
+      const carpetaNotasVieja=await buscarSubcarpetaDrive(`${nombreGlb} - notas`, carpetaDriveIdActual);
+      if(carpetaNotasVieja) found=await buscarArchivoEnCarpeta(archivo, carpetaNotasVieja);
+    }
     if(!found) found=await buscarArchivoEnCarpeta(archivo, carpetaDriveIdActual);
     if(!found) return;
     const origen=new URL(appBaseUrlActual).origin;
@@ -16924,9 +16931,15 @@ function subirArchivoADriveDesdeVisor(nombre, archivo, carpetaId){
   });
 }
 
-// Resuelve (o crea) la subcarpeta "<nombre del glb> - notas" — requiere el
-// token de escritura, así que pasa por la app externa como el resto de las
-// operaciones de Drive (mismo patrón que resolverCarpetaVistasDrive).
+// Resuelve (o crea) la subcarpeta "<nombre del glb> - Documentos y notas"
+// — UNA sola carpeta por modelo con todo lo de notas: el JSON con todas
+// las notas del modelo Y los adjuntos (fotos/PDF) de cualquier pieza,
+// todo junto en el mismo lugar (a diferencia de una carpeta separada por
+// pieza, que multiplicaría subcarpetas sin necesidad). Requiere el token
+// de escritura, así que pasa por la app externa como el resto de las
+// operaciones de Drive (mismo patrón que resolverCarpetaVistasDrive). La
+// usan tanto guardarNotasDrive (el JSON) como el guardado de adjuntos de
+// una nota (ver el handler de "Guardar" del panel de nota).
 function resolverCarpetaNotasDrive(){
   return new Promise((resolve, reject) => {
     if(!carpetaDriveIdActual){ reject(new Error('No hay carpeta de Drive asociada a este modelo')); return; }
@@ -16934,27 +16947,6 @@ function resolverCarpetaNotasDrive(){
     const reqId=++notasReqSeq;
     notasReqPendientes[reqId]={resolve,reject};
     window.parent.postMessage({ tipo:'resolverCarpetaNotas', reqId, nombreGlb, carpetaPadreId: carpetaDriveIdActual }, '*');
-  });
-}
-
-// Resuelve (o crea) la subcarpeta "<pieza> - Documentos y notas" para los
-// archivos que se adjuntan a una nota — así quedan agrupados por la pieza
-// a la que están asociados (ej. "TB19 - Documentos y notas") en vez de
-// sueltos todos juntos en la carpeta del modelo con nombres tipo
-// "plantview-adjunto-n1789...", ilegibles para encontrar algo a mano en
-// Drive. Mismo mecanismo que resolverCarpetaNotasDrive (requiere token de
-// escritura, pasa por la app externa) — ojo que son carpetas DISTINTAS con
-// propósitos distintos: "<modelo> - notas" guarda un único JSON con TODAS
-// las notas del modelo entero (dato interno, no algo para navegar a
-// mano), mientras que "<pieza> - Documentos y notas" es por pieza y
-// guarda los archivos (fotos/PDF) que de verdad tiene sentido mirar en
-// Drive.
-function resolverCarpetaAdjuntosDrive(objName){
-  return new Promise((resolve, reject) => {
-    if(!carpetaDriveIdActual){ reject(new Error('No hay carpeta de Drive asociada a este modelo')); return; }
-    const reqId=++notasReqSeq;
-    notasReqPendientes[reqId]={resolve,reject};
-    window.parent.postMessage({ tipo:'resolverCarpetaAdjuntos', reqId, objName: objName||'Sin pieza', carpetaPadreId: carpetaDriveIdActual }, '*');
   });
 }
 
@@ -16990,12 +16982,6 @@ window.addEventListener('message',(e)=>{
     delete notasReqPendientes[e.data.reqId];
   }else if(e.data.tipo==='resolverCarpetaNotasError' && notasReqPendientes[e.data.reqId]){
     notasReqPendientes[e.data.reqId].reject(new Error(e.data.error||'Error al resolver la carpeta de notas'));
-    delete notasReqPendientes[e.data.reqId];
-  }else if(e.data.tipo==='resolverCarpetaAdjuntosOK' && notasReqPendientes[e.data.reqId]){
-    notasReqPendientes[e.data.reqId].resolve(e.data.carpetaId);
-    delete notasReqPendientes[e.data.reqId];
-  }else if(e.data.tipo==='resolverCarpetaAdjuntosError' && notasReqPendientes[e.data.reqId]){
-    notasReqPendientes[e.data.reqId].reject(new Error(e.data.error||'Error al resolver la carpeta de adjuntos'));
     delete notasReqPendientes[e.data.reqId];
   }else if(e.data.tipo==='consultaLoginDriveResp' && notasReqPendientes[e.data.reqId]){
     notasReqPendientes[e.data.reqId].resolve(!!e.data.conectado);
@@ -17570,12 +17556,9 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
     if(notasCreadas && notaAdjuntosNuevos.length){
       // Cada archivo se sube UNA sola vez y se referencia desde TODAS las
       // notas del grupo — no tiene sentido duplicarlos N veces en Drive.
-      // Van a la carpeta "<pieza> - Documentos y notas" de la PRIMERA instancia del
-      // grupo — con "Nota en piezas iguales" todas comparten el mismo
-      // objName, así que da igual cuál; con "Nota a estas piezas" (armada
-      // desde un aislamiento con piezas de distinto nombre) es la mejor
-      // aproximación posible para un único archivo compartido.
-      const carpetaAdj=await resolverCarpetaAdjuntosDrive(notasCreadas[0].objName);
+      // Van a la carpeta única del modelo "<modelo> - Documentos y notas"
+      // (ver resolverCarpetaNotasDrive), la misma que usa guardarNotasDrive.
+      const carpetaAdj=await resolverCarpetaNotasDrive();
       const subidos=[];
       for(const file of notaAdjuntosNuevos){
         const fileId=await subirArchivoADriveDesdeVisor(file.name, file, carpetaAdj);
@@ -17593,12 +17576,12 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
         if(n.adjunto && notaAdjuntosExistentesQuitar.has(n.adjunto.fileId)) delete n.adjunto;
         if(Array.isArray(n.adjuntos)) n.adjuntos=n.adjuntos.filter(a=>!notaAdjuntosExistentesQuitar.has(a.driveId));
       }
-      // Subir y agregar los archivos nuevos a la carpeta "<pieza> -
-      // adjuntos" — siempre a n.adjuntos (plural), así una nota puede
-      // terminar con varios sin importar si ya tenía uno solo guardado en
-      // el campo legado n.adjunto.
+      // Subir y agregar los archivos nuevos a la carpeta única del modelo
+      // "<modelo> - Documentos y notas" — siempre a n.adjuntos (plural),
+      // así una nota puede terminar con varios sin importar si ya tenía
+      // uno solo guardado en el campo legado n.adjunto.
       if(notaAdjuntosNuevos.length){
-        const carpetaAdj=await resolverCarpetaAdjuntosDrive(n.objName);
+        const carpetaAdj=await resolverCarpetaNotasDrive();
         for(const file of notaAdjuntosNuevos){
           const fileId=await subirArchivoADriveDesdeVisor(file.name, file, carpetaAdj);
           if(!Array.isArray(n.adjuntos)) n.adjuntos=[];
