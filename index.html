@@ -15716,7 +15716,10 @@ function setNotaAdjExpandido(n,expandido){
   n.adjExpandido=expandido;
   guardarNotasDrive().catch(()=>{});
 }
-let notaOffsets={};             // id -> {dx,dy} en px, desplazamiento manual del marcador (solo esta sesión)
+// id -> {dx,dy} en px, desplazamiento manual del marcador — espejo en
+// memoria de n.offset (ver hacerArrastrableNota), se restaura al cargar
+// notas3d desde Drive igual que notaOcultaTemporal/notaAdjExpandido.
+let notaOffsets={};
 let notaAbiertaId=null;         // id de la nota que está en el panel (null = nota nueva)
 let notaHitPendiente=null;      // hit de raycast para la nota nueva sin guardar aún
 let notaGrupoIgualesPendiente=null; // [{mesh,local,zoneId,objName,pathNames}] cuando la nota en edición se va a crear en TODAS las instancias de una pieza repetida (ver "Nota en piezas iguales")
@@ -16126,7 +16129,16 @@ function hacerArrastrableNota(el,notaId){
       actualizarPosicionesNotas();
     }
   });
-  const soltar=()=>{ dragging=false; };
+  const soltar=()=>{
+    dragging=false;
+    // Igual que burbujaOculta/adjExpandido: la posición arrastrada a mano
+    // se guarda en la nota para que el próximo que abra el archivo la vea
+    // donde quedó, en vez de siempre en la posición default junto al pin.
+    if(moved){
+      const n=notas3d.find(x=>x.id===notaId);
+      if(n){ n.offset=notaOffsets[notaId]; guardarNotasDrive().catch(()=>{}); }
+    }
+  };
   el.addEventListener('pointerup',soltar);
   el.addEventListener('pointercancel',soltar);
   el.addEventListener('click',(e)=>{
@@ -16911,6 +16923,7 @@ async function cargarNotasDrive(){
       notas3d.forEach(n=>{
         if(n.burbujaOculta) notaOcultaTemporal[n.id]=true;
         if(n.adjExpandido) notaAdjExpandido[n.id]=true;
+        if(n.offset) notaOffsets[n.id]=n.offset;
       });
     }
     renderPinesNotas();
