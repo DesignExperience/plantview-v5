@@ -9098,7 +9098,7 @@ const EJECUTORES_DRIVE = {
   // en vez del modelo — ejecutarResolverCarpeta arma "<nombreGlb> - <sufijo>",
   // acá "nombreGlb" es en realidad el objName de la pieza a la que están
   // asociados los adjuntos (ver resolverCarpetaAdjuntosDrive en el visor 3D).
-  resolverCarpetaAdjuntos: (p) => ejecutarResolverCarpeta({ nombreGlb: p.objName, carpetaPadreId: p.carpetaPadreId, reqId: p.reqId, sufijo: "adjuntos", tipoRespuesta: "resolverCarpetaAdjuntos" }),
+  resolverCarpetaAdjuntos: (p) => ejecutarResolverCarpeta({ nombreGlb: p.objName, carpetaPadreId: p.carpetaPadreId, reqId: p.reqId, sufijo: "Documentos y notas", tipoRespuesta: "resolverCarpetaAdjuntos" }),
   borrarArchivoDrive: ejecutarBorrarArchivoDrive,
 };
 window.addEventListener("message", (e) => {
@@ -16937,13 +16937,18 @@ function resolverCarpetaNotasDrive(){
   });
 }
 
-// Resuelve (o crea) la subcarpeta "<pieza> - adjuntos" para los archivos
-// que se adjuntan a una nota — así quedan agrupados por la pieza a la que
-// están asociados (ej. "TB19 - adjuntos") en vez de sueltos todos juntos
-// en la carpeta del modelo con nombres tipo "plantview-adjunto-n1789...",
-// ilegibles para encontrar algo a mano en Drive. Mismo mecanismo que
-// resolverCarpetaNotasDrive (requiere token de escritura, pasa por la app
-// externa).
+// Resuelve (o crea) la subcarpeta "<pieza> - Documentos y notas" para los
+// archivos que se adjuntan a una nota — así quedan agrupados por la pieza
+// a la que están asociados (ej. "TB19 - Documentos y notas") en vez de
+// sueltos todos juntos en la carpeta del modelo con nombres tipo
+// "plantview-adjunto-n1789...", ilegibles para encontrar algo a mano en
+// Drive. Mismo mecanismo que resolverCarpetaNotasDrive (requiere token de
+// escritura, pasa por la app externa) — ojo que son carpetas DISTINTAS con
+// propósitos distintos: "<modelo> - notas" guarda un único JSON con TODAS
+// las notas del modelo entero (dato interno, no algo para navegar a
+// mano), mientras que "<pieza> - Documentos y notas" es por pieza y
+// guarda los archivos (fotos/PDF) que de verdad tiene sentido mirar en
+// Drive.
 function resolverCarpetaAdjuntosDrive(objName){
   return new Promise((resolve, reject) => {
     if(!carpetaDriveIdActual){ reject(new Error('No hay carpeta de Drive asociada a este modelo')); return; }
@@ -17565,7 +17570,7 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
     if(notasCreadas && notaAdjuntosNuevos.length){
       // Cada archivo se sube UNA sola vez y se referencia desde TODAS las
       // notas del grupo — no tiene sentido duplicarlos N veces en Drive.
-      // Van a la carpeta "<pieza> - adjuntos" de la PRIMERA instancia del
+      // Van a la carpeta "<pieza> - Documentos y notas" de la PRIMERA instancia del
       // grupo — con "Nota en piezas iguales" todas comparten el mismo
       // objName, así que da igual cuál; con "Nota a estas piezas" (armada
       // desde un aislamiento con piezas de distinto nombre) es la mejor
