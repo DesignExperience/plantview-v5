@@ -2596,6 +2596,38 @@ let driveTokenExpira = 0;
 let subidasDrivePendientes = []; // cola de subidas (notas 3D, adjuntos) en espera de login OAuth
 let callbackTrasLoginDrive = null; // acción de la app externa en espera de login OAuth (ej. "Subir a Drive")
 
+// El token de escritura vivía SOLO en esta variable de JS — recargar la
+// página (F5, cerrar y volver a abrir la pestaña) lo perdía siempre,
+// aunque todavía le quedara rato de validez real (el token dura ~1h), así
+// que había que reconectar a cada rato sin necesidad. Se guarda una copia
+// en localStorage y se restaura al cargar, sin volver a pedir
+// consentimiento — la sesión de escritura sobrevive un reload mientras el
+// token no haya vencido de verdad.
+const DRIVE_TOKEN_LS_KEY = "pv_drive_token";
+function guardarTokenDriveLocal() {
+  try {
+    if (driveAccessToken && Date.now() < driveTokenExpira) {
+      localStorage.setItem(DRIVE_TOKEN_LS_KEY, JSON.stringify({ token: driveAccessToken, expira: driveTokenExpira }));
+    } else {
+      localStorage.removeItem(DRIVE_TOKEN_LS_KEY);
+    }
+  } catch (err) { /* localStorage no disponible (privado/bloqueado) — sin persistencia, comportamiento de siempre */ }
+}
+function restaurarTokenDriveLocal() {
+  try {
+    const raw = localStorage.getItem(DRIVE_TOKEN_LS_KEY);
+    if (!raw) return;
+    const { token, expira } = JSON.parse(raw);
+    if (token && expira && Date.now() < expira) {
+      driveAccessToken = token;
+      driveTokenExpira = expira;
+    } else {
+      localStorage.removeItem(DRIVE_TOKEN_LS_KEY);
+    }
+  } catch (err) { /* dato corrupto/localStorage no disponible — arranca desconectado, como antes */ }
+}
+restaurarTokenDriveLocal();
+
 // driveConfig (config de lectura: API key + carpetas) vivía mucho más
 // abajo en el script — funcionaba mientras nada la tocara temprano,
 // pero el modo equipo (arriba, unas líneas más abajo en este mismo
@@ -6541,6 +6573,7 @@ function initDriveOAuth() {
       driveAccessToken = resp.access_token;
       // margen de 30s para no operar con un token a punto de vencer
       driveTokenExpira = Date.now() + (resp.expires_in * 1000) - 30000;
+      guardarTokenDriveLocal();
       actualizarUIEscrituraDrive();
       showToast("Escritura en Drive conectada ✓");
       if (subidasDrivePendientes.length) {
@@ -6580,6 +6613,7 @@ function desconectarEscrituraDrive() {
   }
   driveAccessToken = null;
   driveTokenExpira = 0;
+  guardarTokenDriveLocal();
   actualizarUIEscrituraDrive();
   showToast("Escritura en Drive desconectada");
 }
@@ -15842,6 +15876,32 @@ function nombreArchivoNotas(){
   return archivoDriveIdActual ? `plantview-notas-${archivoDriveIdActual}.json` : null;
 }
 
+// Respaldo LOCAL (este navegador/dispositivo) de la posición arrastrada de
+// cada nota — n.offset (ver hacerArrastrableNota) se guarda en Drive, pero
+// eso requiere estar logueado con permiso de escritura. Sin login (o sin
+// conexión), guardarNotasDrive() falla en silencio y el arrastre se
+// perdía al recargar. localStorage no depende de ningún login: sigue
+// funcionando igual, solo que el acomodo queda en ESTE dispositivo en vez
+// de compartirse con quien abra el archivo desde otro.
+function claveOffsetsNotasLocal(){
+  return archivoDriveIdActual ? `pv_offsets_notas_${archivoDriveIdActual}` : null;
+}
+function guardarOffsetNotaLocal(notaId,offset){
+  const key=claveOffsetsNotasLocal();
+  if(!key) return;
+  try{
+    const mapa=JSON.parse(localStorage.getItem(key)||'{}');
+    mapa[notaId]=offset;
+    localStorage.setItem(key,JSON.stringify(mapa));
+  }catch(err){ /* localStorage no disponible — sin respaldo local, comportamiento de siempre */ }
+}
+function cargarOffsetsNotasLocal(){
+  const key=claveOffsetsNotasLocal();
+  if(!key) return {};
+  try{ return JSON.parse(localStorage.getItem(key)||'{}'); }
+  catch(err){ return {}; }
+}
+
 // Ensancha el pin (dot/halo, ver crearMarcadorNota) según el largo del
 // número mostrado — un numeroManual de grupo tipo "2.1"/"10.3" no entra en
 // el círculo chico pensado para un solo dígito, así que en vez de recortar
@@ -16137,6 +16197,10 @@ function hacerArrastrableNota(el,notaId){
     if(moved){
       const n=notas3d.find(x=>x.id===notaId);
       if(n){ n.offset=notaOffsets[notaId]; guardarNotasDrive().catch(()=>{}); }
+      // Respaldo local SIEMPRE, tenga o no permiso de escritura en Drive —
+      // así el acomodo no se pierde en este dispositivo aunque el guardado
+      // de arriba haya fallado por no estar logueado.
+      guardarOffsetNotaLocal(notaId,notaOffsets[notaId]);
     }
   };
   el.addEventListener('pointerup',soltar);
@@ -16925,6 +16989,11 @@ async function cargarNotasDrive(){
         if(n.adjExpandido) notaAdjExpandido[n.id]=true;
         if(n.offset) notaOffsets[n.id]=n.offset;
       });
+      // Respaldo local por encima de lo que trajo Drive: si se arrastró
+      // una nota sin estar logueado para escritura, ese acomodo nunca
+      // llegó a guardarse en n.offset — vive únicamente acá.
+      const offsetsLocales=cargarOffsetsNotasLocal();
+      Object.keys(offsetsLocales).forEach(id=>{ notaOffsets[id]=offsetsLocales[id]; });
     }
     renderPinesNotas();
   }catch(err){
