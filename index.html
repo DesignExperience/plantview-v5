@@ -15683,18 +15683,39 @@ const notaMarkerEls={};         // id -> {g,leader,anchor,handle}
 const notaBurbujaEls={};        // id -> div.nota-burbuja (solo si n.mostrarPin)
 const notaAdjBurbujaEls={};     // id -> div.nota-burbuja-adj (solo si n.mostrarPin Y tiene adjunto) — tarjeta propia, colgando debajo de la burbuja de texto
 const notaTiposEls={};          // id -> div.nota-burbuja-tipos (solo si n.mostrarPin Y tiene adjunto) — chips de tipo, ARRIBA de la burbuja de texto
-const notaAdjExpandido={};      // id -> bool, si la tarjeta de adjunto está revelada (se togglea tocando el chip) — solo memoria de esta sesión, no se persiste
+// id -> bool, si la tarjeta de adjunto está revelada (se togglea tocando
+// el chip) — espejo en memoria de n.adjExpandido, ver setNotaAdjExpandido.
+const notaAdjExpandido={};
 const notaZoomEls={};           // id -> div.nota-zoom-ctrl (para toda nota con punto anclado, tenga o no burbuja)
 const notaOjoEls={};            // id -> button.nota-ojo-toggle (para toda nota con punto anclado)
 // id -> bool, oculta el globo+adjunto+chips+zoom de ESTA nota (el pin
-// numerado sigue viéndose) — solo memoria de esta sesión, no se persiste.
-// Editable individualmente con el ojo flotante en el modelo O con el
-// toggle de esa nota en la lista "Notas del modelo" (mismo estado, dos
-// lugares para tocarlo). El switch "Mostrar todas las burbujas" del header
-// de la lista es una acción de una vez ("prender/apagar todas ahora"),
-// no un override permanente — después de tocarlo cada nota se puede volver
-// a ajustar individualmente sin que nada la pise.
+// numerado sigue viéndose) — espejo en memoria de n.burbujaOculta, ver
+// setNotaOculta. Editable individualmente con el ojo flotante en el
+// modelo O con el toggle de esa nota en la lista "Notas del modelo"
+// (mismo estado, dos lugares para tocarlo). El switch "Mostrar todas las
+// burbujas" del header de la lista es una acción de una vez ("prender/
+// apagar todas ahora"), no un override permanente — después de tocarlo
+// cada nota se puede volver a ajustar individualmente sin que nada la pise.
 const notaOcultaTemporal={};
+
+// n.burbujaOculta / n.adjExpandido: a diferencia de notaOffsets (posición
+// arrastrada a mano, sí puramente de esta sesión de visualización), estos
+// dos estados SÍ se guardan en la nota — quien abra el archivo después ve
+// la burbuja/tarjeta como la dejó el último que la tocó, en vez de
+// arrancar siempre todo prendido/colapsado. Los mapas notaOcultaTemporal/
+// notaAdjExpandido siguen siendo la fuente que lee el render en caliente
+// (no hay que tocar esos sitios); estas dos funciones son el único lugar
+// que además escribe en la nota y dispara el guardado a Drive.
+function setNotaOculta(n,oculto){
+  notaOcultaTemporal[n.id]=oculto;
+  n.burbujaOculta=oculto;
+  guardarNotasDrive().catch(()=>{}); // silencioso: no bloquear la UI por un guardado de fondo
+}
+function setNotaAdjExpandido(n,expandido){
+  notaAdjExpandido[n.id]=expandido;
+  n.adjExpandido=expandido;
+  guardarNotasDrive().catch(()=>{});
+}
 let notaOffsets={};             // id -> {dx,dy} en px, desplazamiento manual del marcador (solo esta sesión)
 let notaAbiertaId=null;         // id de la nota que está en el panel (null = nota nueva)
 let notaHitPendiente=null;      // hit de raycast para la nota nueva sin guardar aún
@@ -16233,7 +16254,7 @@ function sincronizarOjoNotas(){
       btn.innerHTML=`<span class="nota-ojo-num">${numeroMostrado}</span><span class="nota-ojo-icono">${svgOjo(true)}</span><span class="nota-ojo-ubicar" title="Ubicar en el espacio"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg></span>`;
       btn.addEventListener('click',(e)=>{
         e.stopPropagation();
-        notaOcultaTemporal[n.id]=!notaOcultaTemporal[n.id];
+        setNotaOculta(n,!notaOcultaTemporal[n.id]);
         btn.querySelector('.nota-ojo-icono').innerHTML=svgOjo(!notaOcultaTemporal[n.id]);
         btn.classList.toggle('apagado',!!notaOcultaTemporal[n.id]);
         actualizarPosicionesNotas();
@@ -16355,7 +16376,7 @@ function sincronizarBurbujasNotas(){
       div.style.cursor='pointer';
       div.addEventListener('click',(e)=>{
         e.stopPropagation();
-        notaAdjExpandido[n.id]=!notaAdjExpandido[n.id];
+        setNotaAdjExpandido(n,!notaAdjExpandido[n.id]);
         sincronizarBurbujasNotas();
       });
       notasBurbujasEl.appendChild(div);
@@ -16882,7 +16903,16 @@ async function cargarNotasDrive(){
     const res=await fetch(proxyUrl);
     if(!res.ok) return;
     const data=await res.json();
-    if(Array.isArray(data)) notas3d=data;
+    if(Array.isArray(data)){
+      notas3d=data;
+      // Retomar el estado de burbuja apagada/tarjeta de adjunto expandida
+      // tal como quedó guardado — así abrir el archivo muestra lo mismo
+      // que dejó el último que lo editó, no todo prendido/colapsado de cero.
+      notas3d.forEach(n=>{
+        if(n.burbujaOculta) notaOcultaTemporal[n.id]=true;
+        if(n.adjExpandido) notaAdjExpandido[n.id]=true;
+      });
+    }
     renderPinesNotas();
   }catch(err){
     console.warn('No se pudieron cargar las notas:',err);
@@ -17400,7 +17430,7 @@ function abrirListaNotas(){
       toggleInput.type='checkbox';
       toggleInput.checked=!notaOcultaTemporal[n.id];
       toggleInput.addEventListener('change',(e)=>{
-        notaOcultaTemporal[n.id]=!e.target.checked;
+        setNotaOculta(n,!e.target.checked);
         actualizarPosicionesNotas();
       });
       const toggleTrack=document.createElement('span');
@@ -17466,7 +17496,8 @@ document.getElementById('notasBurbujasGlobalToggle').addEventListener('change',(
   // permanente — pisa el estado individual de cada nota UNA vez y listo,
   // cada una se puede reajustar después sin que nada la vuelva a tapar.
   const mostrar=e.target.checked;
-  notas3d.forEach(n=>{ notaOcultaTemporal[n.id]=!mostrar; });
+  notas3d.forEach(n=>{ notaOcultaTemporal[n.id]=!mostrar; n.burbujaOculta=!mostrar; });
+  guardarNotasDrive().catch(()=>{});
   if(document.getElementById('panelListaNotas').classList.contains('show')) abrirListaNotas();
   actualizarPosicionesNotas();
 });
@@ -18256,7 +18287,12 @@ function wireMarcaPiezaForm(zone,objName){
   const btnQuitar=document.getElementById('marcaQuitarBtn');
   if(!btnAplicar||!btnQuitar) return;
 
-  opacidadInput.addEventListener('input',()=>{ opacidadVal.textContent=opacidadInput.value; });
+  // Mover el slider (o elegir un color) sin haber tildado antes su propio
+  // checkbox: el checkbox quedaba sin marcar, y "Aplicar" descartaba el
+  // cambio en silencio (leía opacidad/color como null porque el check
+  // gatilla si se guarda o no) — tocar el control implica querer usarlo.
+  opacidadInput.addEventListener('input',()=>{ opacidadVal.textContent=opacidadInput.value; opacidadCheck.checked=true; });
+  colorInput.addEventListener('input',()=>{ colorCheck.checked=true; });
 
   btnAplicar.addEventListener('click',()=>{
     const key=marcaKey(zone,objName);
