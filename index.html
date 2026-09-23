@@ -9066,7 +9066,10 @@ async function ejecutarSubidaDrive(payload) {
 async function ejecutarResolverCarpeta(payload) {
   const { nombreGlb, carpetaPadreId, reqId, sufijo, tipoRespuesta } = payload;
   try {
-    const nombreCarpeta = `${nombreGlb} - ${sufijo}`;
+    // nombreCarpeta directo (ver resolverCarpetaVistasDrive, ahora anidada
+    // dentro de "<modelo> - Documentos y notas": adentro ya no hace falta
+    // repetir el nombre del modelo) o el patrón de siempre "<glb> - <sufijo>".
+    const nombreCarpeta = payload.nombreCarpeta || `${nombreGlb} - ${sufijo}`;
     const folderId = await obtenerOCrearCarpetaDrive(nombreCarpeta, carpetaPadreId);
     enviarAlVisor3D({ tipo: `${tipoRespuesta}OK`, reqId, carpetaId: folderId });
   } catch (err) {
@@ -9092,7 +9095,6 @@ async function ejecutarBorrarArchivoDrive(payload) {
 
 const EJECUTORES_DRIVE = {
   subidaDrive: ejecutarSubidaDrive,
-  resolverCarpetaVistas: (p) => ejecutarResolverCarpeta({ ...p, sufijo: "vistas guardadas", tipoRespuesta: "resolverCarpetaVistas" }),
   // "<nombreGlb> - Documentos y notas": UNA sola carpeta por modelo con
   // todo lo de notas — el JSON con todas las notas Y los adjuntos
   // (fotos/PDF) de cualquier pieza, todo junto (antes había una carpeta
@@ -14587,13 +14589,7 @@ const vistasReqPendientes = {}; // reqId -> {resolve,reject}
 
 window.addEventListener('message', (e) => {
   if (!e.data) return;
-  if (e.data.tipo === 'resolverCarpetaVistasOK' && vistasReqPendientes[e.data.reqId]) {
-    vistasReqPendientes[e.data.reqId].resolve(e.data.carpetaId);
-    delete vistasReqPendientes[e.data.reqId];
-  } else if (e.data.tipo === 'resolverCarpetaVistasError' && vistasReqPendientes[e.data.reqId]) {
-    vistasReqPendientes[e.data.reqId].reject(new Error(e.data.error || 'Error al resolver la carpeta de vistas'));
-    delete vistasReqPendientes[e.data.reqId];
-  } else if (e.data.tipo === 'borrarArchivoDriveOK' && vistasReqPendientes[e.data.reqId]) {
+  if (e.data.tipo === 'borrarArchivoDriveOK' && vistasReqPendientes[e.data.reqId]) {
     vistasReqPendientes[e.data.reqId].resolve();
     delete vistasReqPendientes[e.data.reqId];
   } else if (e.data.tipo === 'borrarArchivoDriveError' && vistasReqPendientes[e.data.reqId]) {
@@ -14686,10 +14682,20 @@ async function cargarVistasGuardadas() {
   const archivo = nombreArchivoVistas();
   if (archivo && driveApiKeyActual && carpetaDriveIdActual && appBaseUrlActual) {
     try {
-      const q = encodeURIComponent(`name='${archivo}' and '${carpetaDriveIdActual}' in parents and trashed=false`);
-      const metaUrl = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&key=${driveApiKeyActual}`;
-      const meta = await (await fetch(metaUrl)).json();
-      const found = meta.files && meta.files[0];
+      // Cascada de compatibilidad, mismo criterio que cargarNotasDrive: la
+      // carpeta única "<glb> - Documentos y notas" es el esquema actual,
+      // "<glb> - vistas guardadas" el esquema anterior (carpeta propia), y
+      // suelto directo en la carpeta del modelo el esquema más viejo
+      // todavía (antes de que existiera cualquier subcarpeta) — para no
+      // perder vistas ya guardadas con cualquiera de los tres.
+      const nombreGlb = (archivoNombreActual || 'modelo').replace(/\.[a-zA-Z0-9]+$/, '');
+      const carpetaDocsId = await buscarSubcarpetaDrive(`${nombreGlb} - Documentos y notas`, carpetaDriveIdActual);
+      let found = carpetaDocsId ? await buscarArchivoEnCarpeta(archivo, carpetaDocsId) : null;
+      if (!found) {
+        const carpetaVistasVieja = await buscarSubcarpetaDrive(`${nombreGlb} - vistas guardadas`, carpetaDriveIdActual);
+        if (carpetaVistasVieja) found = await buscarArchivoEnCarpeta(archivo, carpetaVistasVieja);
+      }
+      if (!found) found = await buscarArchivoEnCarpeta(archivo, carpetaDriveIdActual);
       if (found) {
         const origen = new URL(appBaseUrlActual).origin;
         // Bucket de 20s en vez de no-store puro: sigue "vivo" para el uso
@@ -14716,20 +14722,17 @@ function guardarVistasGuardadasDrive() {
   const archivo = nombreArchivoVistas();
   if (!archivo) return Promise.reject(new Error('No hay carpeta de Drive asociada a este modelo'));
   const blob = new Blob([JSON.stringify(vistasGuardadas)], { type: 'application/json' });
-  return subirArchivoADriveDesdeVisor(archivo, blob, carpetaDriveIdActual);
+  return resolverCarpetaNotasDrive().then(carpeta => subirArchivoADriveDesdeVisor(archivo, blob, carpeta));
 }
 
-// Resuelve (o crea) la subcarpeta "<nombre del glb> - vistas guardadas" —
-// requiere el token de escritura, así que pasa por la app externa como el
-// resto de las operaciones de Drive.
+// Ya NO es una subcarpeta propia — las vistas guardadas (JSON + miniaturas)
+// van directo a la carpeta única del modelo "<glb> - Documentos y notas"
+// (ver resolverCarpetaNotasDrive), sin ningún nivel de anidado extra: nada
+// de carpetas separadas por tipo de contenido, todo lo del modelo junto en
+// un solo lugar. Queda como alias por compatibilidad con el resto del
+// código (guardarVistasGuardadasDrive/thumbnail, que ya llaman a esta).
 function resolverCarpetaVistasDrive() {
-  return new Promise((resolve, reject) => {
-    if (!carpetaDriveIdActual) { reject(new Error('No hay carpeta de Drive asociada a este modelo')); return; }
-    const nombreGlb = (archivoNombreActual || 'modelo').replace(/\.[a-zA-Z0-9]+$/, '');
-    const reqId = ++vistasReqSeq;
-    vistasReqPendientes[reqId] = { resolve, reject };
-    window.parent.postMessage({ tipo: 'resolverCarpetaVistas', reqId, nombreGlb, carpetaPadreId: carpetaDriveIdActual }, '*');
-  });
+  return resolverCarpetaNotasDrive();
 }
 function borrarArchivoDriveDesdeVisor(fileId) {
   return new Promise((resolve, reject) => {
