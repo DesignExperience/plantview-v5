@@ -15928,7 +15928,8 @@ function crearMarcadorNota(n){
   notasSvg.appendChild(g);
   const refs={g,leader,anchor,handle,num,dot,halo,adjBadge,adjBadgeCirc};
   notaMarkerEls[n.id]=refs;
-  wireMarcadorDrag(handle,n.id);
+  handle.addEventListener('click',()=>abrirNota3D(n.id));
+  hacerArrastrableNota(handle,n.id);
 }
 
 // Una nota tiene DOS fuentes posibles de adjuntos, que viven en la misma
@@ -16072,32 +16073,44 @@ function pintarPinSegunEstado(n,refs){
 // Arrastre del marcador: mueve solo el "label" en pantalla (no el punto real
 // de la nota), dejando una línea punteada como referencia — igual que un
 // callout de CAD. Un tap sin arrastre abre la nota, como antes.
-function wireMarcadorDrag(handle,notaId){
-  let dragging=false,moved=false,startX=0,startY=0,baseOff={dx:0,dy:0};
-  handle.addEventListener('pointerdown',(e)=>{
+// Vuelve arrastrable cualquier elemento visual de una nota (pin, burbuja
+// de texto, tarjeta de adjuntos, chips de tipo) — antes solo se podía
+// arrastrar agarrando el pin puntual y chico en el modelo; ahora agarrando
+// CUALQUIER parte de la nota en pantalla mueve la misma burbuja (mismo
+// desplazamiento notaOffsets para todas, comparten un solo offset por
+// nota). No le roba el gesto a un control propio interactivo (botón,
+// "×", flecha de navegar adjuntos, imagen/ícono tocable) — ahí el
+// tap/click de siempre sigue intacto, arrancar el arrastre desde otra
+// parte del mismo bloque. Si hubo arrastre real, se suprime (capture)
+// el click sintético que el navegador dispara al soltar, así no se
+// dispara TAMBIÉN la acción normal de esa nota (abrir para editar, etc.)
+// justo después de moverla.
+function hacerArrastrableNota(el,notaId){
+  let dragging=false,moved=false,startX=0,startY=0,baseOff={dx:0,dy:0},suprimirClick=false;
+  el.addEventListener('pointerdown',(e)=>{
+    if(e.target.closest('button,[data-nav],[data-tipo],.adj-quitar'))return;
     e.stopPropagation();
     dragging=true;moved=false;
     startX=e.clientX;startY=e.clientY;
     baseOff=Object.assign({dx:0,dy:0},notaOffsets[notaId]);
-    try{handle.setPointerCapture(e.pointerId);}catch(err){}
+    try{el.setPointerCapture(e.pointerId);}catch(err){}
   });
-  handle.addEventListener('pointermove',(e)=>{
+  el.addEventListener('pointermove',(e)=>{
     if(!dragging)return;
     e.stopPropagation();
     const ddx=e.clientX-startX,ddy=e.clientY-startY;
-    if(Math.abs(ddx)>4||Math.abs(ddy)>4)moved=true;
+    if(Math.abs(ddx)>4||Math.abs(ddy)>4){moved=true;suprimirClick=true;}
     if(moved){
       notaOffsets[notaId]={dx:baseOff.dx+ddx,dy:baseOff.dy+ddy};
       actualizarPosicionesNotas();
     }
   });
-  const soltar=()=>{
-    if(!dragging)return;
-    dragging=false;
-    if(!moved)abrirNota3D(notaId);
-  };
-  handle.addEventListener('pointerup',soltar);
-  handle.addEventListener('pointercancel',soltar);
+  const soltar=()=>{ dragging=false; };
+  el.addEventListener('pointerup',soltar);
+  el.addEventListener('pointercancel',soltar);
+  el.addEventListener('click',(e)=>{
+    if(suprimirClick){ suprimirClick=false; e.stopPropagation(); e.preventDefault(); }
+  },true);
 }
 
 // Sincroniza el SET de marcadores con notas3d (crea/borra elementos DOM) —
@@ -16260,6 +16273,7 @@ function sincronizarBurbujasNotas(){
       div.addEventListener('click',(e)=>{ e.stopPropagation(); abrirNota3D(n.id); });
       notasBurbujasEl.appendChild(div);
       notaBurbujaEls[n.id]=div;
+      hacerArrastrableNota(div,n.id);
     }else if(!debeExistir && existe){
       notaBurbujaEls[n.id].remove();
       delete notaBurbujaEls[n.id];
@@ -16323,6 +16337,7 @@ function sincronizarBurbujasNotas(){
       });
       notasBurbujasEl.appendChild(div);
       notaAdjBurbujaEls[n.id]=div;
+      hacerArrastrableNota(div,n.id);
     }else if(!debeExistirAdj && existeAdj){
       notaAdjBurbujaEls[n.id].remove();
       delete notaAdjBurbujaEls[n.id];
@@ -16345,6 +16360,7 @@ function sincronizarBurbujasNotas(){
       });
       notasBurbujasEl.appendChild(div);
       notaTiposEls[n.id]=div;
+      hacerArrastrableNota(div,n.id);
     }else if(!debeExistirTipos && existeTipos){
       notaTiposEls[n.id].remove();
       delete notaTiposEls[n.id];
