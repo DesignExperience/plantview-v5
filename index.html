@@ -11316,8 +11316,17 @@ pvHandle.addEventListener("pointerdown", e => {
 document.addEventListener("pointermove", e => {
   if (!dragH) return;
   setSP(e.clientX);
-  pvWrap.style.left = splitPx + "px";
-  app.style.width   = splitPx + "px";
+  // Mismas propiedades que arma la entrada a "3D + Split" (aplicarModo):
+  // app usa left+right:0 (no width), pvWrap usa left:0+right (no left) —
+  // acá se estaba tocando width/left en vez de eso, dejando left/right/
+  // width compitiendo entre sí a mitad de arrastre. Con las tres
+  // propiedades del eje horizontal en pugna, el navegador terminaba
+  // calculando bordes inconsistentes entre los dos paneles — el texto y
+  // los íconos de Files se superponían apenas se soltaba en un punto
+  // intermedio (no en los extremos, por eso parecía funcionar bien del
+  // todo o mal del todo según hasta dónde arrastrabas).
+  app.style.left    = (window.innerWidth - splitPx) + "px";
+  pvWrap.style.right = splitPx + "px";
 });
 document.addEventListener("pointerup", () => {
   if (!dragH) return; dragH = false;
