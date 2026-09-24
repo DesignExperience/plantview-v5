@@ -13969,6 +13969,7 @@ floor.rotation.x=-Math.PI/2;floor.position.y=-.01;scene.add(floor);
 let ZONES=[];               // dynamic, built from GLB or default
 let zoneGroups={};          // zoneId → THREE.Group in scene
 let allMeshes=[];           // all raycaster targets
+let rootGrpActual=null;     // THREE.Group raíz del modelo actual — ver buildSceneFromGLB/computeExplodeData
 let currentGlbData=null;    // {gltf, binBuf, nodes, buildNode, ...}
 const docStore={};
 const COLORS=['#5B8BFF','#3DFFD0','#FF4F6A','#FFB830','#A78BFA','#34D399','#F87171','#60A5FA','#4ADE80','#FBBF24'];
@@ -14249,17 +14250,39 @@ function actualizarBarraAislar(){
   }
 }
 
+// La explosión (computeExplodeData/setExplode) calcula dirección y
+// distancia contra el tamaño de lo que está VISIBLE ahora mismo (ver
+// cajaMeshesVisibles) — así que cada vez que cambia qué está aislado hay
+// que recalcularla, si no queda usando el tamaño del modelo completo de
+// antes de aislar (bug reportado: una pieza aislada "explota" lejísimos).
+// Si el slider ya estaba en algún nivel > 0, se resetea a 0 primero: si
+// no, computeExplodeData tomaría la posición YA explotada como si fuera
+// la posición de armado.
+function recalcularExplosionSegunVisibilidad(){
+  if(!rootGrpActual) return;
+  const slider=document.getElementById('explodeSlider');
+  if(slider && Number(slider.value)>0){
+    slider.value=0;
+    const label=document.getElementById('explodeLabel');
+    if(label) label.textContent='0%';
+    setExplode(0);
+  }
+  computeExplodeData(rootGrpActual);
+}
+
 function aplicarAislamiento(seleccion){
   if(!seleccion||seleccion.size===0){ restaurarVisibilidadTotal(); return; }
   allMeshes.forEach(mesh=>{ mesh.visible=coincideConAislamiento(mesh,seleccion); });
   aislamientoActivo=seleccion;
   actualizarBarraAislar();
+  recalcularExplosionSegunVisibilidad();
 }
 
 function restaurarVisibilidadTotal(){
   allMeshes.forEach(mesh=>{ mesh.visible=true; });
   aislamientoActivo=null;
   actualizarBarraAislar();
+  recalcularExplosionSegunVisibilidad();
 }
 
 function limpiarOverlayStaged(key){
@@ -14363,6 +14386,7 @@ async function buildSceneFromGLB(glbData, selectedIndices){
   const rootGrp=new THREE.Group();
   rootGrp.userData={isGlbRoot:true};
   scene.add(rootGrp);
+  rootGrpActual=rootGrp;
 
   const loadOverlay=document.getElementById('loadOverlay');
   loadOverlay.classList.remove('hidden');
@@ -14664,10 +14688,28 @@ function fusionarMallasPesadas(rootGrp){
   allMeshes.push(...meshesNuevos);
 }
 
+// Caja delimitadora que solo cuenta meshes VISIBLES — a diferencia de
+// THREE.Box3().setFromObject, que ignora mesh.visible por completo. Si no
+// se filtra, la explosión de un aislamiento sigue calculando su dirección
+// y distancia contra el tamaño del modelo ENTERO (piezas ocultas
+// incluidas), así que una pieza aislada sale disparada lejísimos en vez
+// de separarse cerca de su posición real (bug reportado).
+function cajaMeshesVisibles(obj){
+  const box=new THREE.Box3();
+  obj.traverse(o=>{
+    if(!o.isMesh || o.visible===false || !o.geometry?.attributes?.position) return;
+    o.updateMatrixWorld(true);
+    const b=new THREE.Box3().setFromBufferAttribute(o.geometry.attributes.position);
+    b.applyMatrix4(o.matrixWorld);
+    box.union(b);
+  });
+  return box;
+}
+
 let explodeMaxDist=0;
 function computeExplodeData(rootGrp){
   rootGrp.updateMatrixWorld(true);
-  const overallBox=new THREE.Box3().setFromObject(rootGrp);
+  const overallBox=cajaMeshesVisibles(rootGrp);
   const overallCenter=overallBox.getCenter(new THREE.Vector3());
   const overallSize=overallBox.getSize(new THREE.Vector3());
   explodeMaxDist=Math.max(overallSize.x,overallSize.y,overallSize.z)||1;
@@ -14678,7 +14720,7 @@ function computeExplodeData(rootGrp){
   Object.values(zoneGroups).forEach(grp=>{
     if(grp.parent!==rootGrp) return;
     grp.updateMatrixWorld(true);
-    const grpBox=new THREE.Box3().setFromObject(grp);
+    const grpBox=cajaMeshesVisibles(grp);
     const grpCenter=grpBox.isEmpty() ? grp.getWorldPosition(new THREE.Vector3()) : grpBox.getCenter(new THREE.Vector3());
     const grpSize=grpBox.isEmpty() ? new THREE.Vector3() : grpBox.getSize(new THREE.Vector3());
 
@@ -14692,7 +14734,7 @@ function computeExplodeData(rootGrp){
     // Nivel 2: piezas internas del subensamblaje, relativas a SU propio centro
     grp.children.forEach(child=>{
       child.updateMatrixWorld(true);
-      const childBox=new THREE.Box3().setFromObject(child);
+      const childBox=cajaMeshesVisibles(child);
       const childCenter=childBox.isEmpty() ? child.getWorldPosition(new THREE.Vector3()) : childBox.getCenter(new THREE.Vector3());
       const dir2=childCenter.clone().sub(grpCenter);
       if(dir2.lengthSq()<1e-6) return; // pieza única en el grupo: nada que separar adentro
