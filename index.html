@@ -6812,7 +6812,25 @@ function subirArchivoADriveConProgreso(nombre, blob, carpetaIdPadre, onProgress)
 // la primera en vez de repetir la búsqueda+creación desde cero.
 const carpetaDriveEnVuelo = new Map();
 
+// Dos nombres de archivo pueden verse IDÉNTICOS en pantalla y no serlo como
+// texto: acentos codificados en NFC vs NFD (Mac vs Windows/Drive web),
+// un espacio de más al final o en el medio, un espacio "no separable"
+// (nbsp) pegado por accidente al subir el archivo, etc. — nada de eso se
+// nota a simple vista, pero alcanza para que una comparación exacta trate
+// dos carpetas de notas del mismo modelo como si fueran de modelos
+// distintos y nunca las detecte como duplicadas. Se normaliza a NFC, se
+// pasan los nbsp a espacios comunes y se colapsan/recortan los espacios
+// antes de comparar o de armar el nombre de una carpeta nueva.
+function normalizarNombreCarpeta(nombre) {
+  return (nombre || "")
+    .normalize("NFC")
+    .replace(/ /g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 async function obtenerOCrearCarpetaDrive(nombre, carpetaPadreId) {
+  nombre = normalizarNombreCarpeta(nombre);
   const clave = carpetaPadreId + "||" + nombre;
   if (carpetaDriveEnVuelo.has(clave)) return carpetaDriveEnVuelo.get(clave);
   const promesa = obtenerOCrearCarpetaDriveInterno(nombre, carpetaPadreId).finally(() => {
@@ -6978,6 +6996,7 @@ async function generarOReusarShortlink(rutaCorta) {
    ============================================================ */
 async function buscarSubcarpetaDriveSoloLectura(nombreCarpeta, carpetaPadreId) {
   if (!driveConfig.apiKey || !carpetaPadreId) return null;
+  nombreCarpeta = normalizarNombreCarpeta(nombreCarpeta);
   const nombreEscapado = nombreCarpeta.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
   const q = encodeURIComponent(`name='${nombreEscapado}' and '${carpetaPadreId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`);
   // orderBy=createdTime: si hay duplicadas por una carrera vieja, siempre
@@ -9244,7 +9263,7 @@ async function fusionarGrupoCarpetasDrive(carpetas) {
 async function ejecutarUnificarCarpetasNotas(payload) {
   const { nombreGlb, carpetaPadreId, reqId } = payload;
   try {
-    const nombreCarpeta = `${nombreGlb} - Documentos y notas`;
+    const nombreCarpeta = normalizarNombreCarpeta(`${nombreGlb} - Documentos y notas`);
     const nombreEscapado = nombreCarpeta.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
     const q = encodeURIComponent(`name='${nombreEscapado}' and '${carpetaPadreId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`);
     const listResp = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,createdTime)&orderBy=createdTime`, {
@@ -9304,9 +9323,15 @@ async function unificarCarpetasNotasEnCarpeta(carpetaRaizId) {
     const hijas = await listarSubcarpetas(folderId);
     const porNombre = new Map();
     hijas.forEach(c => {
-      if (c.name.endsWith(" - Documentos y notas")) {
-        if (!porNombre.has(c.name)) porNombre.set(c.name, []);
-        porNombre.get(c.name).push(c);
+      // normalize('NFC'): "duplicadas" con acentos pueden verse IDÉNTICAS en
+      // pantalla pero venir codificadas distinto a nivel de bytes (NFC vs
+      // NFD — típico Mac vs Windows/Drive web) — sin esto, dos carpetas que
+      // se ven exactamente iguales quedan en grupos separados y no se
+      // detectan como duplicadas.
+      const nombreNorm = normalizarNombreCarpeta(c.name);
+      if (nombreNorm.endsWith(" - Documentos y notas")) {
+        if (!porNombre.has(nombreNorm)) porNombre.set(nombreNorm, []);
+        porNombre.get(nombreNorm).push(c);
       } else {
         pendientes.push(c.id); // seguir bajando — puede haber más modelos más adentro
       }
