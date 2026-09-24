@@ -16494,6 +16494,14 @@ function elegirNivelDesdePopup(nivel,key){
   if(puedeIguales){
     const res=resolverInstanciasIgualesDesdePopup();
     cantidadIguales=res&&res.instancias?res.instancias.length:0;
+    // TEMPORAL: se reportó sobre-conteo (11 "iguales" cuando en realidad
+    // hay 1 solo) — se vuelca a consola el prefijo de cada grupo detectado
+    // para ver qué está agrupando junto que no debería. Sacar una vez
+    // resuelto.
+    if(res&&res.grupos&&res.grupos.length>1){
+      console.log('[iguales-debug4] nivel:',JSON.stringify(nivel),'etiqueta:',JSON.stringify(res.etiqueta),'grupos:',res.grupos.length);
+      res.grupos.forEach((g,i)=>console.log('  grupo',i,'pathPrefix:',JSON.stringify(g.pathPrefix),'piezas:',g.piezas.length));
+    }
   }
   const sufijo=cantidadIguales>1?` (${cantidadIguales})`:'';
   if(spanIguales) spanIguales.textContent='Nota en iguales'+sufijo;
