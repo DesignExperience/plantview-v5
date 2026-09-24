@@ -14707,62 +14707,76 @@ function cajaMeshesVisibles(obj){
 }
 
 let explodeMaxDist=0;
+
+// Factor de distancia por nivel de anidado — nivel 1 son los subensamblajes
+// de tope (spread = tamaño de TODO el modelo), nivel 2+ son piezas/grupos
+// más internos (spread = tamaño de su propio contenedor padre). Un exploded
+// view estilo SolidWorks separa en cascada por cada nivel del árbol, no
+// solo el primero — antes esto se cortaba a mano en el nivel 2 (grp y sus
+// hijos directos nomás), así que un subensamblaje con más niveles adentro
+// (ej. un gabinete con motor+rodillo+placa puntual, no fusionados) se movía
+// entero como UN bloque rígido al explotar en vez de separar sus piezas
+// (bug reportado: "no se explotan las piezas, solo mueve la pieza"). Los
+// factores van bajando con la profundidad para que no se vuelva un caos
+// visual en árboles muy anidados; de ahí en más se repite el último valor.
+const EXPLODE_FACTOR_POR_NIVEL=[0,0.6,0.7,0.55,0.4,0.3];
+function factorExplodeNivel(nivel){
+  return EXPLODE_FACTOR_POR_NIVEL[Math.min(nivel,EXPLODE_FACTOR_POR_NIVEL.length-1)];
+}
+
+// Recorre TODO el árbol desde 'nodo' (recursivo), asignando a cada hijo su
+// propio offset de explosión relativo al centro de 'nodo' — así cada nivel
+// de anidado (zona → subensamblaje → sub-subensamblaje → pieza…) separa
+// sus propios hijos, no solo los primeros dos niveles. Un mesh fusionado
+// (ver fusionarRamaEstatica) es una hoja real: varias piezas originales
+// pueden vivir combinadas ahí sin nodos propios, así que ahí se corta la
+// recursión (no hay nada más que mover por dentro).
+function computeExplodeNivelRecursivo(nodo,nivel){
+  const hijos=nodo.children;
+  if(hijos.length===0) return;
+  nodo.updateMatrixWorld(true);
+  const nodoBox=cajaMeshesVisibles(nodo);
+  const nodoCenter=nodoBox.isEmpty() ? nodo.getWorldPosition(new THREE.Vector3()) : nodoBox.getCenter(new THREE.Vector3());
+  const nodoSize=nodoBox.isEmpty() ? new THREE.Vector3() : nodoBox.getSize(new THREE.Vector3());
+  const spread=nivel===1 ? explodeMaxDist : (Math.max(nodoSize.x,nodoSize.y,nodoSize.z)||0);
+  const factor=factorExplodeNivel(nivel);
+  hijos.forEach(child=>{
+    child.updateMatrixWorld(true);
+    const childBox=cajaMeshesVisibles(child);
+    const childCenter=childBox.isEmpty() ? child.getWorldPosition(new THREE.Vector3()) : childBox.getCenter(new THREE.Vector3());
+    const dir=childCenter.clone().sub(nodoCenter);
+    if(dir.lengthSq()<1e-6){
+      delete child.userData.explode;
+    }else{
+      dir.normalize();
+      child.userData.explode={basePos:child.position.clone(),dir,factor,spread};
+    }
+    if(!child.isMesh) computeExplodeNivelRecursivo(child,nivel+1);
+  });
+}
+
 function computeExplodeData(rootGrp){
   rootGrp.updateMatrixWorld(true);
-  const overallBox=cajaMeshesVisibles(rootGrp);
-  const overallCenter=overallBox.getCenter(new THREE.Vector3());
-  const overallSize=overallBox.getSize(new THREE.Vector3());
+  const overallSize=cajaMeshesVisibles(rootGrp).getSize(new THREE.Vector3());
   explodeMaxDist=Math.max(overallSize.x,overallSize.y,overallSize.z)||1;
-
-  // Solo los subensamblajes reales (hijos directos de rootGrp) — excluye
-  // entradas '<zoneId>_stl' de zoneGroups, que cuelgan de OTRO grupo y cuya
-  // .position no está en el espacio de rootGrp.
-  Object.values(zoneGroups).forEach(grp=>{
-    if(grp.parent!==rootGrp) return;
-    grp.updateMatrixWorld(true);
-    const grpBox=cajaMeshesVisibles(grp);
-    const grpCenter=grpBox.isEmpty() ? grp.getWorldPosition(new THREE.Vector3()) : grpBox.getCenter(new THREE.Vector3());
-    const grpSize=grpBox.isEmpty() ? new THREE.Vector3() : grpBox.getSize(new THREE.Vector3());
-
-    const dir=grpCenter.clone().sub(overallCenter);
-    if(dir.lengthSq()<1e-6) dir.set(0,1,0); // pieza concéntrica: explota hacia arriba en vez de no moverse
-    dir.normalize();
-    grp.userData.basePos=grp.position.clone();
-    grp.userData.explodeDir=dir;
-    grp.userData.localSpread=Math.max(grpSize.x,grpSize.y,grpSize.z)||0;
-
-    // Nivel 2: piezas internas del subensamblaje, relativas a SU propio centro
-    grp.children.forEach(child=>{
-      child.updateMatrixWorld(true);
-      const childBox=cajaMeshesVisibles(child);
-      const childCenter=childBox.isEmpty() ? child.getWorldPosition(new THREE.Vector3()) : childBox.getCenter(new THREE.Vector3());
-      const dir2=childCenter.clone().sub(grpCenter);
-      if(dir2.lengthSq()<1e-6) return; // pieza única en el grupo: nada que separar adentro
-      dir2.normalize();
-      child.userData.basePos2=child.position.clone();
-      child.userData.explodeDir2=dir2;
-    });
-  });
+  computeExplodeNivelRecursivo(rootGrp,1);
 }
 
 // amount: 0 (armado) a 1 (máxima separación)
 function setExplode(amount){
   amount=Math.min(Math.max(amount,0),1);
-  Object.values(zoneGroups).forEach(grp=>{
-    const {basePos,explodeDir,localSpread}=grp.userData;
-    if(!basePos||!explodeDir) return;
-    grp.position.copy(basePos).addScaledVector(explodeDir, amount*explodeMaxDist*0.6);
-
-    grp.children.forEach(child=>{
-      const {basePos2,explodeDir2}=child.userData;
-      if(!basePos2||!explodeDir2) return;
-      child.position.copy(basePos2).addScaledVector(explodeDir2, amount*localSpread*0.7);
+  function aplicar(nodo){
+    nodo.children.forEach(child=>{
+      const e=child.userData.explode;
+      if(e) child.position.copy(e.basePos).addScaledVector(e.dir, amount*e.spread*e.factor);
+      if(!child.isMesh) aplicar(child);
     });
-  });
+  }
+  if(rootGrpActual) aplicar(rootGrpActual);
   // Las piezas se movieron — los anchors de los badges (calculados una vez
   // al cargar, ya no en cada frame) tienen que seguirlas. setExplode() se
   // llama por el input del slider, mucho menos seguido que 60fps, así que
-  // este Box3 por zona acá es un costo aceptable.
+  // este recorrido acá es un costo aceptable.
   if(typeof updateBadgeAnchors==='function') updateBadgeAnchors();
 }
 
