@@ -16392,6 +16392,13 @@ function mostrarSelLevelPopup(cx,cy,hit,piezaUd,zone){
   });
   crearBotonNivel('pieza','pieza',SEL_LEVEL_ICONO_PIEZA,'Pieza','Seleccionar solo esta pieza');
 
+  // Reset del contador de "iguales" del popup anterior — recién se
+  // vuelve a calcular cuando elijan un nivel (ver elegirNivelDesdePopup).
+  const spanIgualesReset=document.querySelector('#btnSelLevelIguales span');
+  const spanIgualesAislarReset=document.querySelector('#btnSelLevelIgualesAislar span');
+  if(spanIgualesReset) spanIgualesReset.textContent='Nota en iguales';
+  if(spanIgualesAislarReset) spanIgualesAislarReset.textContent='Seleccionar y aislar iguales';
+
   const btnFicha=document.getElementById('btnSelLevelFicha');
   btnFicha.disabled=true;
   btnFicha.title='Elegí Pieza o Subensamblaje primero';
@@ -16457,6 +16464,19 @@ function elegirNivelDesdePopup(nivel,key){
   const btnIgualesAislar=document.getElementById('btnSelLevelIgualesAislar');
   btnIgualesAislar.disabled=!puedeIguales;
   btnIgualesAislar.title=puedeIguales?'':'Elegí un nivel primero';
+  // Cuenta las instancias iguales YA en este nivel (sin esperar a que
+  // toquen el botón) y la muestra ahí mismo — así el usuario ve de una
+  // "cuántas son" antes de decidir si vale la pena agrupar/aislar.
+  const spanIguales=btnIguales.querySelector('span');
+  const spanIgualesAislar=btnIgualesAislar.querySelector('span');
+  let cantidadIguales=0;
+  if(puedeIguales){
+    const res=resolverInstanciasIgualesDesdePopup();
+    cantidadIguales=res&&res.instancias?res.instancias.length:0;
+  }
+  const sufijo=cantidadIguales>1?` (${cantidadIguales})`:'';
+  if(spanIguales) spanIguales.textContent='Nota en iguales'+sufijo;
+  if(spanIgualesAislar) spanIgualesAislar.textContent='Seleccionar y aislar iguales'+sufijo;
   resaltarNivelSeleccion(selPopupPendiente.hit,nivel);
 }
 
