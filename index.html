@@ -11514,7 +11514,14 @@ else if (typeof exports === 'object')
 html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'DM Mono','Courier New',monospace;overscroll-behavior:none}
 .topbar{position:fixed;top:0;left:0;right:0;padding:calc(12px + var(--safe-top)) 16px 12px;background:linear-gradient(to bottom,rgba(208,212,220,.98),rgba(208,212,220,0));display:flex;align-items:center;gap:10px;z-index:200;pointer-events:none}
 .topbar>*{pointer-events:all}
-.logo{font-family:'Syne',sans-serif;font-size:17px;font-weight:800;letter-spacing:-.02em;color:var(--text);flex:1}
+.logo{font-family:'Syne',sans-serif;font-size:17px;font-weight:800;letter-spacing:-.02em;color:var(--text);flex:none}
+/* Nombre del GLB abierto, al lado del logo — antes la topbar no decía
+   en absoluto qué archivo se estaba viendo (ver window.addEventListener
+   'abrirGLB' más abajo, que la actualiza junto con archivoNombreActual).
+   flex:1 (no el logo) para que sea esto lo que ocupe el espacio libre
+   entre el logo y los íconos de la derecha, truncando con "…" si el
+   nombre es largo en vez de empujarlos fuera de pantalla. */
+.topbar-archivo-nombre{flex:1;min-width:0;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
 .logo em{color:var(--acc);font-style:normal}
 .topbar-btn{width:40px;height:40px;border-radius:12px;background:rgba(232,234,239,.9);border:1px solid var(--border);backdrop-filter:blur(12px);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;color:var(--muted);position:relative}
 .topbar-btn.on{background:var(--acc);border-color:var(--acc);color:#fff}
@@ -12163,6 +12170,7 @@ window.onerror=function(msg,src,line){
 <!-- Top bar -->
 <div class="topbar">
   <span class="logo">plant<em>view</em></span>
+  <span id="topbarArchivoNombre" class="topbar-archivo-nombre" title=""></span>
   <button class="topbar-btn" id="bImport" title="Importar modelo 3D" style="position:relative">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
     <span class="notif-dot" id="importDot"></span>
@@ -20598,6 +20606,8 @@ window.addEventListener('message', async (e) => {
   archivoDriveIdActual = archivoDriveId || null;
   carpetaDriveIdActual = carpetaDriveId || null;
   archivoNombreActual = nombre || null;
+  const nombreTopbar = document.getElementById('topbarArchivoNombre');
+  if (nombreTopbar) { nombreTopbar.textContent = archivoNombreActual || ''; nombreTopbar.title = archivoNombreActual || ''; }
   let buffer = e.data.buffer;
   const lo = document.getElementById('loadOverlay');
   const lm = document.getElementById('loadMsg');
