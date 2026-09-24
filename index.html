@@ -313,7 +313,12 @@ input  { font-family: inherit; }
    línea/el visor quedan pintados bien adentro del panel de Files en vez
    de en el borde real. calc(100% - var(--sp)) convierte correctamente
    "ancho del panel derecho" a "posición X desde la izquierda". */
-body.mode-split #app      { position: fixed; top: calc(var(--bar-h) + var(--safe-t)); left: 0; right: auto; bottom: 0; }
+/* top:0 (no calc(--bar-h+safe-t)): #app YA reserva esa altura como parte
+   normal de su propio layout interno (#app-bar es su primer hijo flex,
+   ver "LAYOUT RAÍZ" más arriba) — sumarle el mismo offset por afuera
+   corría todo el bloque hacia abajo, dejando un hueco gris vacío del
+   doble de alto antes de que apareciera su propia barra superior. */
+body.mode-split #app      { position: fixed; top: 0; left: 0; right: auto; bottom: 0; }
 body.mode-split #pv-wrap  { left: calc(100% - var(--sp, 50%)); }
 body.mode-split #pv-handle{ display: block; left: calc(100% - var(--sp, 50%)); margin-left: -2.5px; }
 
@@ -11266,7 +11271,12 @@ function aplicarModo(modo, save = true) {
       pvWrap.style.left = "0";
       pvWrap.style.right = splitPx + "px";
       pvWrap.style.borderLeft = "none";
-      pvWrap.style.top = "";
+      // "0", no "" — el contenido de adentro (la barra NOTAS/+/capas del
+      // iframe) ya se posiciona asumiendo que el visor arranca en y=0,
+      // igual que en 3D a pantalla completa (línea de arriba); dejarlo en
+      // "" revertía a la reserva de --bar-h del CSS base, corriendo todo
+      // el visor hacia abajo y dejando un hueco gris vacío arriba.
+      pvWrap.style.top = "0";
       if (!state.splitActivo) setSplit(true);
       panelVisor.style.display = "none";
       divider.style.display = "none";
