@@ -16548,11 +16548,23 @@ function buscarInstanciasIguales(objName){
 // en el camino de cada pieza — eso sigue separando bien dos ramas
 // distintas que reusen el mismo nombre en lugares no relacionados,
 // solo que ya no exige que estén al mismo nivel de anidado.
+// SolidWorks numera cada instancia de un componente repetido agregando un
+// sufijo "<N>" al nombre (ej. "10-01731.0-00<1>", "10-01731.0-00<2>") —
+// eso pasa sobre todo con nodos de SUBENSAMBLAJE (de tope o intermedios),
+// así que dos instancias que son "el mismo subensamblaje" tienen nombres
+// distintos letra por letra y el matching exacto nunca las agrupaba.
+// Se ignora ese sufijo solo para EMPAREJAR "iguales" — el nombre real
+// (con sufijo) se sigue guardando tal cual en pathNames/objName.
+function normalizarNombreInstancia(nombre){
+  return (nombre||'').replace(/<\d+>\s*$/,'').trim();
+}
+
 function buscarInstanciasIgualesSubensamblaje(nombre){
   const grupos=new Map(); // zoneId+prefijo -> {zoneId,pathPrefix,piezas:[{mesh,pieza}]}
+  const nombreNorm=normalizarNombreInstancia(nombre);
   function registrar(ud,mesh,pieza){
     const pathNames=ud.pathNames||[];
-    const idx=pathNames.indexOf(nombre);
+    const idx=pathNames.findIndex(n=>normalizarNombreInstancia(n)===nombreNorm);
     if(idx===-1) return;
     const prefix=pathNames.slice(0,idx+1);
     const key=ud.zoneId+'::'+prefix.join('§');
