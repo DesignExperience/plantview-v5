@@ -11828,7 +11828,7 @@ canvas{display:block;width:100%;height:100%}
 .lista-notas-head{display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
 .lista-notas-head span{font-weight:700;font-size:13px}
 .lista-notas-head-btns{display:flex;align-items:center;gap:6px}
-.lista-notas-toggle-burbujas{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);cursor:pointer;flex-shrink:0;margin:2px 0 4px}
+.lista-notas-toggle-burbujas{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:11px;color:var(--muted);cursor:pointer;flex-shrink:0;margin:2px 0 4px}
 .lista-notas-toggle-burbujas span{font-weight:400;font-size:11px}
 .lista-notas-toggle-burbujas .nota-switch{width:30px;height:17px}
 .lista-notas-toggle-burbujas .nota-switch-track::after{width:13px;height:13px}
@@ -12499,11 +12499,11 @@ window.onerror=function(msg,src,line){
     </div>
   </div>
   <label class="lista-notas-toggle-burbujas" title="Activa o desactiva la burbuja de texto de TODAS las notas de una — cada nota abajo tiene su propio toggle individual para ajustarlas una por una después">
+    <span>Mostrar todas las burbujas</span>
     <span class="nota-switch">
       <input type="checkbox" id="notasBurbujasGlobalToggle" checked>
       <span class="nota-switch-track"></span>
     </span>
-    <span>Mostrar todas las burbujas</span>
   </label>
   <div id="listaNotasItems"></div>
 </div>
