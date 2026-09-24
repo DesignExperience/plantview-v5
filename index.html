@@ -11335,11 +11335,22 @@ document.addEventListener("pointermove", e => {
   // todo o mal del todo según hasta dónde arrastrabas).
   app.style.left    = (window.innerWidth - splitPx) + "px";
   pvWrap.style.right = splitPx + "px";
+  // El visor 3D vive en un <iframe> con su propio Three.js — ese renderer
+  // solo se redimensiona cuando SU PROPIA ventana recibe un resize nativo
+  // (ver "resize();window.addEventListener('resize',resize)" adentro del
+  // visor). Cambiar el ancho del contenedor por CSS sí dispara ese evento,
+  // pero el navegador lo puede debounced/retrasar durante un arrastre
+  // rápido de muchos eventos seguidos — el canvas quedaba "flotando" con
+  // el tamaño viejo mientras el contenedor ya había cambiado. Forzarlo acá
+  // en cada pointermove asegura que el render siga el ancho real sin
+  // esperar a que el navegador decida despachar el evento nativo.
+  try { pvIframe.contentWindow.dispatchEvent(new Event("resize")); } catch (e) {}
 });
 document.addEventListener("pointerup", () => {
   if (!dragH) return; dragH = false;
   pvHandle.classList.remove("dragging");
   pvIframe.style.pointerEvents = "";
+  try { pvIframe.contentWindow.dispatchEvent(new Event("resize")); } catch (e) {}
   localStorage.setItem("pv_split_px", Math.round(splitPx));
 });
 
