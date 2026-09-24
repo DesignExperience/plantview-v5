@@ -6980,6 +6980,12 @@ function actualizarUIEscrituraDrive() {
     fuenteDot.style.background = color;
     fuenteDot.style.boxShadow = `0 0 3px ${color}b3`;
   }
+  // El visor 3D (iframe aparte) repite el mismo estado con su propio
+  // ícono — se empuja el cambio en vivo en vez de que el visor tenga que
+  // preguntar por polling (ver consultaLoginDrive, que sigue usándose
+  // para el estado INICIAL al cargar, antes de que haya ningún cambio
+  // que empujar).
+  enviarAlVisor3D({ tipo: "driveLoginCambio", conectado });
   actualizarLoginTarea();
 }
 
@@ -11815,6 +11821,8 @@ canvas{display:block;width:100%;height:100%}
 /* Notas 3D — botón flotante debajo de "Guardar vista" */
 #btnNotas3D{position:fixed;top:calc(var(--safe-top) + 156px);right:16px;width:36px;height:36px;border-radius:10px;background:rgba(232,234,239,.88);border:1px solid var(--border);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:190;cursor:pointer;color:var(--text)}
 #btnNotas3D.on{color:#fff;background:var(--acc);border-color:var(--acc)}
+#btnDriveStatus3D{position:fixed;top:calc(var(--safe-top) + 200px);right:16px;width:36px;height:36px;border-radius:10px;background:rgba(232,234,239,.88);border:1px solid var(--border);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:190;cursor:pointer;color:var(--text)}
+#driveStatusDot3D{position:absolute;top:5px;right:5px;width:7px;height:7px;border-radius:50%;background:#e0505b;box-shadow:0 0 4px rgba(224,80,91,.7)}
 #notasBadge3D{position:absolute;top:-5px;right:-5px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:#e03050;color:#fff;font-size:9.5px;font-weight:700;display:none;align-items:center;justify-content:center;line-height:1;border:1.5px solid var(--surf);cursor:pointer}
 #notasBadge3D.show{display:flex}
 
@@ -12382,6 +12390,20 @@ window.onerror=function(msg,src,line){
     <path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
   </svg>
   <span id="notasBadge3D" aria-hidden="true"></span>
+</button>
+
+<!-- Mismo ícono/estado que "Fuente de datos" en Files (ver
+     fuenteStatusDot) — punto verde/rojo según si la escritura de Drive
+     está conectada, para saber de un vistazo sin salir del visor 3D si
+     lo que se guarde acá (notas, adjuntos, vistas) realmente se va a
+     poder escribir. Solo informativo, no abre nada al tocarlo — igual
+     que su equivalente en Files, el login real se hace desde ahí. -->
+<button id="btnDriveStatus3D" type="button" title="Estado de conexión con Drive" aria-label="Estado de conexión con Drive">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+    <line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/>
+  </svg>
+  <span id="driveStatusDot3D"></span>
 </button>
 
 <div id="panelNota">
@@ -17747,9 +17769,31 @@ function consultaLoginDrive(){
   });
 }
 
+// Mismo ícono que "Fuente de datos" en Files, mismo criterio de color
+// (verde/rojo) que actualizarUIEscrituraDrive del lado de afuera — se
+// pinta al cargar (consultaLoginDrive, una sola vez) y de ahí en más se
+// mantiene al día en vivo con cada 'driveLoginCambio' que empuja el
+// shell exterior cuando el usuario conecta/desconecta, sin necesidad de
+// volver a preguntar.
+function pintarDriveStatus3D(conectado){
+  const dot=document.getElementById('driveStatusDot3D');
+  if(!dot) return;
+  const color=conectado?'#3ddc84':'#e0505b';
+  dot.style.background=color;
+  dot.style.boxShadow=`0 0 4px ${color}b3`;
+}
+consultaLoginDrive().then(pintarDriveStatus3D);
+document.getElementById('btnDriveStatus3D').addEventListener('click', async ()=>{
+  const conectado=await consultaLoginDrive();
+  pintarDriveStatus3D(conectado);
+  toast(conectado ? '✓ Drive conectado — se puede guardar' : '✗ Drive desconectado — conectá la edición desde Files para guardar');
+});
+
 window.addEventListener('message',(e)=>{
   if(!e.data) return;
-  if(e.data.tipo==='subidaDriveOK' && notasReqPendientes[e.data.reqId]){
+  if(e.data.tipo==='driveLoginCambio'){
+    pintarDriveStatus3D(!!e.data.conectado);
+  }else if(e.data.tipo==='subidaDriveOK' && notasReqPendientes[e.data.reqId]){
     notasReqPendientes[e.data.reqId].resolve(e.data.fileId);
     delete notasReqPendientes[e.data.reqId];
   }else if(e.data.tipo==='subidaDriveError' && notasReqPendientes[e.data.reqId]){
