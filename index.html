@@ -3121,22 +3121,25 @@ document.getElementById("btn-logo-home").addEventListener("click", () => {
 document.getElementById("btn-recargar-carpeta").addEventListener("click", recargarCarpeta);
 
 // Unificar carpetas "* - Documentos y notas" duplicadas de TODOS los
-// modelos del nivel de carpeta que se está viendo ahora en Files (ver
+// modelos que cuelgan (a cualquier profundidad, no solo el nivel que se
+// está viendo) de la carpeta actual de Files (ver
 // unificarCarpetasNotasEnCarpeta) — a diferencia del botón dentro de un
 // modelo puntual (panel de lista de notas del visor 3D), este corre para
-// toda la carpeta de una sola vez.
+// todo el árbol de una sola vez. Recorre subcarpeta por subcarpeta, así
+// que en un proyecto grande puede tardar unos segundos.
 document.getElementById("btn-unificar-carpetas-notas").addEventListener("click", async () => {
   const carpeta = state.carpetaActual;
   if (!carpeta || !carpeta.driveId) { showToast("Esta acción solo funciona con una carpeta de Drive"); return; }
   if (!driveEscrituraConectada()) { showToast("Conectá la edición de Drive primero"); return; }
   const btn = document.getElementById("btn-unificar-carpetas-notas");
   btn.disabled = true;
-  showToast("Buscando carpetas duplicadas…");
+  showToast("Buscando carpetas duplicadas (puede tardar)…", 6000);
   try {
     const res = await unificarCarpetasNotasEnCarpeta(carpeta.driveId);
     showToast(res.modelosConDuplicados > 0
-      ? `✓ Se unificaron ${res.carpetasFusionadas} carpeta(s) duplicada(s) de ${res.modelosConDuplicados} modelo(s)`
+      ? `✓ Se unificaron ${res.carpetasFusionadas} carpeta(s) duplicada(s) de ${res.modelosConDuplicados} modelo(s)${res.tope ? ' (carpeta muy grande, puede haber quedado algo sin revisar — volvé a tocar el botón)' : ''}`
       : "No había carpetas duplicadas en esta carpeta");
+    recargarCarpeta();
   } catch (err) {
     showToast("No se pudo unificar: " + err.message);
   } finally {
@@ -9263,28 +9266,61 @@ async function ejecutarUnificarCarpetasNotas(payload) {
 // falta conocer de antemano el nombre de cada GLB: alcanza con el patrón
 // de sufijo, así corre para todos los modelos de este nivel de carpeta de
 // una sola vez.
-async function unificarCarpetasNotasEnCarpeta(carpetaPadreId) {
-  const q = encodeURIComponent(`'${carpetaPadreId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false and name contains ' - Documentos y notas'`);
-  const listResp = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,createdTime)&orderBy=createdTime`, {
-    headers: { Authorization: `Bearer ${driveAccessToken}` },
-  });
-  if (!listResp.ok) throw new Error(`No se pudo listar las carpetas de notas (HTTP ${listResp.status})`);
-  const todas = (await listResp.json()).files || [];
-  const porNombre = new Map();
-  todas.forEach(c => {
-    if (!c.name.endsWith(" - Documentos y notas")) return; // "contains" en la query de Drive no es un match exacto de sufijo
-    if (!porNombre.has(c.name)) porNombre.set(c.name, []);
-    porNombre.get(c.name).push(c);
-  });
-  let modelosConDuplicados = 0, carpetasFusionadas = 0, archivosMovidos = 0;
-  for (const grupo of porNombre.values()) {
-    if (grupo.length <= 1) continue;
-    modelosConDuplicados++;
-    const res = await fusionarGrupoCarpetasDrive(grupo);
-    carpetasFusionadas += res.fusionadas;
-    archivosMovidos += res.archivosMovidos;
+// Lista TODAS las subcarpetas directas de folderId (con paginación — una
+// carpeta de proyecto grande puede tener más de 100 subcarpetas, el límite
+// de una sola página de la API).
+async function listarSubcarpetas(folderId) {
+  const out = [];
+  let pageToken = "";
+  do {
+    const q = encodeURIComponent(`'${folderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+    const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=nextPageToken,files(id,name,createdTime)&pageSize=1000${pageToken ? `&pageToken=${pageToken}` : ""}`;
+    const resp = await fetch(url, { headers: { Authorization: `Bearer ${driveAccessToken}` } });
+    if (!resp.ok) throw new Error(`No se pudo listar subcarpetas (HTTP ${resp.status})`);
+    const data = await resp.json();
+    out.push(...(data.files || []));
+    pageToken = data.nextPageToken || "";
+  } while (pageToken);
+  return out;
+}
+
+// Recorre TODA la carpeta recursivamente (no solo el nivel que se está
+// viendo en Files) — cada modelo suele vivir en su propia subcarpeta junto
+// a su "<glb> - Documentos y notas", así que las duplicadas de un modelo
+// puntual casi nunca están al mismo nivel que la carpeta abierta en
+// pantalla, sino uno o más niveles más adentro. Agrupa por nombre exacto
+// DENTRO DE CADA CARPETA por separado (no globalmente) — dos modelos
+// distintos en subcarpetas distintas que casualmente compartan nombre no
+// son "duplicados" entre sí, son cosas distintas que no hay que mezclar.
+// Tope de carpetas visitadas como salvavidas ante un árbol enorme o mal
+// formado (ciclos no deberían existir en Drive, pero por las dudas).
+async function unificarCarpetasNotasEnCarpeta(carpetaRaizId) {
+  let modelosConDuplicados = 0, carpetasFusionadas = 0, archivosMovidos = 0, carpetasVisitadas = 0;
+  const TOPE_VISITAS = 2000;
+  const pendientes = [carpetaRaizId];
+  while (pendientes.length) {
+    const folderId = pendientes.pop();
+    if (++carpetasVisitadas > TOPE_VISITAS) break;
+    const hijas = await listarSubcarpetas(folderId);
+    const porNombre = new Map();
+    hijas.forEach(c => {
+      if (c.name.endsWith(" - Documentos y notas")) {
+        if (!porNombre.has(c.name)) porNombre.set(c.name, []);
+        porNombre.get(c.name).push(c);
+      } else {
+        pendientes.push(c.id); // seguir bajando — puede haber más modelos más adentro
+      }
+    });
+    for (const grupo of porNombre.values()) {
+      if (grupo.length <= 1) continue;
+      modelosConDuplicados++;
+      grupo.sort((a, b) => a.createdTime.localeCompare(b.createdTime));
+      const res = await fusionarGrupoCarpetasDrive(grupo);
+      carpetasFusionadas += res.fusionadas;
+      archivosMovidos += res.archivosMovidos;
+    }
   }
-  return { modelosConDuplicados, carpetasFusionadas, archivosMovidos };
+  return { modelosConDuplicados, carpetasFusionadas, archivosMovidos, tope: carpetasVisitadas > TOPE_VISITAS };
 }
 
 const EJECUTORES_DRIVE = {
