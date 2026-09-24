@@ -12258,7 +12258,42 @@ window.onerror=function(msg,src,line){
   <button type="button" id="btnAislarGuardarEstado" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none;background:transparent;color:var(--text);border:1px solid var(--border)" title="Guardar este aislamiento como estado de visualización">💾 Guardar estado</button>
   <button type="button" id="btnAislarVerEstados" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none;background:transparent;color:var(--text);border:1px solid var(--border)" title="Ver estados de visualización guardados">📂 Ver estados</button>
   <button type="button" id="btnAislarNota" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none;background:transparent;color:var(--text);border:1px solid var(--border)" title="Crear una nota en todas las piezas aisladas">📝 Nota a estas piezas</button>
+  <button type="button" id="btnAislarMarcar" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none;background:transparent;color:var(--text);border:1px solid var(--border)" title="Marcar (borde/color/transparencia) todas las selecciones aisladas">🎨 Marcar estas piezas</button>
   <button type="button" id="btnMostrarTodo" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none">👁 Mostrar todo</button>
+</div>
+<!-- Popup "Marcar" para un grupo de selecciones aisladas (piezas sueltas
+     y/o subensamblajes enteros) — mismos controles que la sección "Marcar
+     pieza" de la ficha técnica, pero aplicando UNA marca por cada
+     selección de aislarSeleccionTemp/aislamientoActivo de una sola vez. -->
+<div id="marcarGrupoPopup" class="sel-level-popup" style="display:none">
+  <div class="sel-level-popup-nombre" id="marcarGrupoTitulo">Marcar piezas</div>
+  <div class="sel-level-popup-btns" style="padding:2px 4px 10px;display:flex;flex-direction:column;gap:12px">
+    <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
+      <input type="checkbox" id="marcaGrupoBordeCheck">
+      Borde
+    </label>
+    <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
+      <input type="checkbox" id="marcaGrupoColorCheck">
+      Color
+      <input type="color" id="marcaGrupoColorInput" value="#ff3b30" style="width:32px;height:24px;border:none;background:none;cursor:pointer">
+    </label>
+    <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;cursor:pointer">
+      <span style="display:flex;align-items:center;gap:8px">
+        <input type="checkbox" id="marcaGrupoOpacidadCheck">
+        Transparencia (<span id="marcaGrupoOpacidadVal">0</span>%)
+      </span>
+      <input type="range" id="marcaGrupoOpacidadInput" min="0" max="90" value="0" style="width:100%">
+    </label>
+    <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
+      <input type="checkbox" id="marcaGrupoOcultarCheck">
+      Ocultar
+    </label>
+    <div style="display:flex;gap:8px">
+      <button id="marcaGrupoAplicarBtn" type="button" class="sel-level-popup-ficha" style="flex:1">Aplicar</button>
+      <button id="marcaGrupoQuitarBtn" type="button" class="sel-level-popup-ficha" style="flex:1;background:var(--surf2,#e8eaef);color:var(--text)">Quitar</button>
+    </div>
+    <button id="marcaGrupoCerrarBtn" type="button" class="sel-level-popup-ficha" style="background:transparent;border:1px solid var(--border);color:var(--text)">Cerrar</button>
+  </div>
 </div>
 <div id="canvas-wrap"><canvas id="cv"></canvas></div>
 <svg id="badges-svg" style="position:fixed;inset:0;pointer-events:none;z-index:85;overflow:visible"></svg>
@@ -13958,7 +13993,12 @@ function equipoKey(zone,objName){
 // equipoKey() sola no alcanza como identidad ac\u00e1: dos subensamblajes
 // distintos pueden tener una pieza con el mismo nombre (ej. "Tornillo"
 // repetido en varias zonas), y marcar una no deber\u00eda marcar la otra.
-function marcaKey(zone,objName){
+// pathPrefix (opcional): marca un subensamblaje entero en vez de una
+// pieza puntual — mismo criterio que claveAislar, para poder marcar de
+// una las N piezas de una instancia de "iguales" aislada, no solo una
+// pieza sola por objName.
+function marcaKey(zone,objName,pathPrefix){
+  if(pathPrefix) return zone.id+'::sub::'+pathPrefix.join('§');
   return zone.id+'::'+equipoKey(zone,objName);
 }
 
@@ -13994,13 +14034,13 @@ function resolverObjetivoMarca(zone,objName){
 // modelo (ver reaplicarTodasLasMarcas), as\u00ed que tiene que ser
 // idempotente: repetir la misma marca no debe acumular clones de
 // material ni overlays duplicados.
-function aplicarMarcaPieza(zone,objName){
-  const key=marcaKey(zone,objName);
+function aplicarMarcaPieza(zone,objName,pathPrefix){
+  const key=marcaKey(zone,objName,pathPrefix);
   const marca=marcasPiezas[key];
 
   if(marcaOverlays[key]){ scene.remove(marcaOverlays[key]); delete marcaOverlays[key]; }
 
-  const {simples,fusionados}=resolverObjetivoMarca(zone,objName);
+  const {simples,fusionados}=pathPrefix ? resolverObjetivoMarcaPorPrefix(zone,pathPrefix) : resolverObjetivoMarca(zone,objName);
   const grupoOverlay=new THREE.Group();
   const tieneColorUOpacidad=marca&&(marca.color||(marca.opacidad!=null&&marca.opacidad<1));
 
@@ -14053,7 +14093,7 @@ function aplicarMarcaPieza(zone,objName){
 function reaplicarTodasLasMarcas(){
   Object.values(marcasPiezas).forEach(m=>{
     const zone=ZONES.find(z=>z.id===m.zoneId);
-    if(zone) aplicarMarcaPieza(zone,m.objName||null);
+    if(zone) aplicarMarcaPieza(zone,m.objName||null,m.pathPrefix||null);
   });
 }
 
@@ -14167,11 +14207,11 @@ function resolverObjetivoMarcaPorPrefix(zone,pathPrefix){
   return {simples,fusionados};
 }
 
-// Clave para el Map de aislar — para un sub-subensamblaje intermedio no
-// hay un objName estable (ver arriba), así que se compone con el prefijo
-// completo en vez de reusar marcaKey (esa sigue siendo solo para
-// pieza/subensamblaje, sin tocar su contrato por las marcas persistentes
-// que ya dependen de ella).
+// Clave para el Map de aislar — mismo formato que marcaKey(zone,objName,
+// pathPrefix) para un pathPrefix, pero se mantiene aparte porque el caso
+// sin pathPrefix delega en marcaKey con la firma vieja (sin tercer
+// argumento), que las marcas persistentes ya usaban antes de soportar
+// subensamblajes.
 function claveAislar(zoneId,objName,pathPrefix){
   return pathPrefix ? zoneId+'::sub::'+pathPrefix.join('§') : marcaKey({id:zoneId},objName);
 }
@@ -14190,17 +14230,18 @@ function actualizarBarraAislar(){
   const btnGuardarEstado=document.getElementById('btnAislarGuardarEstado');
   const btnVerEstados=document.getElementById('btnAislarVerEstados');
   const btnNota=document.getElementById('btnAislarNota');
+  const btnMarcar=document.getElementById('btnAislarMarcar');
   if(count>0){
     bar.classList.add('show');
     document.getElementById('aislarBarCount').textContent=count+(count===1?' pieza seleccionada':' piezas seleccionadas');
     btnConfirmar.style.display='';btnCancelar.style.display='';
-    btnMostrarTodo.style.display='none';btnGuardarEstado.style.display='none';btnVerEstados.style.display='none';btnNota.style.display='none';
+    btnMostrarTodo.style.display='none';btnGuardarEstado.style.display='none';btnVerEstados.style.display='none';btnNota.style.display='none';btnMarcar.style.display='none';
   }else if(aislamientoActivo){
     bar.classList.add('show');
     const n=aislamientoActivo.size;
     document.getElementById('aislarBarCount').textContent='Aislado — '+n+(n===1?' selección':' selecciones');
     btnConfirmar.style.display='none';btnCancelar.style.display='none';
-    btnMostrarTodo.style.display='';btnGuardarEstado.style.display='';btnVerEstados.style.display='';btnNota.style.display='';
+    btnMostrarTodo.style.display='';btnGuardarEstado.style.display='';btnVerEstados.style.display='';btnNota.style.display='';btnMarcar.style.display='';
   }else{
     bar.classList.remove('show');
   }
@@ -19555,6 +19596,90 @@ function wireMarcaPiezaForm(zone,objName){
     guardarMarcasDrive().then(()=>toast('🗑️ Marca quitada')).catch(err=>toast('❌ '+err.message));
   });
 }
+
+// Popup "Marcar estas piezas" de la barra de aislar — mismos 4 controles
+// que "Marcar pieza" de la ficha técnica, pero Aplicar/Quitar los repite
+// para CADA selección aislada (aislamientoActivo), una por una: cada
+// selección puede ser una pieza puntual (objName) o un subensamblaje
+// entero (pathPrefix, ver "Seleccionar y aislar iguales"), así que se
+// guarda una entrada en marcasPiezas por cada una, con su propia key
+// (marcaKey ya soporta ambos casos).
+(function(){
+  const popup=document.getElementById('marcarGrupoPopup');
+  const bordeCheck=document.getElementById('marcaGrupoBordeCheck');
+  const colorCheck=document.getElementById('marcaGrupoColorCheck');
+  const colorInput=document.getElementById('marcaGrupoColorInput');
+  const opacidadCheck=document.getElementById('marcaGrupoOpacidadCheck');
+  const opacidadInput=document.getElementById('marcaGrupoOpacidadInput');
+  const opacidadVal=document.getElementById('marcaGrupoOpacidadVal');
+  const ocultarCheck=document.getElementById('marcaGrupoOcultarCheck');
+  const btnAplicar=document.getElementById('marcaGrupoAplicarBtn');
+  const btnQuitar=document.getElementById('marcaGrupoQuitarBtn');
+  const btnCerrar=document.getElementById('marcaGrupoCerrarBtn');
+
+  opacidadInput.addEventListener('input',()=>{ opacidadVal.textContent=opacidadInput.value; opacidadCheck.checked=true; });
+  colorInput.addEventListener('input',()=>{ colorCheck.checked=true; });
+
+  function cerrarPopup(){ popup.style.display='none'; }
+
+  function entradasActivas(){
+    return aislamientoActivo ? [...aislamientoActivo.values()] : [];
+  }
+
+  document.getElementById('btnAislarMarcar').addEventListener('click',()=>{
+    const entradas=entradasActivas();
+    if(entradas.length===0) return;
+    document.getElementById('marcarGrupoTitulo').textContent=`Marcar ${entradas.length}`+(entradas.length===1?' selección':' selecciones');
+    bordeCheck.checked=false;colorCheck.checked=false;opacidadCheck.checked=false;ocultarCheck.checked=false;
+    opacidadInput.value=0;opacidadVal.textContent='0';
+    popup.style.display='flex';
+    popup.style.left='50%';popup.style.top='50%';popup.style.transform='translate(-50%,-50%)';
+  });
+  btnCerrar.addEventListener('click',cerrarPopup);
+
+  btnAplicar.addEventListener('click',()=>{
+    const entradas=entradasActivas();
+    if(entradas.length===0){ cerrarPopup(); return; }
+    const borde=bordeCheck.checked;
+    const color=colorCheck.checked?colorInput.value:null;
+    const opacidad=opacidadCheck.checked?(1-(Number(opacidadInput.value)/100)):null;
+    const oculto=ocultarCheck.checked;
+    entradas.forEach(({zoneId,objName,pathPrefix})=>{
+      const zone=ZONES.find(z=>z.id===zoneId);
+      if(!zone) return;
+      const key=marcaKey(zone,objName,pathPrefix);
+      if(!borde&&!color&&opacidad==null&&!oculto){
+        delete marcasPiezas[key];
+      }else{
+        marcasPiezas[key]={zoneId:zone.id,objName:pathPrefix?null:(objName||null),pathPrefix:pathPrefix||null,color,opacidad,borde,oculto};
+      }
+      aplicarMarcaPieza(zone,pathPrefix?null:objName,pathPrefix||null);
+    });
+    guardarMarcasDrive().then(()=>toast('✅ Marca aplicada a '+entradas.length+(entradas.length===1?' selección':' selecciones'))).catch(err=>toast('❌ '+err.message));
+    cerrarPopup();
+  });
+
+  btnQuitar.addEventListener('click',()=>{
+    const entradas=entradasActivas();
+    if(entradas.length===0){ cerrarPopup(); return; }
+    entradas.forEach(({zoneId,objName,pathPrefix})=>{
+      const zone=ZONES.find(z=>z.id===zoneId);
+      if(!zone) return;
+      const key=marcaKey(zone,objName,pathPrefix);
+      delete marcasPiezas[key];
+      aplicarMarcaPieza(zone,pathPrefix?null:objName,pathPrefix||null);
+    });
+    guardarMarcasDrive().then(()=>toast('🗑️ Marca quitada de '+entradas.length+(entradas.length===1?' selección':' selecciones'))).catch(err=>toast('❌ '+err.message));
+    cerrarPopup();
+  });
+
+  document.addEventListener('click',(e)=>{
+    if(popup.style.display==='none') return;
+    if(e.target.closest('#marcarGrupoPopup,#btnAislarMarcar')) return;
+    cerrarPopup();
+  });
+  document.addEventListener('keydown',(e)=>{ if(e.key==='Escape') cerrarPopup(); });
+})();
 
 // "+" en la sección Notas del sidebar (modo Selección): abre el formulario
 // de nota nueva anclada al centro de la pieza seleccionada, sin necesitar
