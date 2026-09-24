@@ -584,8 +584,13 @@ body.mode-split #pv-handle{ display: block; left: calc(100% - var(--sp, 50%)); m
 
 /* Scroll area del explorador */
 .exp-scroll {
-  flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  flex: 1; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch;
   padding-bottom: calc(70px + var(--safe-b));
+  /* Definir overflow-y sin overflow-x hace que el navegador calcule ese
+     otro eje como "auto" también (regla de CSSOM Overflow) — sin esto,
+     una fila más ancha que la pantalla (nombre largo + botones, en
+     mobile) volvía TODA la lista scrolleable horizontalmente en vez de
+     truncar el nombre con "…" dentro de su propia fila. */
 }
 
 /* Section label */
@@ -693,7 +698,7 @@ body.mode-split #pv-handle{ display: block; left: calc(100% - var(--sp, 50%)); m
 /* Archivos */
 .file-list { padding: 6px 12px; display: flex; flex-direction: column; gap: 6px; }
 .file-item {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 10px; min-width: 0;
   padding: 11px 12px; background: var(--surface);
   border: 1px solid var(--line-soft); border-radius: var(--radius);
   cursor: pointer; transition: border-color .15s, background .15s;
