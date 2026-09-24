@@ -834,7 +834,36 @@ body.mode-split #pv-handle{ display: block; left: calc(100% - var(--sp, 50%)); m
   border-radius: 50%; flex: none; animation: blink 1.4s ease infinite;
 }
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
-.file-actions { flex: none; display: flex; align-items: center; gap: 6px; }
+.file-actions { flex: none; display: flex; align-items: center; gap: 6px; position: relative; }
+/* Menú "⋮" en mobile (ver colapsarAccionesMobile) — agrupa todas las
+   acciones de una fila salvo QR (renombrar/descargar/eliminar/comprimir/
+   editar campos, según cuáles apliquen), que en una pantalla angosta
+   ocupaban tanto lugar fijo que el nombre del archivo quedaba truncado
+   casi de entrada. Mueve los botones YA cableados (con sus mismos
+   listeners) adentro del dropdown, así no duplica ninguna lógica de
+   click — solo los reubica visualmente. */
+.btn-mas { display: none; }
+@media (max-width: 767px) {
+  .btn-mas { display: flex; }
+}
+.file-mas-menu {
+  display: none; position: absolute; top: calc(100% + 4px); right: 0;
+  flex-direction: column; gap: 2px; padding: 6px;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); box-shadow: 0 8px 24px rgba(0,0,0,.35);
+  z-index: 40; min-width: 160px;
+}
+.file-mas-menu.show { display: flex; }
+.file-mas-menu button {
+  width: 100%; height: 34px; padding: 0 10px; flex: none;
+  display: flex; align-items: center; gap: 8px;
+  border: none; border-radius: 8px; background: none; color: var(--text);
+  font-family: "IBM Plex Mono", monospace; font-size: 10.5px;
+  letter-spacing: .04em; text-transform: uppercase; text-align: left;
+}
+.file-mas-menu button:active { background: var(--surface-2); }
+.file-mas-menu button svg { flex: none; }
+.file-mas-menu .mas-item-label { flex: 1; white-space: nowrap; }
 .btn-qr, .btn-editar-campos, .btn-descargar, .btn-comprimir, .btn-renombrar, .btn-eliminar,
 .btn-qr-carpeta, .btn-descargar-carpeta, .btn-renombrar-carpeta, .btn-eliminar-carpeta {
   width: 30px; height: 30px; flex: none;
@@ -3819,6 +3848,10 @@ function renderArchivos(filtro) {
             <path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
           </svg>
         </button>
+        <button class="btn-mas" type="button" title="Más opciones" aria-label="Más opciones">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>
+        </button>
+        <div class="file-mas-menu"></div>
       </span>` : "";
       return `
       <div class="file-item" data-idx="${i}" data-es-carpeta="1" id="file-${esc(f.id)}" role="button" tabindex="0" aria-label="Abrir carpeta ${esc(f.nombre)}">
@@ -3892,6 +3925,10 @@ function renderArchivos(filtro) {
             <path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
           </svg>
         </button>
+        <button class="btn-mas" type="button" title="Más opciones" aria-label="Más opciones">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>
+        </button>
+        <div class="file-mas-menu"></div>
       </span>
     </div>`;
   }).join("");
@@ -4084,7 +4121,43 @@ function renderArchivos(filtro) {
       abrirPDFPreview(f);
     });
   });
+  colapsarAccionesMobile(lista);
 }
+
+// En mobile, agrupa todas las acciones de una fila salvo QR (renombrar/
+// descargar/eliminar/comprimir/editar campos, lo que aplique) adentro de
+// un menú "⋮" — de otro modo esos botones fijos le dejaban al nombre del
+// archivo tan poco ancho que se truncaba casi de entrada. Mueve los
+// botones YA cableados (con sus mismos listeners de más arriba) adentro
+// del dropdown en vez de duplicar la lógica de cada uno.
+function colapsarAccionesMobile(lista) {
+  if (!esMobileUI()) return;
+  lista.querySelectorAll(".file-actions").forEach(acciones => {
+    const menu = acciones.querySelector(".file-mas-menu");
+    if (!menu) return;
+    const sueltos = [...acciones.querySelectorAll(":scope > button")]
+      .filter(b => !b.classList.contains("btn-qr") && !b.classList.contains("btn-qr-carpeta") && !b.classList.contains("btn-mas"));
+    sueltos.forEach(btn => {
+      const label = document.createElement("span");
+      label.className = "mas-item-label";
+      label.textContent = btn.title || "";
+      btn.appendChild(label);
+      menu.appendChild(btn);
+    });
+  });
+  document.querySelectorAll(".btn-mas").forEach(btn => {
+    btn.addEventListener("click", e => {
+      e.stopPropagation();
+      const menu = btn.nextElementSibling;
+      const abierto = menu.classList.contains("show");
+      document.querySelectorAll(".file-mas-menu.show").forEach(m => m.classList.remove("show"));
+      if (!abierto) menu.classList.add("show");
+    });
+  });
+}
+document.addEventListener("click", () => {
+  document.querySelectorAll(".file-mas-menu.show").forEach(m => m.classList.remove("show"));
+});
 
 // Selección múltiple de Files, mismo patrón (Map por id + clase .sel +
 // checkbox sincronizado) que ya usa el explorador de "Documentación
