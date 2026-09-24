@@ -9136,6 +9136,20 @@ const EJECUTORES_DRIVE = {
   resolverCarpetaNotas: (p) => ejecutarResolverCarpeta({ ...p, sufijo: "Documentos y notas", tipoRespuesta: "resolverCarpetaNotas" }),
   borrarArchivoDrive: ejecutarBorrarArchivoDrive,
 };
+// Abrir otro GLB referenciado desde una nota (ver abrirGlbReferenciado en
+// pv-tpl) — no pasa por EJECUTORES_DRIVE porque no necesita el token de
+// escritura, solo arma un "archivo" mínimo y reusa abrirVisor tal como lo
+// hace el explorador de Archivos. carpetaActual se pisa con la carpeta de
+// Drive del modelo referenciado, así el modelo recién abierto resuelve SU
+// PROPIA carpeta de notas/vistas correctamente (ver abrirVisor).
+window.addEventListener("message", (e) => {
+  if (!e.data || e.data.tipo !== "abrirGLBReferenciado") return;
+  const { driveId, nombre, carpetaDriveId } = e.data;
+  if (!driveId) return;
+  state.carpetaActual = { id: "ref:" + carpetaDriveId, nombre: "Drive", driveId: carpetaDriveId, origenDrive: true };
+  abrirVisor({ id: "ref:" + driveId, nombre: nombre || "modelo.glb", tipo: "glb", driveId, tam: "" });
+});
+
 window.addEventListener("message", (e) => {
   if (!e.data || !EJECUTORES_DRIVE[e.data.tipo]) return;
   if (driveEscrituraConectada()) {
@@ -11289,6 +11303,16 @@ canvas{display:block;width:100%;height:100%}
 .adj-item .adj-pdf{width:60px;height:60px;border-radius:6px;background:rgba(58,107,232,.1);color:#3A6BE8;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;cursor:pointer}
 .adj-item .adj-nombre{margin-top:2px;font-size:9.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center}
 .adj-item .adj-quitar{position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;border:2px solid var(--surf);background:#e03050;color:#fff;font-size:12px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+#notaRefGlbBtn3D{display:flex;align-items:center;justify-content:center;gap:7px;height:36px;border-radius:9px;border:1px dashed var(--border);background:none;color:var(--muted);font-family:inherit;font-size:12px;cursor:pointer}
+#notaRefGlbBtn3D:active{border-color:var(--acc);color:var(--acc)}
+.nota-refglb-chip{display:flex;align-items:center;gap:7px;height:36px;padding:0 10px;border-radius:9px;border:1px solid rgba(58,107,232,.35);background:rgba(58,107,232,.08);color:#3A6BE8;font-size:12px}
+.nota-refglb-chip span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.nota-refglb-chip button{flex:none;width:20px;height:20px;border-radius:50%;border:none;background:none;color:#3A6BE8;font-size:14px;cursor:pointer}
+.nota-refglb-chip button:active{background:rgba(58,107,232,.2)}
+#notaRefGlbLista3D{display:flex;flex-direction:column;gap:4px;max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:9px;padding:6px}
+.nota-refglb-item{display:flex;align-items:center;gap:6px;padding:7px 8px;border-radius:7px;font-size:12px;color:var(--text);cursor:pointer;background:var(--surf2)}
+.nota-refglb-item:active{background:rgba(58,107,232,.15)}
+.nota-refglb-vacio{font-size:11.5px;color:var(--muted);padding:6px;text-align:center}
 .nota-actions3D{display:flex;gap:8px}
 .nota-actions3D button{flex:1;height:38px;border-radius:9px;border:none;font-weight:700;font-size:12px;cursor:pointer}
 #notaGuardar3D{background:#3A6BE8;color:#fff}
@@ -11800,6 +11824,19 @@ window.onerror=function(msg,src,line){
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a5 5 0 0 1-7.07-7.07l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
     <span id="notaAdjuntarTxt3D">Adjuntar fotos o PDF</span>
   </button>
+
+  <!-- Referenciar otro GLB del mismo proyecto (misma carpeta de Drive que
+       este modelo) — ver notaRefGlbPendiente/listarGLBsCarpetaActual. -->
+  <div id="notaRefGlbChip3D" class="nota-refglb-chip" style="display:none">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07l-1.5 1.5"/><path d="M14 11a5 5 0 0 0-7.07 0L4.1 13.83a5 5 0 0 0 7.07 7.07l1.5-1.5"/></svg>
+    <span id="notaRefGlbNombre3D"></span>
+    <button type="button" id="notaRefGlbQuitar3D" title="Quitar referencia">×</button>
+  </div>
+  <button id="notaRefGlbBtn3D" type="button">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07l-1.5 1.5"/><path d="M14 11a5 5 0 0 0-7.07 0L4.1 13.83a5 5 0 0 0 7.07 7.07l1.5-1.5"/></svg>
+    <span>Referenciar otro GLB</span>
+  </button>
+  <div id="notaRefGlbLista3D" style="display:none"></div>
 
   <label id="notaMostrarPinRow3D" class="nota-toggle-row">
     <span>Mostrar nota en el pin</span>
@@ -16082,10 +16119,14 @@ function iconoAdjuntoNota(tipo,size=17){
 // iconoAdjuntoNota más arriba) en vez de un emoji genérico.
 function htmlChipsTipoNota(n){
   const tipos=[...new Set(todosAdjuntosNota(n).map(tipoAdjunto))];
-  return tipos.map(t=>{
+  let html=tipos.map(t=>{
     const color=ADJUNTO_TIPO_COLOR[t];
     return `<div class="nota-burbuja-tipo-chip" style="background:${color}1a;border:1px solid ${color}40">${iconoAdjuntoNota(t,17)}</div>`;
   }).join('');
+  if(n.refGlb){
+    html+=`<div class="nota-burbuja-tipo-chip nota-burbuja-chip-refglb" data-refglb="1" style="background:#3a6be81a;border:1px solid #3a6be840" title="Ir a ${escNota(n.refGlb.nombre)}"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07l-1.5 1.5"/><path d="M14 11a5 5 0 0 0-7.07 0L4.1 13.83a5 5 0 0 0 7.07 7.07l1.5-1.5"/></svg></div>`;
+  }
+  return html;
 }
 
 // id -> índice del adjunto que se está mostrando en la tarjeta expandida
@@ -16395,7 +16436,7 @@ function sincronizarBurbujasNotas(){
     // notaAdjExpandido guarda ese "revelado" en memoria (no se persiste
     // a Drive, es puramente de esta sesión de visualización).
     const tieneAdjuntos=todosAdjuntosNota(n).length>0;
-    const debeExistirTipos=debeExistir && tieneAdjuntos;
+    const debeExistirTipos=debeExistir && (tieneAdjuntos || !!n.refGlb);
     const debeExistirAdj=debeExistirTipos && !!notaAdjExpandido[n.id];
 
     // Tarjeta de adjuntos: elemento PROPIO (no adentro de la burbuja de
@@ -16452,6 +16493,7 @@ function sincronizarBurbujasNotas(){
       div.style.cursor='pointer';
       div.addEventListener('click',(e)=>{
         e.stopPropagation();
+        if(e.target.closest('[data-refglb]')){ abrirGlbReferenciado(n); return; }
         setNotaAdjExpandido(n,!notaAdjExpandido[n.id]);
         sincronizarBurbujasNotas();
       });
@@ -17213,6 +17255,69 @@ document.getElementById('notaAdjuntoInput3D').addEventListener('change',(e)=>{
   renderAdjuntoPreview();
 });
 
+// ── Referenciar otro GLB del mismo proyecto ────────────────────────────
+// {driveId,nombre,carpetaDriveId} pendiente de guardar en n.refGlb — null
+// si la nota no referencia ningún otro modelo. Solo lectura (API Key, sin
+// login) para listar los GLB de la carpeta: es la misma carpeta de Drive
+// donde vive ESTE modelo (carpetaDriveIdActual), no todo el proyecto —
+// alcanza para el caso normal de "la pieza sigue en tal otro conjunto".
+let notaRefGlbPendiente=null;
+
+async function listarGLBsCarpetaActual(){
+  if(!driveApiKeyActual||!carpetaDriveIdActual) return [];
+  const q=encodeURIComponent(`'${carpetaDriveIdActual}' in parents and trashed=false and name contains '.glb'`);
+  const url=`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&key=${driveApiKeyActual}`;
+  try{
+    const data=await (await fetch(url)).json();
+    return (data.files||[]).filter(f=>f.name.toLowerCase().endsWith('.glb'));
+  }catch(err){ return []; }
+}
+
+function renderNotaRefGlbChip(){
+  const chip=document.getElementById('notaRefGlbChip3D');
+  const btn=document.getElementById('notaRefGlbBtn3D');
+  const lista=document.getElementById('notaRefGlbLista3D');
+  if(notaRefGlbPendiente){
+    chip.style.display='flex';
+    btn.style.display='none';
+    document.getElementById('notaRefGlbNombre3D').textContent=notaRefGlbPendiente.nombre;
+  }else{
+    chip.style.display='none';
+    btn.style.display='flex';
+  }
+  lista.style.display='none';
+}
+
+document.getElementById('notaRefGlbBtn3D').addEventListener('click',async ()=>{
+  const lista=document.getElementById('notaRefGlbLista3D');
+  const archivos=await listarGLBsCarpetaActual();
+  // El modelo actual (archivoDriveIdActual) no tiene sentido ofrecerlo como
+  // referencia a sí mismo.
+  const otros=archivos.filter(a=>a.id!==archivoDriveIdActual);
+  lista.innerHTML=otros.length
+    ? otros.map(a=>`<div class="nota-refglb-item" data-driveid="${a.id}" data-nombre="${a.name.replace(/"/g,'&quot;')}">${a.name}</div>`).join('')
+    : `<div class="nota-refglb-vacio">No hay otros GLB en esta misma carpeta</div>`;
+  lista.style.display='flex';
+});
+document.getElementById('notaRefGlbLista3D').addEventListener('click',(e)=>{
+  const item=e.target.closest('.nota-refglb-item');
+  if(!item) return;
+  notaRefGlbPendiente={driveId:item.dataset.driveid, nombre:item.dataset.nombre, carpetaDriveId:carpetaDriveIdActual};
+  renderNotaRefGlbChip();
+});
+document.getElementById('notaRefGlbQuitar3D').addEventListener('click',()=>{
+  notaRefGlbPendiente=null;
+  renderNotaRefGlbChip();
+});
+
+// Pedido de apertura fire-and-forget — no hace falta reqId/promesa porque
+// no hay respuesta que esperar acá adentro, el shell exterior simplemente
+// abre el otro modelo en este mismo visor.
+function abrirGlbReferenciado(n){
+  if(!n.refGlb) return;
+  window.parent.postMessage({tipo:'abrirGLBReferenciado', driveId:n.refGlb.driveId, nombre:n.refGlb.nombre, carpetaDriveId:n.refGlb.carpetaDriveId}, '*');
+}
+
 function abrirNota3D(notaId){
   const n=notas3d.find(x=>x.id===notaId);
   if(!n) return;
@@ -17221,6 +17326,8 @@ function abrirNota3D(notaId){
   notaGrupoIgualesPendiente=null;
   notaAdjuntosNuevos=[];
   notaAdjuntosExistentesQuitar=new Set();
+  notaRefGlbPendiente=n.refGlb||null;
+  renderNotaRefGlbChip();
   document.getElementById('notaAdjuntoInput3D').value='';
   document.getElementById('notaNumeroManualLabel3D').textContent='Número del pin';
   document.getElementById('notaTitulo3D').textContent='Nota';
@@ -17252,6 +17359,8 @@ function abrirFormNota3D(hit){
   notaGrupoIgualesPendiente=null;
   notaAdjuntosNuevos=[];
   notaAdjuntosExistentesQuitar=new Set();
+  notaRefGlbPendiente=null;
+  renderNotaRefGlbChip();
   document.getElementById('notaAdjuntoInput3D').value='';
   // hit puede venir null (nota de grupo armada desde una selección de
   // aislar ya confirmada, sin un click puntual de por medio — ver
@@ -17300,6 +17409,7 @@ function cerrarPanelNota3D(){
   notaGrupoIgualesPendiente=null;
   notaAdjuntosNuevos=[];
   notaAdjuntosExistentesQuitar=new Set();
+  notaRefGlbPendiente=null;
 }
 
 document.getElementById('btnNotas3D').addEventListener('click',()=>{
@@ -17621,7 +17731,7 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
     let notasCreadas=null; // solo en modo grupo: todas las notas recién creadas (para el adjunto, más abajo)
     if(notaAbiertaId){
       n=notas3d.find(x=>x.id===notaAbiertaId);
-      if(n){ n.texto=texto; n.mostrarPin=mostrarPin; n.negrita=negrita; n.color=color; n.tamano=tamano; n.numeroManual=numeroManual; n.esZona=esZona; n.radioMult=radioMult; n.esTarea=esTarea; n.estado=estado; }
+      if(n){ n.texto=texto; n.mostrarPin=mostrarPin; n.negrita=negrita; n.color=color; n.tamano=tamano; n.numeroManual=numeroManual; n.esZona=esZona; n.radioMult=radioMult; n.esTarea=esTarea; n.estado=estado; if(notaRefGlbPendiente) n.refGlb=notaRefGlbPendiente; else delete n.refGlb; }
     }else if(notaGrupoIgualesPendiente && notaGrupoIgualesPendiente.length){
       // Una nota por instancia, mismo texto/color/etc. Si se escribió un
       // número base (ej. "2"), se mantiene igual en todas y se distingue
@@ -17643,6 +17753,7 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
           esZona, radioMult, esTarea, estado,
           fecha:new Date().toISOString().slice(0,10),
         };
+        if(notaRefGlbPendiente) ni.refGlb={...notaRefGlbPendiente};
         notaMeshCache[ni.id]=inst.mesh;
         notas3d.push(ni);
         return ni;
@@ -17681,6 +17792,7 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
         estado,
         fecha:new Date().toISOString().slice(0,10),
       };
+      if(notaRefGlbPendiente) n.refGlb={...notaRefGlbPendiente};
       notaMeshCache[n.id]=hit.object;
       notas3d.push(n);
     }
