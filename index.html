@@ -16598,6 +16598,12 @@ function buscarInstanciasIgualesSubensamblaje(nombre){
   const [nombreBase]=codigosBaseDeSegmento(nombre);
   function registrar(ud,mesh,pieza){
     const pathNames=ud.pathNames||[];
+    // Recorre TODO el camino y se queda con la coincidencia MÁS PROFUNDA
+    // (no la primera): el nombre puede aparecer "bare" (sin sufijo, igual
+    // en todas las instancias) en un nivel y de nuevo, ya diferenciado por
+    // instancia, en un segmento más profundo — quedarse con la primera
+    // colapsaría todas las instancias como pasaba antes de este fix.
+    let hallazgo=null;
     for(let i=0;i<pathNames.length;i++){
       const tokens=normalizarNombreInstancia(pathNames[i]).split('/');
       const j=tokens.findIndex(t=>{
@@ -16605,7 +16611,10 @@ function buscarInstanciasIgualesSubensamblaje(nombre){
         return (m?m[1]:t.trim())===nombreBase;
       });
       if(j===-1) continue;
-      const token=tokens[j].trim();
+      hallazgo={i,token:tokens[j].trim()};
+    }
+    if(hallazgo){
+      const {i,token}=hallazgo;
       const prefix=[...pathNames.slice(0,i),token];
       const key=ud.zoneId+'::'+prefix.join('§');
       if(!grupos.has(key)) grupos.set(key,{zoneId:ud.zoneId,pathPrefix:prefix,piezas:[]});
