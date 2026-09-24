@@ -6812,15 +6812,21 @@ function subirArchivoADriveConProgreso(nombre, blob, carpetaIdPadre, onProgress)
 // la primera en vez de repetir la búsqueda+creación desde cero.
 const carpetaDriveEnVuelo = new Map();
 
-// Nombres con acentos/diacríticos pueden llegar en forma NFC o NFD (Mac vs
-// Windows/Drive web codifican "ó" distinto a nivel de bytes aunque se vean
-// idénticos en pantalla) — sin normalizar, dos llamadas para "el mismo"
-// nombre visualmente terminan tratadas como carpetas distintas: la
-// búsqueda por igualdad exacta de Drive no las encuentra como la misma, y
-// se crea una nueva cada vez. Normalizar a NFC en todos los puntos que
-// arman el nombre de la carpeta evita esto.
+// Dos nombres de archivo pueden verse IDÉNTICOS en pantalla y no serlo como
+// texto: acentos codificados en NFC vs NFD (Mac vs Windows/Drive web),
+// un espacio de más al final o en el medio, un espacio "no separable"
+// (nbsp) pegado por accidente al subir el archivo, etc. — nada de eso se
+// nota a simple vista, pero alcanza para que una comparación exacta trate
+// dos carpetas de notas del mismo modelo como si fueran de modelos
+// distintos y nunca las detecte como duplicadas. Se normaliza a NFC, se
+// pasan los nbsp a espacios comunes y se colapsan/recortan los espacios
+// antes de comparar o de armar el nombre de una carpeta nueva.
 function normalizarNombreCarpeta(nombre) {
-  return (nombre || "").normalize("NFC");
+  return (nombre || "")
+    .normalize("NFC")
+    .replace(/ /g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 async function obtenerOCrearCarpetaDrive(nombre, carpetaPadreId) {
