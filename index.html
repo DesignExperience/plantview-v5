@@ -9538,9 +9538,8 @@ async function ejecutarBorrarArchivoDrive(payload) {
 // Fusiona un grupo de carpetas duplicadas (mismo nombre, ya buscadas y
 // ordenadas por createdTime) en una sola: mueve todo el contenido de las
 // más nuevas a la más vieja y manda las vacías resultantes a la papelera.
-// Compartido por la limpieza de un solo modelo (ejecutarUnificarCarpetasNotas,
-// vía postMessage desde el visor 3D) y el escaneo de toda una carpeta de
-// Files (unificarCarpetasNotasEnCarpeta, botón del toolbar).
+// Usada por el escaneo de toda una carpeta de Files
+// (unificarCarpetasNotasEnCarpeta, botón del toolbar).
 // El token de escritura usa el scope "drive.file" (ver conectarDriveEscritura
 // más abajo): la app solo puede modificar archivos que ELLA creó (o que el
 // usuario abrió con su selector) — un archivo/carpeta subido a mano
@@ -9583,34 +9582,11 @@ async function fusionarGrupoCarpetasDrive(carpetas) {
   return { fusionadas: duplicadas.length, archivosMovidos };
 }
 
-// Limpieza de carpetas "<glb> - Documentos y notas" duplicadas de UN modelo
-// puntual (ver obtenerOCrearCarpetaDrive: viejas ejecuciones simultáneas
-// pudieron crear más de una con el mismo nombre antes del fix de la
-// carrera). Disparado por postMessage desde el visor 3D — ver
-// unificarCarpetasNotasDrive en pv-tpl.
-async function ejecutarUnificarCarpetasNotas(payload) {
-  const { nombreGlb, carpetaPadreId, reqId } = payload;
-  try {
-    const nombreCarpeta = normalizarNombreCarpeta(`${nombreGlb} - Documentos y notas`);
-    const nombreEscapado = nombreCarpeta.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-    const q = encodeURIComponent(`name='${nombreEscapado}' and '${carpetaPadreId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`);
-    const listResp = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,createdTime)&orderBy=createdTime`, {
-      headers: { Authorization: `Bearer ${driveAccessToken}` },
-    });
-    if (!listResp.ok) throw new Error(`No se pudo buscar la carpeta (HTTP ${listResp.status})`);
-    const carpetas = (await listResp.json()).files || [];
-    const { fusionadas, archivosMovidos } = await fusionarGrupoCarpetasDrive(carpetas);
-    enviarAlVisor3D({ tipo: "unificarCarpetasNotasOK", reqId, fusionadas, archivosMovidos });
-  } catch (err) {
-    enviarAlVisor3D({ tipo: "unificarCarpetasNotasError", reqId, error: err.message || String(err) });
-  }
-}
-
 // Escaneo masivo: TODAS las carpetas "* - Documentos y notas" que cuelgan
 // directo de carpetaPadreId (la carpeta de Drive que se está viendo en
 // Files ahora mismo) — agrupadas por nombre exacto, fusiona cada grupo que
-// tenga más de una. A diferencia de ejecutarUnificarCarpetasNotas no hace
-// falta conocer de antemano el nombre de cada GLB: alcanza con el patrón
+// tenga más de una. No hace falta conocer de antemano el nombre de cada
+// GLB: alcanza con el patrón
 // de sufijo, así corre para todos los modelos de este nivel de carpeta de
 // una sola vez.
 // Lista TODAS las subcarpetas directas de folderId (con paginación — una
@@ -9700,7 +9676,6 @@ const EJECUTORES_DRIVE = {
   // separada por pieza para los adjuntos; se unificó a pedido).
   resolverCarpetaNotas: (p) => ejecutarResolverCarpeta({ ...p, sufijo: "Documentos y notas", tipoRespuesta: "resolverCarpetaNotas" }),
   borrarArchivoDrive: ejecutarBorrarArchivoDrive,
-  unificarCarpetasNotas: ejecutarUnificarCarpetasNotas,
 };
 // Abrir otro GLB referenciado desde una nota (ver abrirGlbReferenciado en
 // pv-tpl) — no pasa por EJECUTORES_DRIVE porque no necesita el token de
@@ -11854,9 +11829,6 @@ canvas{display:block;width:100%;height:100%}
 .lista-notas-head span{font-weight:700;font-size:13px}
 .lista-notas-head-btns{display:flex;align-items:center;gap:6px}
 .lista-notas-toggle-burbujas{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);cursor:pointer;flex-shrink:0;margin:2px 0 4px}
-.lista-notas-unificar-btn{flex-shrink:0;height:30px;border-radius:8px;border:1px dashed var(--border);background:none;color:var(--muted);font-family:inherit;font-size:11px;cursor:pointer;margin-bottom:4px}
-.lista-notas-unificar-btn:active{border-color:var(--acc);color:var(--acc)}
-.lista-notas-unificar-btn:disabled{opacity:.5;cursor:default}
 .lista-notas-toggle-burbujas span{font-weight:400;font-size:11px}
 .lista-notas-toggle-burbujas .nota-switch{width:30px;height:17px}
 .lista-notas-toggle-burbujas .nota-switch-track::after{width:13px;height:13px}
@@ -12533,10 +12505,6 @@ window.onerror=function(msg,src,line){
     </span>
     <span>Mostrar todas las burbujas</span>
   </label>
-  <!-- Limpieza manual de carpetas "<glb> - Documentos y notas" duplicadas
-       de ESTE modelo (ver unificarCarpetasNotasDrive) — quedaron de viejas
-       ejecuciones simultáneas antes del fix de la carrera al buscar/crear. -->
-  <button id="listaNotasUnificarBtn" type="button" class="lista-notas-unificar-btn" title="Junta el contenido de carpetas 'Documentos y notas' duplicadas de este modelo en una sola">🧹 Unificar carpetas duplicadas</button>
   <div id="listaNotasItems"></div>
 </div>
 
@@ -17767,19 +17735,6 @@ function guardarNotasDrive(){
   return resolverCarpetaNotasDrive().then(carpetaNotas => subirArchivoADriveDesdeVisor(archivo, blob, carpetaNotas));
 }
 
-// Limpieza manual de carpetas "<glb> - Documentos y notas" duplicadas de
-// ESTE modelo (ver ejecutarUnificarCarpetasNotas, shell exterior) — junta
-// el contenido de las duplicadas en la más vieja y borra las vacías.
-function unificarCarpetasNotasDrive(){
-  return new Promise((resolve, reject) => {
-    if(!carpetaDriveIdActual){ reject(new Error('No hay carpeta de Drive asociada a este modelo')); return; }
-    const nombreGlb=(archivoNombreActual||'modelo').replace(/\.[a-zA-Z0-9]+$/,'');
-    const reqId=++notasReqSeq;
-    notasReqPendientes[reqId]={resolve,reject};
-    window.parent.postMessage({ tipo:'unificarCarpetasNotas', reqId, nombreGlb, carpetaPadreId: carpetaDriveIdActual }, '*');
-  });
-}
-
 // El shell exterior es quien mantiene el login de Drive — este iframe lo
 // consulta por postMessage para decidir si el croquis se puede aplicar
 // sobre el visor o si conviene ofrecer compartir/descargar directamente.
@@ -17805,12 +17760,6 @@ window.addEventListener('message',(e)=>{
     delete notasReqPendientes[e.data.reqId];
   }else if(e.data.tipo==='resolverCarpetaNotasError' && notasReqPendientes[e.data.reqId]){
     notasReqPendientes[e.data.reqId].reject(new Error(e.data.error||'Error al resolver la carpeta de notas'));
-    delete notasReqPendientes[e.data.reqId];
-  }else if(e.data.tipo==='unificarCarpetasNotasOK' && notasReqPendientes[e.data.reqId]){
-    notasReqPendientes[e.data.reqId].resolve(e.data);
-    delete notasReqPendientes[e.data.reqId];
-  }else if(e.data.tipo==='unificarCarpetasNotasError' && notasReqPendientes[e.data.reqId]){
-    notasReqPendientes[e.data.reqId].reject(new Error(e.data.error||'Error al unificar las carpetas'));
     delete notasReqPendientes[e.data.reqId];
   }else if(e.data.tipo==='consultaLoginDriveResp' && notasReqPendientes[e.data.reqId]){
     notasReqPendientes[e.data.reqId].resolve(!!e.data.conectado);
@@ -18408,21 +18357,6 @@ document.getElementById('notasBurbujasGlobalToggle').addEventListener('change',(
 document.getElementById('listaNotasAgregar').addEventListener('click', ()=>{
   cerrarListaNotas();
   setMode('notas');
-});
-document.getElementById('listaNotasUnificarBtn').addEventListener('click', async (e)=>{
-  const btn=e.currentTarget;
-  btn.disabled=true;
-  const txtOriginal=btn.textContent;
-  btn.textContent='Unificando…';
-  try{
-    const res=await unificarCarpetasNotasDrive();
-    toast(res.fusionadas>0 ? `✓ Se unificaron ${res.fusionadas} carpeta(s) duplicada(s)` : 'No había carpetas duplicadas para este modelo');
-  }catch(err){
-    toast('No se pudo unificar: '+err.message);
-  }finally{
-    btn.disabled=false;
-    btn.textContent=txtOriginal;
-  }
 });
 
 // Cerrar tocando afuera o con Escape — comportamiento estándar de
