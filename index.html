@@ -2995,7 +2995,7 @@ function volverExp(pantalla) {
    FILE SYSTEM ACCESS API — leer carpeta local
    ============================================================ */
 function esArchivoValido(nombre) {
-  return /\.(html?|pdf|glb|stl|dxf|dwg|xlsx|docx|png|jpg|jpeg)$/i.test(nombre);
+  return /\.(html?|pdf|glb|stl|dxf|dwg|xlsx|xls|docx|doc|png|jpg|jpeg)$/i.test(nombre);
 }
 
 function getTipoArchivo(nombre) {
@@ -3005,8 +3005,8 @@ function getTipoArchivo(nombre) {
   if (ext === 'stl') return 'stl';
   if (ext === 'dxf') return 'dxf';
   if (ext === 'dwg') return 'dwg';
-  if (ext === 'xlsx') return 'xlsx';
-  if (ext === 'docx') return 'docx';
+  if (ext === 'xlsx' || ext === 'xls') return 'xlsx';
+  if (ext === 'docx' || ext === 'doc') return 'docx';
   if (ext === 'png' || ext === 'jpg' || ext === 'jpeg') return 'imagen';
   return 'edrawing'; // .html / .htm
 }
@@ -5029,9 +5029,26 @@ function abrirVisor(archivo) {
     edrawingTabTipo = "html";
     if (esMobileUI()) aplicarModo("edrawing");
     pedirArchivo(".html,.htm", null);
+  } else if (archivo.tipo === "xlsx") {
+    // Hojas de cálculo (y docx, que cae en el mismo balde — ver
+    // esArchivoValido): mismo visor embebido de Drive que ya usan las notas
+    // (ver urlVisorDriveEmbebido en pv-tpl) — un solo <iframe> apuntando a
+    // drive.google.com/file/d/<id>/preview, reusando la pestaña/iframe de
+    // eDrawings en vez de sumar una pestaña nueva. Solo funciona con
+    // archivos que están en Drive (no en carpeta local ni servidor estático):
+    // el visor embebido de Google necesita el ID real del archivo en Drive.
+    state.edrawingArchivo = { nombre: archivo.nombre, carpetaNombre: state.carpetaActual.nombre };
+    edrawingTabTipo = "xlsx";
+    if (esMobileUI()) aplicarModo("edrawing");
+    if (archivo.driveId) {
+      visorFrame.src = `https://drive.google.com/file/d/${archivo.driveId}/preview`;
+      visorFrame.classList.add("show");
+    } else {
+      ocultarCarga();
+      mostrarError("Vista previa de " + archivo.nombre.split(".").pop().toUpperCase() + " requiere que el archivo esté en Drive.");
+    }
   } else {
-    // xlsx / docx u otro formato aceptado por esArchivoValido() sin visor
-    // propio todavía.
+    // Otro formato aceptado por esArchivoValido() sin visor propio todavía.
     ocultarCarga();
     mostrarError("Este formato (." + archivo.nombre.split(".").pop() + ") todavía no tiene visor en PlantView.");
   }
@@ -5154,7 +5171,7 @@ visorFrame.addEventListener("load", () => {
     // Mobile: si mientras esto cargaba en background el usuario ya se fue a
     // otra pestaña (PDF/Files), no lo mostramos por encima de lo que está
     // viendo ahora — actualizarVisorSegunModo() lo revela solo si vuelve acá.
-    if (edrawingTabTipo === "html" && (!esMobileUI() || modoActual === "edrawing")) {
+    if ((edrawingTabTipo === "html" || edrawingTabTipo === "xlsx") && (!esMobileUI() || modoActual === "edrawing")) {
       visorFrame.classList.add("show");
       document.getElementById("btn-visor-reload").style.display = "flex";
       // Clave: apagar el estado vacío recién ACÁ (cuando el contenido de
@@ -11824,11 +11841,11 @@ window.onerror=function(msg,src,line){
   </div>
   <textarea id="notaTexto3D" rows="3" autocomplete="off" spellcheck="false" placeholder="Escribí la nota… (ej: cambiar por DN80)"></textarea>
 
-  <input type="file" id="notaAdjuntoInput3D" accept="image/*,application/pdf" multiple style="display:none">
+  <input type="file" id="notaAdjuntoInput3D" accept="image/*,application/pdf,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" multiple style="display:none">
   <div id="notaAdjuntoPreview3D" style="display:none"></div>
   <button id="notaAdjuntarBtn3D" type="button">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a5 5 0 0 1-7.07-7.07l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-    <span id="notaAdjuntarTxt3D">Adjuntar fotos o PDF</span>
+    <span id="notaAdjuntarTxt3D">Adjuntar fotos, PDF o Excel</span>
   </button>
 
   <!-- Referenciar otro GLB del mismo proyecto (misma carpeta de Drive que
@@ -16101,7 +16118,7 @@ function todosAdjuntosNota(n){
 // demás sin volver a la burbuja para elegir la siguiente a mano.
 function galeriaVisibleDeNota(n){
   return todosAdjuntosNota(n)
-    .filter(a=>{ const t=tipoAdjunto(a); return (t==='imagen'||t==='pdf')&&a.fileId; })
+    .filter(a=>{ const t=tipoAdjunto(a); return (t==='imagen'||t==='pdf'||t==='excel')&&a.fileId; })
     .map(a=>({name:a.nombre||'adjunto', dataUrl:urlAdjuntoDrive(a.fileId), type:tipoAdjunto(a), fileId:a.fileId}));
 }
 
@@ -16112,10 +16129,16 @@ function tipoAdjunto(a){
   if(m==='application/pdf'||n.endsWith('.pdf')) return 'pdf';
   if(n.endsWith('.dwg')||n.endsWith('.dxf')) return 'dxf';
   if(n.endsWith('.glb')||n.endsWith('.gltf')||n.endsWith('.stl')) return 'glb';
+  // xlsx/xls: sin forma barata de previsualizar el contenido acá mismo —
+  // se abren con el visor embebido de Drive (ver openDocViewer), el mismo
+  // que Drive usa para mostrar hojas de cálculo/docs/PDFs con un solo
+  // mecanismo genérico (basta con cambiar la extensión que dispara esto
+  // para sumar docx/pptx el día de mañana).
+  if(m==='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'||m==='application/vnd.ms-excel'||/\.(xlsx|xls)$/.test(n)) return 'excel';
   return 'otro';
 }
-const ADJUNTO_TIPO_COLOR={imagen:'#B968E0',pdf:'#E05555',dxf:'#3a8ef6',glb:'#4CAF7D',otro:'#8a9099'};
-const ADJUNTO_TIPO_TITULO={imagen:'Imagen asociada:',pdf:'PDF adjunto:',dxf:'Plano adjunto:',glb:'Modelo 3D adjunto:',otro:'Archivo adjunto:'};
+const ADJUNTO_TIPO_COLOR={imagen:'#B968E0',pdf:'#E05555',dxf:'#3a8ef6',glb:'#4CAF7D',excel:'#1D8348',otro:'#8a9099'};
+const ADJUNTO_TIPO_TITULO={imagen:'Imagen asociada:',pdf:'PDF adjunto:',dxf:'Plano adjunto:',glb:'Modelo 3D adjunto:',excel:'Planilla adjunta:',otro:'Archivo adjunto:'};
 
 // Mismo ícono SVG (marco + sol + montaña) que usa iconoTipo() en Files
 // para el tipo "imagen" — el visor no puede llamar a esa función (corre
@@ -16132,6 +16155,8 @@ function iconoAdjuntoNota(tipo,size=17){
     return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>`;
   if(tipo==='imagen')
     return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>`;
+  if(tipo==='excel')
+    return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="1.6"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><path d="M8 13l8 6M16 13l-8 6"/></svg>`;
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="1.6"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>`;
 }
 
@@ -16185,7 +16210,7 @@ function htmlAdjuntoBurbuja(n){
     const url=urlAdjuntoDrive(a.fileId);
     preview=url?`<img data-fileid="${escNota(a.fileId)}" data-tipo="imagen" data-nombre="${escNota(a.nombre||'')}" src="${escNota(url)}" alt="${escNota(a.nombre||'')}" loading="lazy">`:'';
   }else{
-    const puedeAbrir=tipo==='pdf';
+    const puedeAbrir=tipo==='pdf'||tipo==='excel';
     const attrs=puedeAbrir?` data-fileid="${escNota(a.fileId||'')}" data-tipo="${tipo}" data-nombre="${escNota(a.nombre||'')}"`:'';
     preview=`<div class="nota-burbuja-adj-icon"${attrs}>${iconoAdjuntoNota(tipo,17)}<span>${escNota(a.nombre||'adjunto')}</span></div>`;
   }
@@ -16486,7 +16511,7 @@ function sincronizarBurbujasNotas(){
           return;
         }
         const t=e.target.closest('[data-tipo]');
-        if(t && t.dataset.fileid && (t.dataset.tipo==='imagen'||t.dataset.tipo==='pdf')){
+        if(t && t.dataset.fileid && (t.dataset.tipo==='imagen'||t.dataset.tipo==='pdf'||t.dataset.tipo==='excel')){
           const galeria=galeriaVisibleDeNota(n);
           const idx=galeria.findIndex(g=>g.fileId===t.dataset.fileid);
           openDocViewer(idx>=0?galeria[idx]:{name:t.dataset.nombre||'adjunto',dataUrl:urlAdjuntoDrive(t.dataset.fileid),type:t.dataset.tipo}, galeria, idx>=0?idx:0);
@@ -17199,7 +17224,7 @@ let notaAdjuntosExistentesQuitar=new Set(); // fileId de adjuntos YA guardados m
 // miniatura/ícono, nombre, y una "×" para sacarlo de la nota. Varias
 // tarjetas en fila (el contenedor tiene flex-wrap) son lo que permite
 // tener MÚLTIPLES adjuntos por nota, no solo uno.
-function crearItemAdjunto({esImagen,previewUrl,nombre,onQuitar,onVer}){
+function crearItemAdjunto({esImagen,previewUrl,nombre,etiqueta,onQuitar,onVer}){
   const item=document.createElement('div');
   item.className='adj-item';
   if(esImagen && previewUrl){
@@ -17210,7 +17235,7 @@ function crearItemAdjunto({esImagen,previewUrl,nombre,onQuitar,onVer}){
   }else{
     const box=document.createElement('div');
     box.className='adj-pdf';
-    box.textContent='PDF';
+    box.textContent=etiqueta||'PDF';
     if(onVer) box.addEventListener('click',onVer);
     item.appendChild(box);
   }
@@ -17244,18 +17269,21 @@ function renderAdjuntoPreview(){
     const url=urlAdjuntoDrive(a.fileId);
     cont.appendChild(crearItemAdjunto({
       esImagen, previewUrl:esImagen?url:null, nombre:a.nombre,
+      etiqueta:tipo==='excel'?'XLS':'PDF',
       onQuitar:()=>{ notaAdjuntosExistentesQuitar.add(a.fileId); renderAdjuntoPreview(); },
-      onVer:(tipo==='imagen'||tipo==='pdf')?(()=>{
+      onVer:(tipo==='imagen'||tipo==='pdf'||tipo==='excel')?(()=>{
         const galeria=galeriaVisibleDeNota(n);
         const idx=galeria.findIndex(g=>g.fileId===a.fileId);
-        openDocViewer(idx>=0?galeria[idx]:{name:a.nombre||'adjunto',dataUrl:url,type:tipo}, galeria, idx>=0?idx:0);
+        openDocViewer(idx>=0?galeria[idx]:{name:a.nombre||'adjunto',dataUrl:url,type:tipo,fileId:a.fileId}, galeria, idx>=0?idx:0);
       }):null,
     }));
   });
   notaAdjuntosNuevos.forEach((file,idx)=>{
     const esImagen=file.type.startsWith('image/');
+    const esExcel=/\.(xlsx|xls)$/i.test(file.name||'');
     cont.appendChild(crearItemAdjunto({
       esImagen, previewUrl:esImagen?URL.createObjectURL(file):null, nombre:file.name,
+      etiqueta:esExcel?'XLS':'PDF',
       onQuitar:()=>{ notaAdjuntosNuevos.splice(idx,1); renderAdjuntoPreview(); },
       onVer:null, // todavía no subido — no hay URL persistente que abrir en el visor grande
     }));
@@ -18658,14 +18686,22 @@ function uploadFile(file,key){
 // comporta igual que antes.
 let currentDocGaleria=null;
 let currentDocIndice=-1;
+// Visor embebido genérico de Drive — el mismo que usa Drive para mostrar
+// hojas de cálculo, docs, PDFs, etc. desde un único iframe. Hoy solo lo usa
+// "excel", pero alcanza con sumar la extensión correspondiente a tipoAdjunto
+// para reutilizarlo con docx/pptx el día de mañana, sin tocar este helper.
+function urlVisorDriveEmbebido(fileId){
+  return `https://drive.google.com/file/d/${fileId}/preview`;
+}
 function openDocViewer(doc,galeria,indice){
-  if(!doc||!doc.dataUrl){toast('No se puede previsualizar');return;}
+  if(!doc||(!doc.dataUrl && !(doc.type==='excel' && doc.fileId))){toast('No se puede previsualizar');return;}
   currentDocViewer=doc;
   currentDocGaleria=(galeria&&galeria.length>1)?galeria:null;
   currentDocIndice=currentDocGaleria?indice:-1;
   document.getElementById('docModalTitle').textContent=doc.name;
   const body=document.getElementById('docModalBody');
   if(doc.type==='pdf')body.innerHTML=`<iframe src="${doc.dataUrl}" style="width:100%;height:100%;border:none;border-radius:12px;background:#fff"></iframe>`;
+  else if(doc.type==='excel')body.innerHTML=`<iframe src="${urlVisorDriveEmbebido(doc.fileId)}" style="width:100%;height:100%;border:none;border-radius:12px;background:#fff"></iframe>`;
   else body.innerHTML=`<img src="${doc.dataUrl}" alt="${doc.name}">`;
   document.getElementById('docModal').classList.add('open');
   actualizarNavGaleriaDoc();
