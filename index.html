@@ -3749,12 +3749,45 @@ function renderArchivos(filtro) {
 
   lista.innerHTML = archivos.map((f,i) => {
     if (f.esCarpeta) {
+      // Mismo set de acciones que ya tiene cada archivo (renombrar/
+      // descargar/QR), sumado a eliminar — solo tiene sentido para una
+      // carpeta real de Drive (necesita driveId); una "carpeta" armada
+      // desde un handle de filesystem local no tiene equivalente acá.
+      // "Descargar" abre la carpeta en el Drive web nativo (que sí sabe
+      // empaquetarla en un zip al bajarla) en vez de reimplementar esa
+      // lógica acá; el QR apunta al mismo link de Drive.
+      const accionesCarpeta = f.driveId ? `
+      <span class="file-actions">
+        <button class="btn-renombrar-carpeta" data-carpeta-idx="${i}" type="button" title="Renombrar">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+          </svg>
+        </button>
+        <button class="btn-descargar-carpeta" data-carpeta-idx="${i}" type="button" title="Abrir en Drive para descargar (como zip)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+        </button>
+        <button class="btn-qr-carpeta" data-carpeta-idx="${i}" type="button" title="QR" aria-label="Ver QR">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+            <rect x="3" y="14" width="7" height="7"/>
+            <path d="M14 14h3v3h-3zM17 17h3v3h-3zM14 20h3"/>
+          </svg>
+        </button>
+        <button class="btn-eliminar-carpeta" data-carpeta-idx="${i}" type="button" title="Eliminar carpeta (a la papelera de Drive)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#e0505b" stroke-width="1.8">
+            <path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+          </svg>
+        </button>
+      </span>` : "";
       return `
       <div class="file-item" data-idx="${i}" data-es-carpeta="1" id="file-${esc(f.id)}" role="button" tabindex="0" aria-label="Abrir carpeta ${esc(f.nombre)}">
         ${iconoCarpeta()}
         <span class="file-info">
           <span class="file-name">${esc(f.nombre)}</span>
         </span>
+        ${accionesCarpeta}
       </div>`;
     }
     const esNuevo  = f.nuevo && !state.conocidos.has(f.id);
@@ -3829,6 +3862,10 @@ function renderArchivos(filtro) {
       if (e.target.closest(".btn-descargar")) return;
       if (e.target.closest(".btn-comprimir")) return;
       if (e.target.closest(".btn-renombrar")) return;
+      if (e.target.closest(".btn-renombrar-carpeta")) return;
+      if (e.target.closest(".btn-descargar-carpeta")) return;
+      if (e.target.closest(".btn-qr-carpeta")) return;
+      if (e.target.closest(".btn-eliminar-carpeta")) return;
       const f = window._archivos_actuales[Number(el.dataset.idx)];
       if (f.esCarpeta) { abrirSubcarpeta(f); return; }
       if (modoSeleccionArchivos) { alternarSeleccionArchivo(f, el); return; }
@@ -3875,6 +3912,62 @@ function renderArchivos(filtro) {
         descargarBlob(new Blob([await obtenerBytesArchivo(f)]), f.nombre);
       } catch (err) {
         showToast("❌ No se pudo descargar: " + (err.message || err));
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  });
+  lista.querySelectorAll(".btn-renombrar-carpeta").forEach(btn => {
+    btn.addEventListener("click", e => {
+      e.stopPropagation();
+      const f = window._archivos_actuales[Number(btn.dataset.carpetaIdx)];
+      renombrarArchivo(f); // ya soporta f.driveId genérico (archivo o carpeta, ver renombrarArchivo)
+    });
+  });
+  // Drive API no tiene un endpoint de "descargar carpeta como zip" — el
+  // propio Drive web sí sabe armar ese zip al bajarla desde su UI, así que
+  // en vez de reimplementar esa lógica acá (bajar cada archivo suelto,
+  // comprimir client-side con una librería nueva) se abre la carpeta ahí
+  // y que el usuario use el "Descargar" nativo de Drive.
+  lista.querySelectorAll(".btn-descargar-carpeta").forEach(btn => {
+    btn.addEventListener("click", e => {
+      e.stopPropagation();
+      const f = window._archivos_actuales[Number(btn.dataset.carpetaIdx)];
+      window.open(`https://drive.google.com/drive/folders/${f.driveId}`, "_blank", "noopener");
+    });
+  });
+  lista.querySelectorAll(".btn-qr-carpeta").forEach(btn => {
+    btn.addEventListener("click", e => {
+      e.stopPropagation();
+      const f = window._archivos_actuales[Number(btn.dataset.carpetaIdx)];
+      mostrarQR(`https://drive.google.com/drive/folders/${f.driveId}`, f.nombre);
+    });
+  });
+  lista.querySelectorAll(".btn-eliminar-carpeta").forEach(btn => {
+    btn.addEventListener("click", async e => {
+      e.stopPropagation();
+      const f = window._archivos_actuales[Number(btn.dataset.carpetaIdx)];
+      if (!confirm(`¿Eliminar la carpeta "${f.nombre}" y todo su contenido? Va a la papelera de Drive (se puede restaurar desde ahí).`)) return;
+      const hacerBorrado = async () => {
+        const resp = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(f.driveId)}`, {
+          method: "PATCH",
+          headers: { Authorization: `Bearer ${driveAccessToken}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ trashed: true }),
+        });
+        if (!resp.ok) throw new Error(explicarErrorDriveEscritura(resp, "No se pudo eliminar la carpeta"));
+        await cargarArchivosDrive(state.carpetaActual);
+        showToast("✓ Carpeta eliminada");
+      };
+      btn.disabled = true;
+      try {
+        if (driveEscrituraConectada()) {
+          await hacerBorrado();
+        } else {
+          callbackTrasLoginDrive = hacerBorrado;
+          conectarEscrituraDrive();
+        }
+      } catch (err) {
+        showToast("❌ " + (err.message || err));
       } finally {
         btn.disabled = false;
       }
