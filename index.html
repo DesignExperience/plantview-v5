@@ -14740,15 +14740,24 @@ function computeExplodeNivelRecursivo(nodo,nivel){
   const nodoSize=nodoBox.isEmpty() ? new THREE.Vector3() : nodoBox.getSize(new THREE.Vector3());
   const spread=nivel===1 ? explodeMaxDist : (Math.max(nodoSize.x,nodoSize.y,nodoSize.z)||0);
   const factor=factorExplodeNivel(nivel);
+  // dir sale de restar centros en espacio MUNDO, pero child.position (donde
+  // se aplica en setExplode) vive en el espacio LOCAL del padre — si el
+  // padre tiene rotación (muy común: piezas/rodillos rotados respecto a su
+  // contenedor), sumar una dirección mundo directo a una posición local
+  // apunta para cualquier lado, no "hacia afuera" (bug reportado: piezas
+  // que se acercan/cruzan en vez de alejarse desde un origen). Se pasa la
+  // dirección al espacio local del padre con la inversa de su matrixWorld
+  // (transformDirection ignora la traslación, solo rota/escala).
+  const nodoWorldInv=new THREE.Matrix4().copy(nodo.matrixWorld).invert();
   hijos.forEach(child=>{
     child.updateMatrixWorld(true);
     const childBox=cajaMeshesVisibles(child);
     const childCenter=childBox.isEmpty() ? child.getWorldPosition(new THREE.Vector3()) : childBox.getCenter(new THREE.Vector3());
-    const dir=childCenter.clone().sub(nodoCenter);
-    if(dir.lengthSq()<1e-6){
+    const dirMundo=childCenter.clone().sub(nodoCenter);
+    if(dirMundo.lengthSq()<1e-6){
       delete child.userData.explode;
     }else{
-      dir.normalize();
+      const dir=dirMundo.clone().transformDirection(nodoWorldInv).normalize();
       child.userData.explode={basePos:child.position.clone(),dir,factor,spread};
     }
     if(!child.isMesh) computeExplodeNivelRecursivo(child,nivel+1);
