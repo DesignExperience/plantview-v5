@@ -16389,7 +16389,11 @@ document.getElementById('btnSelLevelIguales').addEventListener('click',()=>{
   if(!res){ toast('No se pudo identificar este nivel'); return; }
   const {instancias,etiqueta}=res;
   const {hit}=selPopupPendiente;
-  if(instancias.length<=1){ toast('No se encontraron otras instancias iguales a "'+etiqueta+'"'); return; }
+  if(instancias.length<=1){
+    if(selPopupPendiente.nivel!=='pieza') debugBaseSubensamblaje(etiqueta);
+    toast('No se encontraron otras instancias iguales a "'+etiqueta+'"');
+    return;
+  }
   abrirFormNota3D(hit);
   notaGrupoIgualesPendiente=instancias; // seteado DESPUÉS: abrirFormNota3D lo resetea a null
   document.getElementById('notaTitulo3D').textContent='Nueva nota (grupo)';
@@ -16411,7 +16415,7 @@ document.getElementById('btnSelLevelIgualesAislar').addEventListener('click',()=
   const res=resolverInstanciasIgualesDesdePopup();
   if(!res){ toast('No se pudo identificar este nivel'); return; }
   const {grupos,etiqueta}=res;
-  if(grupos.length<=1){ toast('No se encontraron otras instancias iguales a "'+etiqueta+'"'); return; }
+  if(grupos.length<=1){ debugBaseSubensamblaje(etiqueta); toast('No se encontraron otras instancias iguales a "'+etiqueta+'"'); return; }
   let agregadas=0;
   grupos.forEach(g=>{
     const zone=ZONES.find(z=>z.id===g.zoneId);
@@ -16568,6 +16572,33 @@ function codigosBaseDeSegmento(segmento){
     const m=CODIGO_BASE_RE.exec(parte.trim());
     return m?m[1]:parte.trim();
   });
+}
+
+// TEMPORAL: log de diagnóstico round 2 — el fix de código base tampoco
+// encontró coincidencias en el modelo real, así que se vuelca a consola,
+// por cada pieza del modelo, su pathNames CRUDO junto con los códigos base
+// ya calculados para cada segmento — así se ve exactamente qué produce
+// codigosBaseDeSegmento() para cada camino real y por qué nombreBase no
+// aparece en ninguno. Sacar una vez resuelto.
+function debugBaseSubensamblaje(nombre){
+  const nombreBase=codigosBaseDeSegmento(nombre)[0];
+  console.log('[iguales-debug2] buscando:',JSON.stringify(nombre),'-> base:',JSON.stringify(nombreBase));
+  const vistos=new Set();
+  let coincidencias=0;
+  allMeshes.forEach(mesh=>{
+    const lista=mesh.userData.piezas?mesh.userData.piezas.map(p=>p.userData):[mesh.userData];
+    lista.forEach(ud=>{
+      const pathNames=ud.pathNames||[];
+      const clave=pathNames.join(' | ');
+      if(vistos.has(clave)) return;
+      vistos.add(clave);
+      const bases=pathNames.map(n=>codigosBaseDeSegmento(n).join('+'));
+      const match=pathNames.some(n=>codigosBaseDeSegmento(n).includes(nombreBase));
+      if(match) coincidencias++;
+      if(match || vistos.size<=30) console.log((match?'  ~~MATCH ':'          '),JSON.stringify(pathNames),'bases:',JSON.stringify(bases));
+    });
+  });
+  console.log('[iguales-debug2] caminos únicos:',vistos.size,'con coincidencia de base:',coincidencias);
 }
 
 function buscarInstanciasIgualesSubensamblaje(nombre){
