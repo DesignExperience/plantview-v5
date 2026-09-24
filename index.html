@@ -6984,8 +6984,14 @@ function actualizarUIEscrituraDrive() {
   // ícono — se empuja el cambio en vivo en vez de que el visor tenga que
   // preguntar por polling (ver consultaLoginDrive, que sigue usándose
   // para el estado INICIAL al cargar, antes de que haya ningún cambio
-  // que empujar).
-  enviarAlVisor3D({ tipo: "driveLoginCambio", conectado });
+  // que empujar). Esta función corre tempranísimo durante la carga de la
+  // página (antes de que colaVisor3D, usado adentro de enviarAlVisor3D,
+  // termine de inicializarse más abajo en el archivo) — sin el try/catch
+  // ese ReferenceError por temporal dead zone quedaba SIN CAPTURAR y
+  // cortaba en seco el resto del script de esta página, dejando
+  // variables tan básicas como modoActual sin asignar (rompía TODA la
+  // app: ni siquiera abría un GLB).
+  try { enviarAlVisor3D({ tipo: "driveLoginCambio", conectado }); } catch (e) {}
   actualizarLoginTarea();
 }
 
