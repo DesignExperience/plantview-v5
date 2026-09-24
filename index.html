@@ -16389,11 +16389,7 @@ document.getElementById('btnSelLevelIguales').addEventListener('click',()=>{
   if(!res){ toast('No se pudo identificar este nivel'); return; }
   const {instancias,etiqueta}=res;
   const {hit}=selPopupPendiente;
-  if(instancias.length<=1){
-    if(selPopupPendiente.nivel!=='pieza') debugNombresSubensamblaje(etiqueta);
-    toast('No se encontraron otras instancias iguales a "'+etiqueta+'"');
-    return;
-  }
+  if(instancias.length<=1){ toast('No se encontraron otras instancias iguales a "'+etiqueta+'"'); return; }
   abrirFormNota3D(hit);
   notaGrupoIgualesPendiente=instancias; // seteado DESPUÉS: abrirFormNota3D lo resetea a null
   document.getElementById('notaTitulo3D').textContent='Nueva nota (grupo)';
@@ -16415,11 +16411,7 @@ document.getElementById('btnSelLevelIgualesAislar').addEventListener('click',()=
   const res=resolverInstanciasIgualesDesdePopup();
   if(!res){ toast('No se pudo identificar este nivel'); return; }
   const {grupos,etiqueta}=res;
-  if(grupos.length<=1){
-    debugNombresSubensamblaje(etiqueta);
-    toast('No se encontraron otras instancias iguales a "'+etiqueta+'"');
-    return;
-  }
+  if(grupos.length<=1){ toast('No se encontraron otras instancias iguales a "'+etiqueta+'"'); return; }
   let agregadas=0;
   grupos.forEach(g=>{
     const zone=ZONES.find(z=>z.id===g.zoneId);
@@ -16556,44 +16548,34 @@ function buscarInstanciasIguales(objName){
 // en el camino de cada pieza — eso sigue separando bien dos ramas
 // distintas que reusen el mismo nombre en lugares no relacionados,
 // solo que ya no exige que estén al mismo nivel de anidado.
-// SolidWorks numera cada instancia de un componente repetido agregando un
-// sufijo "<N>" al nombre (ej. "10-01731.0-00<1>", "10-01731.0-00<2>") —
-// eso pasa sobre todo con nodos de SUBENSAMBLAJE (de tope o intermedios),
-// así que dos instancias que son "el mismo subensamblaje" tienen nombres
-// distintos letra por letra y el matching exacto nunca las agrupaba.
-// Se ignora ese sufijo solo para EMPAREJAR "iguales" — el nombre real
-// (con sufijo) se sigue guardando tal cual en pathNames/objName.
+// Confirmado con datos reales (log [iguales-debug]): un mismo eslabón de
+// subensamblaje NUNCA aparece como el mismo string exacto en pathNames.
+// Dos cosas lo cambian por instancia: (1) SolidWorks le agrega un sufijo
+// de instancia tipo "-N" al código base (ej. "10-01731.0-00-4"), y (2)
+// cuando dos nodos originales se fusionan en un mismo mesh, esa posición
+// del camino guarda AMBOS códigos juntos separados por "/" (ej.
+// "10-00449.0-00-1/10-00445.0-00-1"). El código base sí es estable: tiene
+// siempre la forma NN-NNNNN.N-NN. Se extrae ese código base de cada
+// segmento (partiendo primero por "/") y se compara por ahí — el nombre
+// real (con sufijo/combinado) se sigue guardando tal cual en
+// pathNames/objName, esto es solo para EMPAREJAR "iguales".
+const CODIGO_BASE_RE=/^(\d+-\d+\.\d+-\d+)(?:-\d+)?$/;
 function normalizarNombreInstancia(nombre){
   return (nombre||'').replace(/<\d+>\s*$/,'').trim();
 }
-
-// TEMPORAL: cuando la búsqueda de "iguales" a nivel subensamblaje no
-// encuentra nada, se vuelca a consola la lista de nombres de subensamblaje
-// existentes en el modelo (deduplicados) junto con sus códigos de
-// caracteres — así se puede comparar a ojo/con JSON contra "nombre" y
-// detectar espacios, mayúsculas o caracteres invisibles que lo diferencien
-// de lo que a simple vista parece el mismo código. Sacar una vez resuelto.
-function debugNombresSubensamblaje(nombre){
-  const vistos=new Set();
-  allMeshes.forEach(mesh=>{
-    const lista=mesh.userData.piezas?mesh.userData.piezas.map(p=>p.userData):[mesh.userData];
-    lista.forEach(ud=>(ud.pathNames||[]).forEach(n=>vistos.add(n)));
-  });
-  const buscado=Array.from(nombre).map(c=>c.charCodeAt(0));
-  console.log('[iguales-debug] buscando:',JSON.stringify(nombre),'codes:',buscado);
-  console.log('[iguales-debug] nombres de subensamblaje en el modelo ('+vistos.size+'):');
-  Array.from(vistos).sort().forEach(n=>{
-    const parecido=n.toLowerCase().trim()===nombre.toLowerCase().trim();
-    console.log((parecido?'  ~~ ':'     ')+JSON.stringify(n)+' codes:'+Array.from(n).map(c=>c.charCodeAt(0)).join(','));
+function codigosBaseDeSegmento(segmento){
+  return normalizarNombreInstancia(segmento).split('/').map(parte=>{
+    const m=CODIGO_BASE_RE.exec(parte.trim());
+    return m?m[1]:parte.trim();
   });
 }
 
 function buscarInstanciasIgualesSubensamblaje(nombre){
   const grupos=new Map(); // zoneId+prefijo -> {zoneId,pathPrefix,piezas:[{mesh,pieza}]}
-  const nombreNorm=normalizarNombreInstancia(nombre);
+  const [nombreBase]=codigosBaseDeSegmento(nombre);
   function registrar(ud,mesh,pieza){
     const pathNames=ud.pathNames||[];
-    const idx=pathNames.findIndex(n=>normalizarNombreInstancia(n)===nombreNorm);
+    const idx=pathNames.findIndex(n=>codigosBaseDeSegmento(n).includes(nombreBase));
     if(idx===-1) return;
     const prefix=pathNames.slice(0,idx+1);
     const key=ud.zoneId+'::'+prefix.join('§');
