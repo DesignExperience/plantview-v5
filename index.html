@@ -11610,7 +11610,7 @@ canvas{display:block;width:100%;height:100%}
    toggle fijo de arriba que existía antes — acá la posición (left/top)
    la calcula JS en cada click, position:fixed es solo para que quede
    por encima del canvas sin importar el scroll. */
-.sel-level-popup{position:fixed;z-index:210;display:none;flex-direction:column;gap:6px;background:rgba(255,255,255,.97);border:1px solid var(--border);backdrop-filter:blur(12px);border-radius:12px;padding:8px;box-shadow:0 6px 24px rgba(0,0,0,.18);max-width:280px}
+.sel-level-popup{position:fixed;z-index:210;display:none;flex-direction:column;gap:6px;background:rgba(255,255,255,.97);border:1px solid var(--border);backdrop-filter:blur(12px);border-radius:12px;padding:8px;box-shadow:0 6px 24px rgba(0,0,0,.18);max-width:280px;max-height:70vh;overflow-y:auto}
 .sel-level-popup-nombre{font-size:10px;font-weight:700;color:var(--text);padding:0 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sel-level-popup-btns{display:flex;gap:3px;flex-wrap:wrap;justify-content:center}
 .sel-level-btn{display:flex;flex-direction:column;align-items:center;gap:3px;border:1px solid var(--border);background:var(--surf2);border-radius:9px;padding:7px 10px;font-size:9px;font-weight:600;letter-spacing:.03em;color:var(--text);cursor:pointer;white-space:nowrap;font-family:inherit;transition:background .12s,border-color .12s}
@@ -16432,6 +16432,14 @@ function mostrarSelLevelPopup(cx,cy,hit,piezaUd,zone){
   let left=cx-pw/2, top=cy-ph-14;
   left=Math.max(8,Math.min(left,window.innerWidth-pw-8));
   if(top<8) top=cy+14; // no entra arriba del click: se muestra abajo en su lugar
+  // En mobile, la barra de aislar/explosión y la toolbar inferior son
+  // OTROS elementos fixed que no entran en este clamp normal — sin este
+  // margen extra, el popup se superponía con ellos en pantallas chicas
+  // (bug reportado con captura). Se reserva espacio abajo y, si no
+  // entra, se sube el popup en vez de dejarlo tapando esas barras.
+  const RESERVA_INFERIOR=170;
+  const maxTop=window.innerHeight-ph-RESERVA_INFERIOR;
+  if(top>maxTop) top=Math.max(8,maxTop);
   popup.style.left=left+'px';
   popup.style.top=top+'px';
 }
@@ -16696,16 +16704,25 @@ function centroPiezaFusionada(mesh,pieza){
 
 function buscarInstanciasIguales(objName){
   const instancias=[];
+  // Mismo problema que ya se resolvió para subensamblajes: el exportador
+  // agrega un sufijo de instancia al nombre de la pieza (ej.
+  // "10-02171.0-00-5"), así que dos piezas "iguales" nunca matchean por
+  // string exacto — se compara por código base (ver codigosBaseDeSegmento
+  // /CODIGO_BASE_RE). Y solo cuenta lo VISIBLE ahora mismo (si hay un
+  // aislamiento activo, no se cuentan piezas ocultas fuera de él — bug
+  // reportado: "está contando de más, no debería contar piezas ocultas").
+  const objBase=codigosBaseDeSegmento(objName)[0];
   allMeshes.forEach(mesh=>{
+    if(mesh.visible===false) return;
     const ud=mesh.userData;
     if(ud.piezas){
       ud.piezas.forEach(p=>{
-        if(p.userData.objName!==objName) return;
+        if(codigosBaseDeSegmento(p.userData.objName)[0]!==objBase) return;
         const c=centroPiezaFusionada(mesh,p);
         if(!c) return;
         instancias.push({mesh,local:c.local,point:c.point,zoneId:p.userData.zoneId,objName:p.userData.objName,pathNames:p.userData.pathNames||null});
       });
-    }else if(ud.objName===objName){
+    }else if(codigosBaseDeSegmento(ud.objName)[0]===objBase){
       const c=centroMeshSimple(mesh);
       if(!c) return;
       instancias.push({mesh,local:c.local,point:c.point,zoneId:ud.zoneId,objName:ud.objName,pathNames:ud.pathNames||null});
@@ -16793,6 +16810,7 @@ function buscarInstanciasIgualesSubensamblaje(nombre){
     }
   }
   allMeshes.forEach(mesh=>{
+    if(mesh.visible===false) return; // solo cuenta lo VISIBLE ahora mismo (respeta el aislamiento activo)
     if(mesh.userData.piezas) mesh.userData.piezas.forEach(p=>registrar(p.userData,mesh,p));
     else registrar(mesh.userData,mesh,null);
   });
