@@ -2864,6 +2864,11 @@ function setSplit(activo) {
     app.classList.add("has-split");
     splitWrap.classList.toggle("desktop", isDesktop());
     btn?.classList.add("activo");
+    // Limpiar el display:none inline que deja la desactivación (más abajo)
+    // — un estilo inline le gana siempre a la regla CSS ".has-split
+    // #divider{display:flex}", así que sin esto el divisor queda invisible
+    // para siempre a partir de la SEGUNDA vez que se activa el split.
+    divider.style.display = "";
     // Icono según orientación
     if (isDesktop()) { if (iconV) iconV.style.display="block"; if (iconH) iconH.style.display="none"; }
     else             { if (iconV) iconV.style.display="none";  if (iconH) iconH.style.display="block"; }
