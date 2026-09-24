@@ -7143,29 +7143,24 @@ async function obtenerOCrearCarpetaDrive(nombre, carpetaPadreId) {
   return promesa;
 }
 
+// Pasa por /api/carpeta-notas (server-side) en vez de pegarle directo a
+// Drive: el caché de arriba (carpetaDriveEnVuelo) solo evita la carrera
+// DENTRO de una misma pestaña — la carrera real y ya confirmada en Drive
+// (ver comentario del endpoint) es entre USUARIOS DISTINTOS coincidiendo
+// casi al mismo tiempo, algo que ninguna pestaña puede saber por sí sola.
+// El servidor busca-o-crea y, si de todos modos detecta que ya quedó más
+// de una (dos pedidos que se pisaron en la misma ventana), las fusiona
+// ahí mismo antes de responder — el usuario nunca llega a ver el
+// duplicado.
 async function obtenerOCrearCarpetaDriveInterno(nombre, carpetaPadreId) {
-  const nombreEscapado = nombre.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-  const q = encodeURIComponent(`name='${nombreEscapado}' and '${carpetaPadreId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`);
-  const listResp = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,createdTime)&orderBy=createdTime`, {
-    headers: { Authorization: `Bearer ${driveAccessToken}` },
+  const resp = await fetch("/api/carpeta-notas", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nombre, carpetaPadreId, accessToken: driveAccessToken }),
   });
-  if (!listResp.ok) throw new Error(`No se pudo buscar la carpeta (HTTP ${listResp.status})`);
-  const listData = await listResp.json();
-  // Si por una carrera entre pestañas/dispositivos distintos ya quedaron
-  // duplicadas (esto NO lo evita el caché de arriba, que solo cubre la
-  // MISMA pestaña), siempre se elige la más vieja — así todas las llamadas
-  // futuras convergen a la misma carpeta en vez de "saltar" entre ellas.
-  let folderId = listData.files?.[0]?.id;
-  if (!folderId) {
-    const createResp = await fetch("https://www.googleapis.com/drive/v3/files", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${driveAccessToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ name: nombre, mimeType: "application/vnd.google-apps.folder", parents: [carpetaPadreId] }),
-    });
-    if (!createResp.ok) throw new Error(`No se pudo crear la carpeta (HTTP ${createResp.status})`);
-    folderId = (await createResp.json()).id;
-  }
-  return folderId;
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data.error || `No se pudo resolver la carpeta (HTTP ${resp.status})`);
+  return data.carpetaId;
 }
 
 /* ============================================================
