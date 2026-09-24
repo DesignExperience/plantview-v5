@@ -3136,6 +3136,7 @@ document.getElementById("btn-unificar-carpetas-notas").addEventListener("click",
   showToast("Buscando carpetas duplicadas (puede tardar)…", 6000);
   try {
     const res = await unificarCarpetasNotasEnCarpeta(carpeta.driveId);
+    console.log("[unificarNotas] resultado final:", res);
     showToast(res.modelosConDuplicados > 0
       ? `✓ Se unificaron ${res.carpetasFusionadas} carpeta(s) duplicada(s) de ${res.modelosConDuplicados} modelo(s)${res.tope ? ' (carpeta muy grande, puede haber quedado algo sin revisar — volvé a tocar el botón)' : ''}`
       : "No había carpetas duplicadas en esta carpeta");
@@ -6829,6 +6830,24 @@ function normalizarNombreCarpeta(nombre) {
     .trim();
 }
 
+// Clave de comparación PARA DETECTAR duplicadas — deliberadamente más
+// agresiva que normalizarNombreCarpeta (que se usa para el nombre real de
+// una carpeta nueva): acá no importa preservar mayúsculas/minúsculas ni
+// espacios, solo decidir "¿son la misma carpeta de notas?". Además de NFC
+// y nbsp, saca TODOS los espacios (no solo los repetidos) y caracteres
+// invisibles de ancho cero que a veces quedan pegados a un nombre de
+// archivo sin que se note en absoluto en pantalla, y pasa todo a
+// minúsculas — dos carpetas ya identificadas como "iguales a simple
+// vista" (mismo padre, mismo nombre visible) que sigan sin matchear con
+// esto ya no son un problema de espacios/acentos, es otra cosa.
+function claveComparacionCarpeta(nombre) {
+  return (nombre || "")
+    .normalize("NFC")
+    .replace(/[​-‍﻿ ]/g, "")
+    .replace(/\s+/g, "")
+    .toLowerCase();
+}
+
 async function obtenerOCrearCarpetaDrive(nombre, carpetaPadreId) {
   nombre = normalizarNombreCarpeta(nombre);
   const clave = carpetaPadreId + "||" + nombre;
@@ -9316,36 +9335,52 @@ async function listarSubcarpetas(folderId) {
 async function unificarCarpetasNotasEnCarpeta(carpetaRaizId) {
   let modelosConDuplicados = 0, carpetasFusionadas = 0, archivosMovidos = 0, carpetasVisitadas = 0;
   const TOPE_VISITAS = 2000;
+  // Log detallado (console.log, ver botón del toolbar): un error en UN
+  // grupo no debe abortar el resto ni esconder qué pasó — antes un solo
+  // throw de fusionarGrupoCarpetasDrive cortaba todo el escaneo entero y
+  // el usuario solo veía "no se pudo unificar" sin saber ni cuánto había
+  // avanzado ni en qué carpeta puntual falló.
+  const detalle = [];
   const pendientes = [carpetaRaizId];
   while (pendientes.length) {
     const folderId = pendientes.pop();
     if (++carpetasVisitadas > TOPE_VISITAS) break;
     const hijas = await listarSubcarpetas(folderId);
-    const porNombre = new Map();
+    // Dump de códigos de carácter de cada nombre de carpeta de notas — si
+    // dos entradas se ven IDÉNTICAS en el listado de abajo pero tienen
+    // codePoints distintos, ahí está la diferencia invisible real (espacio
+    // raro, carácter de ancho cero, etc.) que ninguna heurística previa
+    // adivinó bien.
+    hijas.filter(h => normalizarNombreCarpeta(h.name).endsWith(" - Documentos y notas"))
+      .forEach(h => console.log(`[unificarNotas] "${h.name}" (${h.name.length} chars) codePoints:`, Array.from(h.name).map(c => c.codePointAt(0))));
+    const sufijoClave = claveComparacionCarpeta(" - Documentos y notas");
+    const porClave = new Map(); // clave laxa (claveComparacionCarpeta) -> [archivo, archivo, ...]
     hijas.forEach(c => {
-      // normalize('NFC'): "duplicadas" con acentos pueden verse IDÉNTICAS en
-      // pantalla pero venir codificadas distinto a nivel de bytes (NFC vs
-      // NFD — típico Mac vs Windows/Drive web) — sin esto, dos carpetas que
-      // se ven exactamente iguales quedan en grupos separados y no se
-      // detectan como duplicadas.
-      const nombreNorm = normalizarNombreCarpeta(c.name);
-      if (nombreNorm.endsWith(" - Documentos y notas")) {
-        if (!porNombre.has(nombreNorm)) porNombre.set(nombreNorm, []);
-        porNombre.get(nombreNorm).push(c);
+      const clave = claveComparacionCarpeta(c.name);
+      if (clave.endsWith(sufijoClave)) {
+        if (!porClave.has(clave)) porClave.set(clave, []);
+        porClave.get(clave).push(c);
       } else {
         pendientes.push(c.id); // seguir bajando — puede haber más modelos más adentro
       }
     });
-    for (const grupo of porNombre.values()) {
+    for (const [clave, grupo] of porClave) {
       if (grupo.length <= 1) continue;
       modelosConDuplicados++;
       grupo.sort((a, b) => a.createdTime.localeCompare(b.createdTime));
-      const res = await fusionarGrupoCarpetasDrive(grupo);
-      carpetasFusionadas += res.fusionadas;
-      archivosMovidos += res.archivosMovidos;
+      try {
+        const res = await fusionarGrupoCarpetasDrive(grupo);
+        carpetasFusionadas += res.fusionadas;
+        archivosMovidos += res.archivosMovidos;
+        detalle.push({ nombre: grupo[0].name, ids: grupo.map(g => g.id), ok: true, ...res });
+        console.log(`[unificarNotas] OK "${grupo[0].name}":`, grupo.map(g => g.id), res);
+      } catch (err) {
+        detalle.push({ nombre: grupo[0].name, ids: grupo.map(g => g.id), ok: false, error: err.message });
+        console.error(`[unificarNotas] FALLÓ "${grupo[0].name}":`, grupo.map(g => g.id), err);
+      }
     }
   }
-  return { modelosConDuplicados, carpetasFusionadas, archivosMovidos, tope: carpetasVisitadas > TOPE_VISITAS };
+  return { modelosConDuplicados, carpetasFusionadas, archivosMovidos, tope: carpetasVisitadas > TOPE_VISITAS, detalle };
 }
 
 const EJECUTORES_DRIVE = {
