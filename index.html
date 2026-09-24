@@ -16394,6 +16394,7 @@ function resolverInstanciasIgualesDesdePopup(){
   const nombre=(piezaUd.pathNames||[])[profundidad]||null;
   if(!nombre) return null;
   const grupos=buscarInstanciasIgualesSubensamblaje(nombre);
+  console.log('[iguales-debug3] nivel:',JSON.stringify(nivel),'profundidad:',profundidad,'pathNames pieza:',JSON.stringify(piezaUd.pathNames),'nombre buscado:',JSON.stringify(nombre),'grupos encontrados:',grupos.length,grupos.map(g=>g.pathPrefix));
   return { grupos, instancias:grupos.map(anclaDesdeGrupoSubensamblaje).filter(Boolean), etiqueta:nombre };
 }
 
