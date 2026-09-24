@@ -330,17 +330,24 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 }
 
 /* ---- DIVISOR ARRASTRABLE ---- */
+/* var(--line) es casi transparente (14% de opacidad en tema claro,
+   pensado para bordes sutiles de tarjetas) — usado acá se perdía contra
+   el mismo fondo de los dos paneles que separa, dando la impresión de que
+   la línea divisoria directamente no estaba. --muted tiene bastante más
+   contraste y sigue siendo neutro (no compite con --accent, reservado
+   para hover/arrastre). */
 #divider {
   flex: none;
-  background: var(--line);
+  background: var(--muted);
+  opacity: .35;
   position: relative; z-index: 10;
   display: none; /* oculto en no-split */
   align-items: center; justify-content: center;
   cursor: row-resize; /* mobile: horizontal */
   touch-action: none;
-  transition: background .15s;
+  transition: background .15s, opacity .15s;
 }
-#divider:hover, #divider.dragging { background: var(--accent); }
+#divider:hover, #divider.dragging { opacity: 1; background: var(--accent); }
 #divider-handle {
   background: var(--muted); border-radius: 3px;
   pointer-events: none;
