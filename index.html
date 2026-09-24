@@ -11913,8 +11913,8 @@ canvas{display:block;width:100%;height:100%}
 .adj-item .adj-pdf{width:60px;height:60px;border-radius:6px;background:rgba(58,107,232,.1);color:#3A6BE8;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;cursor:pointer}
 .adj-item .adj-nombre{margin-top:2px;font-size:9.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center}
 .adj-item .adj-quitar{position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;border:2px solid var(--surf);background:#e03050;color:#fff;font-size:12px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
-.nota-refglb-botones{display:flex;gap:8px}
-#notaRefGlbBtn3D,#notaRefGlbLinkBtn3D{flex:1;display:flex;align-items:center;justify-content:center;gap:7px;height:36px;border-radius:9px;border:1px dashed var(--border);background:none;color:var(--muted);font-family:inherit;font-size:12px;cursor:pointer}
+.nota-refglb-botones{display:flex;flex-direction:column;gap:8px}
+#notaRefGlbBtn3D,#notaRefGlbLinkBtn3D{width:100%;display:flex;align-items:center;justify-content:center;gap:7px;height:36px;border-radius:9px;border:1px dashed var(--border);background:none;color:var(--muted);font-family:inherit;font-size:12px;cursor:pointer}
 #notaRefGlbBtn3D:active,#notaRefGlbLinkBtn3D:active{border-color:var(--acc);color:var(--acc)}
 .nota-refglb-link-row{display:flex;gap:6px}
 .nota-refglb-link-row input{flex:1;height:36px;border-radius:9px;border:1px solid var(--border);background:var(--surf2);color:var(--text);font-family:inherit;font-size:12px;padding:0 10px;min-width:0}
@@ -14357,6 +14357,16 @@ document.getElementById('btnAislarNota').addEventListener('click',()=>{
   document.getElementById('notaTitulo3D').textContent='Nueva nota (grupo)';
   document.getElementById('notaPieza3D').textContent=`${instancias.length} piezas aisladas`;
   document.getElementById('notaNumeroManualLabel3D').textContent='Número base (2.1, 2.2, 2.3…)';
+  // Mismo default que "Nota en iguales": si la primera selección aislada
+  // ya tiene un color asignado con "Marcar", la nota arranca con ese color.
+  const primeraSel=[...aislamientoActivo.values()][0];
+  if(primeraSel){
+    const zonePrimera=ZONES.find(z=>z.id===primeraSel.zoneId);
+    if(zonePrimera){
+      const colorMarca=colorNotaKeyDesdeMarca(zonePrimera,primeraSel.pathPrefix?null:primeraSel.objName,primeraSel.pathPrefix);
+      if(colorMarca) seleccionarColorNota(colorMarca);
+    }
+  }
 });
 
 // ── BUILD SCENE FROM GLB — respeta posiciones originales del ensamblaje ──
@@ -16550,14 +16560,24 @@ document.getElementById('btnSelLevelIguales').addEventListener('click',()=>{
   const res=resolverInstanciasIgualesDesdePopup();
   if(!res){ toast('No se pudo identificar este nivel'); return; }
   const {instancias,etiqueta}=res;
-  const {hit}=selPopupPendiente;
+  const {hit,zone,nivel,piezaUd}=selPopupPendiente;
   if(instancias.length<=1){ toast('No se encontraron otras instancias iguales a "'+etiqueta+'"'); return; }
   abrirFormNota3D(hit);
   notaGrupoIgualesPendiente=instancias; // seteado DESPUÉS: abrirFormNota3D lo resetea a null
   notaGrupoEtiquetaPendiente=etiqueta;
   document.getElementById('notaTitulo3D').textContent='Nueva nota (grupo)';
-  document.getElementById('notaPieza3D').textContent=`${etiqueta} — ${instancias.length} instancias iguales`;
+  // Mismo criterio de wording que el cartel del popup de nivel: "piezas"
+  // solo para el nivel Pieza, "subensamblajes" para Subensamblaje/intermedio.
+  const tipoIguales=nivel==='pieza'?'piezas':'subensamblajes';
+  document.getElementById('notaPieza3D').textContent=`${etiqueta} — ${instancias.length} ${tipoIguales} iguales`;
   document.getElementById('notaNumeroManualLabel3D').textContent='Número base (2.1, 2.2, 2.3…)';
+  // Si estos subensamblajes/piezas ya tienen un color asignado con
+  // "Marcar", la nota nueva arranca con ese mismo color por default en vez
+  // del negro de siempre — así la nota "hace juego" con la marca visual
+  // que el usuario ya eligió para identificarlos.
+  const pathPrefixColor=res.grupos?res.grupos[0]?.pathPrefix:null;
+  const colorMarca=colorNotaKeyDesdeMarca(zone,pathPrefixColor?null:piezaUd.objName,pathPrefixColor);
+  if(colorMarca) seleccionarColorNota(colorMarca);
   ocultarSelLevelPopup();
 });
 document.getElementById('btnSelLevelIgualesAislar').addEventListener('click',()=>{
@@ -17515,6 +17535,28 @@ const NOTA_COLORES={
 function seleccionarColorNota(key){
   const cont=document.getElementById('notaColores3D');
   cont.querySelectorAll('.nota-color-sw').forEach(x=>x.classList.toggle('sel', x.dataset.color===(key||'negro')));
+}
+// El color de "Marcar pieza" es libre (input type=color, cualquier hex);
+// la paleta de notas es fija (los 5 colores de NOTA_COLORES) — se busca
+// coincidencia exacta primero y si no, el color de la paleta más cercano
+// por distancia RGB, para que la nota "haga juego" con la marca aunque no
+// sea exactamente el mismo hex.
+function hexARgb(hex){
+  const h=(hex||'').replace('#','');
+  return [parseInt(h.slice(0,2),16)||0,parseInt(h.slice(2,4),16)||0,parseInt(h.slice(4,6),16)||0];
+}
+function colorNotaKeyDesdeMarca(zone,objName,pathPrefix){
+  if(!zone) return null;
+  const marca=marcasPiezas[marcaKey(zone,objName,pathPrefix)];
+  if(!marca||!marca.color) return null;
+  const [r,g,b]=hexARgb(marca.color);
+  let mejor=null,mejorDist=Infinity;
+  Object.entries(NOTA_COLORES).forEach(([key,hex])=>{
+    const [r2,g2,b2]=hexARgb(hex);
+    const dist=(r-r2)**2+(g-g2)**2+(b-b2)**2;
+    if(dist<mejorDist){ mejorDist=dist; mejor=key; }
+  });
+  return mejor;
 }
 function colorSeleccionadoNota(){
   const sel=document.querySelector('#notaColores3D .nota-color-sw.sel');
