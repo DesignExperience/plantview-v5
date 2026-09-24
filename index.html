@@ -305,9 +305,17 @@ input  { font-family: inherit; }
 #pv-handle:hover, #pv-handle.dragging { background: var(--accent); opacity: 1; }
 
 /* Split mode */
+/* --sp (ver setSP) es el ANCHO del panel de Files (usado como pv-wrap
+   right / app left = innerWidth - sp), no una posición X absoluta desde
+   la izquierda — "left: var(--sp)" acá abajo estaba tratándola como si lo
+   fuera. Con un split 50/50 ambos cálculos coinciden por casualidad (por
+   eso parecía andar bien), pero apenas se arrastra lejos del centro la
+   línea/el visor quedan pintados bien adentro del panel de Files en vez
+   de en el borde real. calc(100% - var(--sp)) convierte correctamente
+   "ancho del panel derecho" a "posición X desde la izquierda". */
 body.mode-split #app      { position: fixed; top: calc(var(--bar-h) + var(--safe-t)); left: 0; right: auto; bottom: 0; }
-body.mode-split #pv-wrap  { left: var(--sp, 50%); }
-body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -2.5px; }
+body.mode-split #pv-wrap  { left: calc(100% - var(--sp, 50%)); }
+body.mode-split #pv-handle{ display: block; left: calc(100% - var(--sp, 50%)); margin-left: -2.5px; }
 
 /* ============================================================
    CONTENEDOR SPLIT
