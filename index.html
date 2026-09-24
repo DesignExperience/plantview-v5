@@ -16389,7 +16389,11 @@ document.getElementById('btnSelLevelIguales').addEventListener('click',()=>{
   if(!res){ toast('No se pudo identificar este nivel'); return; }
   const {instancias,etiqueta}=res;
   const {hit}=selPopupPendiente;
-  if(instancias.length<=1){ toast('No se encontraron otras instancias iguales a "'+etiqueta+'"'); return; }
+  if(instancias.length<=1){
+    if(selPopupPendiente.nivel!=='pieza') debugNombresSubensamblaje(etiqueta);
+    toast('No se encontraron otras instancias iguales a "'+etiqueta+'"');
+    return;
+  }
   abrirFormNota3D(hit);
   notaGrupoIgualesPendiente=instancias; // seteado DESPUÉS: abrirFormNota3D lo resetea a null
   document.getElementById('notaTitulo3D').textContent='Nueva nota (grupo)';
@@ -16411,7 +16415,11 @@ document.getElementById('btnSelLevelIgualesAislar').addEventListener('click',()=
   const res=resolverInstanciasIgualesDesdePopup();
   if(!res){ toast('No se pudo identificar este nivel'); return; }
   const {grupos,etiqueta}=res;
-  if(grupos.length<=1){ toast('No se encontraron otras instancias iguales a "'+etiqueta+'"'); return; }
+  if(grupos.length<=1){
+    debugNombresSubensamblaje(etiqueta);
+    toast('No se encontraron otras instancias iguales a "'+etiqueta+'"');
+    return;
+  }
   let agregadas=0;
   grupos.forEach(g=>{
     const zone=ZONES.find(z=>z.id===g.zoneId);
@@ -16557,6 +16565,27 @@ function buscarInstanciasIguales(objName){
 // (con sufijo) se sigue guardando tal cual en pathNames/objName.
 function normalizarNombreInstancia(nombre){
   return (nombre||'').replace(/<\d+>\s*$/,'').trim();
+}
+
+// TEMPORAL: cuando la búsqueda de "iguales" a nivel subensamblaje no
+// encuentra nada, se vuelca a consola la lista de nombres de subensamblaje
+// existentes en el modelo (deduplicados) junto con sus códigos de
+// caracteres — así se puede comparar a ojo/con JSON contra "nombre" y
+// detectar espacios, mayúsculas o caracteres invisibles que lo diferencien
+// de lo que a simple vista parece el mismo código. Sacar una vez resuelto.
+function debugNombresSubensamblaje(nombre){
+  const vistos=new Set();
+  allMeshes.forEach(mesh=>{
+    const lista=mesh.userData.piezas?mesh.userData.piezas.map(p=>p.userData):[mesh.userData];
+    lista.forEach(ud=>(ud.pathNames||[]).forEach(n=>vistos.add(n)));
+  });
+  const buscado=Array.from(nombre).map(c=>c.charCodeAt(0));
+  console.log('[iguales-debug] buscando:',JSON.stringify(nombre),'codes:',buscado);
+  console.log('[iguales-debug] nombres de subensamblaje en el modelo ('+vistos.size+'):');
+  Array.from(vistos).sort().forEach(n=>{
+    const parecido=n.toLowerCase().trim()===nombre.toLowerCase().trim();
+    console.log((parecido?'  ~~ ':'     ')+JSON.stringify(n)+' codes:'+Array.from(n).map(c=>c.charCodeAt(0)).join(','));
+  });
 }
 
 function buscarInstanciasIgualesSubensamblaje(nombre){
