@@ -7040,16 +7040,28 @@ async function buscarArchivoEnCarpetaSoloLectura(nombreArchivo, carpetaId) {
   return data.files?.[0] || null;
 }
 
-// Mismo camino de lectura (subcarpeta nueva, con respaldo al lugar viejo
-// suelto en la carpeta) que ya usa el visor para cargarNotasDrive() — acá
+// Mismo camino de lectura (subcarpeta única "<glb> - Documentos y notas",
+// con respaldo a la carpeta vieja "<glb> - notas" y al lugar suelto en la
+// carpeta del modelo) que ya usa el visor para cargarNotasDrive() — acá
 // reescrito porque el visor es un documento aparte (iframe), no comparte
 // funciones con esta app externa.
+// "<glb> - notas" era el esquema viejo (de antes de unificar adjuntos y
+// notas en una sola carpeta por modelo, ver comentario de
+// resolverCarpetaNotas): esta pantalla (Tareas) había quedado afuera de
+// esa migración y seguía escribiendo ahí aparte, fragmentando la
+// documentación de un mismo modelo en dos carpetas con nombres distintos.
+// Se sigue leyendo de ahí como respaldo (datos viejos ya guardados no
+// desaparecen), pero toda escritura nueva converge a la carpeta única.
 async function cargarNotasDeModelo(carpeta, archivo) {
   try {
     const nombreGlb = archivo.nombre.replace(/\.[a-zA-Z0-9]+$/, "");
     const nombreArchivoNotas = `plantview-notas-${archivo.driveId}.json`;
-    const subcarpetaId = await buscarSubcarpetaDriveSoloLectura(`${nombreGlb} - notas`, carpeta.driveId);
-    let found = subcarpetaId ? await buscarArchivoEnCarpetaSoloLectura(nombreArchivoNotas, subcarpetaId) : null;
+    const subcarpetaUnificadaId = await buscarSubcarpetaDriveSoloLectura(`${nombreGlb} - Documentos y notas`, carpeta.driveId);
+    let found = subcarpetaUnificadaId ? await buscarArchivoEnCarpetaSoloLectura(nombreArchivoNotas, subcarpetaUnificadaId) : null;
+    if (!found) {
+      const subcarpetaViejaId = await buscarSubcarpetaDriveSoloLectura(`${nombreGlb} - notas`, carpeta.driveId);
+      if (subcarpetaViejaId) found = await buscarArchivoEnCarpetaSoloLectura(nombreArchivoNotas, subcarpetaViejaId);
+    }
     if (!found) found = await buscarArchivoEnCarpetaSoloLectura(nombreArchivoNotas, carpeta.driveId);
     if (!found) return [];
     const buffer = await descargarBufferDrive(found.id);
@@ -7064,11 +7076,15 @@ async function cargarNotasDeModelo(carpeta, archivo) {
 // escritura ya existentes (subirArchivoADrive/obtenerOCrearCarpetaDrive,
 // mismo OAuth que el resto de la app) en vez del postMessage que usa el
 // visor, porque acá (fuera del iframe) ya tenemos el token directo.
+// Escribe SIEMPRE en la carpeta única "<glb> - Documentos y notas" —
+// misma carpeta que usa el visor 3D para notas/adjuntos — así una tarea
+// editada desde acá no fragmenta la documentación del modelo en una
+// carpeta aparte (ver comentario de cargarNotasDeModelo).
 async function guardarNotasDeModelo(carpeta, archivo, notas) {
   if (!driveEscrituraConectada()) throw new Error("La escritura a Drive no está conectada");
   const nombreGlb = archivo.nombre.replace(/\.[a-zA-Z0-9]+$/, "");
   const nombreArchivoNotas = `plantview-notas-${archivo.driveId}.json`;
-  const subcarpetaId = await obtenerOCrearCarpetaDrive(`${nombreGlb} - notas`, carpeta.driveId);
+  const subcarpetaId = await obtenerOCrearCarpetaDrive(`${nombreGlb} - Documentos y notas`, carpeta.driveId);
   const blob = new Blob([JSON.stringify(notas)], { type: "application/json" });
   await subirArchivoADrive(nombreArchivoNotas, blob, subcarpetaId);
 }
