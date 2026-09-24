@@ -803,19 +803,21 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
 }
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
 .file-actions { flex: none; display: flex; align-items: center; gap: 6px; }
-.btn-qr, .btn-editar-campos, .btn-descargar, .btn-comprimir, .btn-renombrar {
+.btn-qr, .btn-editar-campos, .btn-descargar, .btn-comprimir, .btn-renombrar, .btn-eliminar,
+.btn-qr-carpeta, .btn-descargar-carpeta, .btn-renombrar-carpeta, .btn-eliminar-carpeta {
   width: 30px; height: 30px; flex: none;
   display: flex; align-items: center; justify-content: center;
   border: 1px solid var(--line); border-radius: var(--radius);
   background: var(--surface-2); color: var(--muted);
   transition: border-color .15s, color .15s;
 }
-.btn-qr:active { border-color: var(--accent); color: var(--accent); }
+.btn-qr:active, .btn-qr-carpeta:active { border-color: var(--accent); color: var(--accent); }
 .btn-editar-campos:active { border-color: var(--accent); color: var(--accent); }
-.btn-descargar:active { border-color: var(--accent2); color: var(--accent2); }
+.btn-descargar:active, .btn-descargar-carpeta:active { border-color: var(--accent2); color: var(--accent2); }
 .btn-comprimir:active { border-color: var(--accent2); color: var(--accent2); }
-.btn-renombrar:active { border-color: var(--accent); color: var(--accent); }
+.btn-renombrar:active, .btn-renombrar-carpeta:active { border-color: var(--accent); color: var(--accent); }
 .btn-comprimir:disabled { opacity: .5; }
+.btn-eliminar:active, .btn-eliminar-carpeta:active { border-color: #e0505b; color: #e0505b; }
 .compress-progress { display: block; font-size: 11px; color: var(--accent2); margin-top: 2px; }
 
 /* Selección múltiple de Files (ver btn-seleccionar-archivos): checkbox
@@ -3848,6 +3850,11 @@ function renderArchivos(filtro) {
             <path d="M14 14h3v3h-3zM17 17h3v3h-3zM14 20h3"/>
           </svg>
         </button>
+        <button class="btn-eliminar" data-eliminar-idx="${i}" type="button" title="Eliminar">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#e0505b" stroke-width="1.8">
+            <path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+          </svg>
+        </button>
       </span>
     </div>`;
   }).join("");
@@ -3862,6 +3869,7 @@ function renderArchivos(filtro) {
       if (e.target.closest(".btn-descargar")) return;
       if (e.target.closest(".btn-comprimir")) return;
       if (e.target.closest(".btn-renombrar")) return;
+      if (e.target.closest(".btn-eliminar")) return;
       if (e.target.closest(".btn-renombrar-carpeta")) return;
       if (e.target.closest(".btn-descargar-carpeta")) return;
       if (e.target.closest(".btn-qr-carpeta")) return;
@@ -3901,6 +3909,13 @@ function renderArchivos(filtro) {
       e.stopPropagation();
       const f = window._archivos_actuales[Number(btn.dataset.renombrarIdx)];
       renombrarArchivo(f);
+    });
+  });
+  lista.querySelectorAll(".btn-eliminar").forEach(btn => {
+    btn.addEventListener("click", e => {
+      e.stopPropagation();
+      const f = window._archivos_actuales[Number(btn.dataset.eliminarIdx)];
+      borrarArchivoIndividual(f);
     });
   });
   lista.querySelectorAll(".btn-descargar").forEach(btn => {
@@ -4143,6 +4158,45 @@ async function renombrarArchivo(f) {
     }
   } catch (err) {
     showToast("❌ No se pudo renombrar: " + (err.message || err));
+  }
+}
+
+// Mismo patrón que renombrarArchivo (handle local vs driveId, pide el
+// login de escritura recién si hace falta) pero para borrar — con
+// confirmación previa porque a diferencia de renombrar no tiene undo
+// visible acá (en Drive va a la papelera, recuperable desde ahí; en
+// carpeta local sí se pierde directo).
+async function borrarArchivoIndividual(f) {
+  if (!confirm(`¿Eliminar "${f.nombre}"?${f.driveId ? " Va a la papelera de Drive (se puede restaurar desde ahí)." : " Esta acción no se puede deshacer."}`)) return;
+
+  const hacerBorradoDrive = async () => {
+    const resp = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(f.driveId)}`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${driveAccessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ trashed: true }),
+    });
+    if (!resp.ok) throw new Error(explicarErrorDriveEscritura(resp, "No se pudo eliminar"));
+    await cargarArchivosDrive(state.carpetaActual);
+    showToast("✓ Eliminado");
+  };
+
+  try {
+    if (f.handle) {
+      await state.carpetaActual.handle.removeEntry(f.nombre);
+      await cargarArchivosFS(state.carpetaActual);
+      showToast("✓ Eliminado");
+    } else if (f.driveId) {
+      if (driveEscrituraConectada()) {
+        await hacerBorradoDrive();
+      } else {
+        callbackTrasLoginDrive = hacerBorradoDrive;
+        conectarEscrituraDrive();
+      }
+    } else {
+      throw new Error("Este archivo no se puede eliminar desde acá");
+    }
+  } catch (err) {
+    showToast("❌ No se pudo eliminar: " + (err.message || err));
   }
 }
 
