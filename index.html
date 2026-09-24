@@ -12234,11 +12234,11 @@ window.onerror=function(msg,src,line){
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
     Agregar a aislar
   </button>
-  <button type="button" class="sel-level-popup-ficha" id="btnSelLevelIguales" disabled title="Elegí Pieza primero" style="margin-top:6px;background:var(--surf2,#e8eaef);color:var(--text)">
+  <button type="button" class="sel-level-popup-ficha" id="btnSelLevelIguales" disabled title="Elegí un nivel primero" style="margin-top:6px;background:var(--surf2,#e8eaef);color:var(--text)">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
-    Nota en piezas iguales
+    Nota en iguales
   </button>
-  <button type="button" class="sel-level-popup-ficha" id="btnSelLevelIgualesAislar" disabled title="Elegí Pieza primero" style="margin-top:6px;background:var(--surf2,#e8eaef);color:var(--text)">
+  <button type="button" class="sel-level-popup-ficha" id="btnSelLevelIgualesAislar" disabled title="Elegí un nivel primero" style="margin-top:6px;background:var(--surf2,#e8eaef);color:var(--text)">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" opacity="0.55"/></svg>
     Seleccionar y aislar iguales
   </button>
@@ -16273,10 +16273,10 @@ function mostrarSelLevelPopup(cx,cy,hit,piezaUd,zone){
   btnAislar.title='Elegí Pieza o Subensamblaje primero';
   const btnIguales=document.getElementById('btnSelLevelIguales');
   btnIguales.disabled=true;
-  btnIguales.title='Elegí Pieza primero';
+  btnIguales.title='Elegí un nivel primero';
   const btnIgualesAislar=document.getElementById('btnSelLevelIgualesAislar');
   btnIgualesAislar.disabled=true;
-  btnIgualesAislar.title='Elegí Pieza primero';
+  btnIgualesAislar.title='Elegí un nivel primero';
   popup.style.display='flex';
 
   // Clamp para que no se salga de la pantalla cerca de los bordes —
@@ -16318,15 +16318,18 @@ function elegirNivelDesdePopup(nivel,key){
   const btnAislar=document.getElementById('btnSelLevelAislar');
   btnAislar.disabled=!(esExtremo||esIntermedio);
   btnAislar.title='';
-  // "Nota en piezas iguales" agrupa por objName — solo tiene sentido para
-  // "Pieza" (un subensamblaje, intermedio o raíz, no es "una pieza" que se
-  // repita de la misma forma).
+  // "Nota en piezas iguales"/"Seleccionar y aislar iguales": para "Pieza"
+  // agrupa por objName (buscarInstanciasIguales); para Subensamblaje o un
+  // intermedio, agrupa por el prefijo de pathNames en esa profundidad
+  // (buscarInstanciasIgualesSubensamblaje) — mismo criterio con el que
+  // resaltarNivelSeleccion ya sabe pintar un subensamblaje repetido entero.
+  const puedeIguales=(esExtremo||esIntermedio);
   const btnIguales=document.getElementById('btnSelLevelIguales');
-  btnIguales.disabled=(nivel!=='pieza');
-  btnIguales.title=(nivel==='pieza')?'':'Elegí Pieza primero';
+  btnIguales.disabled=!puedeIguales;
+  btnIguales.title=puedeIguales?'':'Elegí un nivel primero';
   const btnIgualesAislar=document.getElementById('btnSelLevelIgualesAislar');
-  btnIgualesAislar.disabled=(nivel!=='pieza');
-  btnIgualesAislar.title=(nivel==='pieza')?'':'Elegí Pieza primero';
+  btnIgualesAislar.disabled=!puedeIguales;
+  btnIgualesAislar.title=puedeIguales?'':'Elegí un nivel primero';
   resaltarNivelSeleccion(selPopupPendiente.hit,nivel);
 }
 
@@ -16362,24 +16365,61 @@ document.getElementById('btnSelLevelAislar').addEventListener('click',()=>{
   }
   ocultarSelLevelPopup();
 });
+// Para "Pieza" agrupa por objName (un mesh/rango de caras = una
+// instancia); para Subensamblaje o un intermedio, por prefijo de
+// pathNames (un GRUPO de piezas = una instancia) — ver
+// buscarInstanciasIgualesSubensamblaje. Devuelve null si el nivel elegido
+// no tiene un nombre identificable (no debería pasar, los botones están
+// disabled hasta elegir un nivel real).
+function resolverInstanciasIgualesDesdePopup(){
+  if(!selPopupPendiente||!selPopupPendiente.nivel) return null;
+  const {piezaUd,nivel}=selPopupPendiente;
+  if(nivel==='pieza'){
+    return { instancias:buscarInstanciasIguales(piezaUd.objName), etiqueta:piezaUd.objName||'Pieza' };
+  }
+  const profundidad=nivel==='subensamblaje'?0:nivel.profundidad;
+  const nombre=(piezaUd.pathNames||[])[profundidad]||null;
+  if(!nombre) return null;
+  const grupos=buscarInstanciasIgualesSubensamblaje(nombre,profundidad);
+  return { grupos, instancias:grupos.map(anclaDesdeGrupoSubensamblaje).filter(Boolean), etiqueta:nombre };
+}
+
 document.getElementById('btnSelLevelIguales').addEventListener('click',()=>{
-  if(!selPopupPendiente||selPopupPendiente.nivel!=='pieza') return;
-  const {piezaUd,hit}=selPopupPendiente;
-  const instancias=buscarInstanciasIguales(piezaUd.objName);
-  if(instancias.length<=1){ toast('No se encontraron otras piezas iguales a "'+(piezaUd.objName||'')+'"'); return; }
+  const res=resolverInstanciasIgualesDesdePopup();
+  if(!res){ toast('No se pudo identificar este nivel'); return; }
+  const {instancias,etiqueta}=res;
+  const {hit}=selPopupPendiente;
+  if(instancias.length<=1){ toast('No se encontraron otras instancias iguales a "'+etiqueta+'"'); return; }
   abrirFormNota3D(hit);
   notaGrupoIgualesPendiente=instancias; // seteado DESPUÉS: abrirFormNota3D lo resetea a null
   document.getElementById('notaTitulo3D').textContent='Nueva nota (grupo)';
-  document.getElementById('notaPieza3D').textContent=`${piezaUd.objName||'Pieza'} — ${instancias.length} piezas iguales`;
+  document.getElementById('notaPieza3D').textContent=`${etiqueta} — ${instancias.length} instancias iguales`;
   document.getElementById('notaNumeroManualLabel3D').textContent='Número base (2.1, 2.2, 2.3…)';
   ocultarSelLevelPopup();
 });
 document.getElementById('btnSelLevelIgualesAislar').addEventListener('click',()=>{
-  if(!selPopupPendiente||selPopupPendiente.nivel!=='pieza') return;
-  const {piezaUd}=selPopupPendiente;
-  const {instancias,zonas}=seleccionarIgualesParaAislar(piezaUd.objName);
-  if(instancias<=1){ toast('No se encontraron otras piezas iguales a "'+(piezaUd.objName||'')+'"'); return; }
-  toast(zonas>0 ? `${instancias} piezas iguales agregadas a la selección — tocá "Confirmar" para aislar` : 'Esa selección ya estaba agregada');
+  if(!selPopupPendiente||!selPopupPendiente.nivel) return;
+  const {nivel}=selPopupPendiente;
+  if(nivel==='pieza'){
+    const {piezaUd}=selPopupPendiente;
+    const {instancias,zonas}=seleccionarIgualesParaAislar(piezaUd.objName);
+    if(instancias<=1){ toast('No se encontraron otras piezas iguales a "'+(piezaUd.objName||'')+'"'); return; }
+    toast(zonas>0 ? `${instancias} piezas iguales agregadas a la selección — tocá "Confirmar" para aislar` : 'Esa selección ya estaba agregada');
+    ocultarSelLevelPopup();
+    return;
+  }
+  const res=resolverInstanciasIgualesDesdePopup();
+  if(!res){ toast('No se pudo identificar este nivel'); return; }
+  const {grupos,etiqueta}=res;
+  if(grupos.length<=1){ toast('No se encontraron otras instancias iguales a "'+etiqueta+'"'); return; }
+  let agregadas=0;
+  grupos.forEach(g=>{
+    const zone=ZONES.find(z=>z.id===g.zoneId);
+    if(!zone) return;
+    const key=claveAislar(zone.id,null,g.pathPrefix);
+    if(!aislarSeleccionTemp.has(key)){ toggleAislarSeleccion(zone,null,g.pathPrefix); agregadas++; }
+  });
+  toast(agregadas>0 ? `${grupos.length} instancias iguales agregadas a la selección — tocá "Confirmar" para aislar` : 'Esa selección ya estaba agregada');
   ocultarSelLevelPopup();
 });
 
@@ -16488,6 +16528,46 @@ function buscarInstanciasIguales(objName){
     }
   });
   return instancias;
+}
+
+// Mismo espíritu que buscarInstanciasIguales, pero para un subensamblaje
+// (de tope o intermedio) en vez de una pieza puntual — a diferencia de una
+// pieza, un subensamblaje no es un mesh único, así que "una instancia" acá
+// es un GRUPO de piezas que comparten el mismo prefijo de pathNames hasta
+// la profundidad elegida (mismo criterio que ya usa resaltarNivelSeleccion
+// para pintar un sub-subensamblaje entero). Comparar el prefijo completo
+// (no solo el nombre suelto en esa profundidad) separa instancias
+// distintas que reusen el mismo nombre en ramas distintas del árbol.
+// pathNames = [nombreZona, ...intermedios..., nombrePieza] — profundidad=0
+// es el subensamblaje de tope (nombreZona).
+function buscarInstanciasIgualesSubensamblaje(nombre,profundidad){
+  const grupos=new Map(); // zoneId+prefijo -> {zoneId,pathPrefix,piezas:[{mesh,pieza}]}
+  function registrar(ud,mesh,pieza){
+    const pathNames=ud.pathNames||[];
+    if(pathNames.length<=profundidad||pathNames[profundidad]!==nombre) return;
+    const prefix=pathNames.slice(0,profundidad+1);
+    const key=ud.zoneId+'::'+prefix.join('§');
+    if(!grupos.has(key)) grupos.set(key,{zoneId:ud.zoneId,pathPrefix:prefix,piezas:[]});
+    grupos.get(key).piezas.push({mesh,pieza});
+  }
+  allMeshes.forEach(mesh=>{
+    if(mesh.userData.piezas) mesh.userData.piezas.forEach(p=>registrar(p.userData,mesh,p));
+    else registrar(mesh.userData,mesh,null);
+  });
+  return [...grupos.values()];
+}
+
+// Ancla de nota para UN grupo (una instancia de subensamblaje) — se usa la
+// primera pieza del grupo como punto real de anclaje (simplificación: no
+// el centro de todo el subensamblaje, pero sigue un mesh real de esa
+// instancia puntual, suficiente para que la nota siga la explosión).
+function anclaDesdeGrupoSubensamblaje(grupo){
+  const primero=grupo.piezas[0];
+  if(!primero) return null;
+  const c=primero.pieza?centroPiezaFusionada(primero.mesh,primero.pieza):centroMeshSimple(primero.mesh);
+  if(!c) return null;
+  const ud=primero.pieza?primero.pieza.userData:primero.mesh.userData;
+  return {mesh:primero.mesh,local:c.local,point:c.point,zoneId:grupo.zoneId,objName:ud.objName,pathNames:ud.pathNames||null,pathPrefix:grupo.pathPrefix};
 }
 
 // Convierte una selección de aislar ya armada (aislarSeleccionTemp o
