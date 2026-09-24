@@ -16657,6 +16657,29 @@ function instanciasDesdeAislamiento(seleccion){
     const zone=ZONES.find(z=>z.id===zoneId);
     if(!zone) return;
     const {simples,fusionados}=pathPrefix ? resolverObjetivoMarcaPorPrefix(zone,pathPrefix) : resolverObjetivoMarca(zone,objName);
+    // Una entrada con pathPrefix es UN subensamblaje entero (puede tener
+    // muchas piezas hijas) — cuenta como UNA sola instancia para la nota
+    // de grupo, ancla en la primera pieza real que matchee, igual que
+    // anclaDesdeGrupoSubensamblaje. Sin pathPrefix es una pieza puntual
+    // (objName), ahí sí cada mesh/pieza es su propia instancia.
+    if(pathPrefix){
+      const primeraSimple=simples[0];
+      const primeraFusionada=fusionados[0];
+      if(primeraSimple){
+        if(vistos.has(primeraSimple.uuid)) return;
+        vistos.add(primeraSimple.uuid);
+        const c=centroMeshSimple(primeraSimple);
+        if(c) instancias.push({mesh:primeraSimple,local:c.local,point:c.point,zoneId:primeraSimple.userData.zoneId,objName:primeraSimple.userData.objName,pathNames:primeraSimple.userData.pathNames||null});
+      }else if(primeraFusionada){
+        const {mesh,pieza}=primeraFusionada;
+        const key=mesh.uuid+'::'+pieza.faceStart;
+        if(vistos.has(key)) return;
+        vistos.add(key);
+        const c=centroPiezaFusionada(mesh,pieza);
+        if(c) instancias.push({mesh,local:c.local,point:c.point,zoneId:pieza.userData.zoneId,objName:pieza.userData.objName,pathNames:pieza.userData.pathNames||null});
+      }
+      return;
+    }
     simples.forEach(mesh=>{
       if(vistos.has(mesh.uuid)) return;
       vistos.add(mesh.uuid);
