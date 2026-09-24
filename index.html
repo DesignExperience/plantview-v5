@@ -1720,6 +1720,12 @@ body.mode-split #pv-handle{ display: block; left: var(--sp, 50%); margin-left: -
           <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
         </svg>
       </button>
+      <button class="btn-icon" id="btn-unificar-carpetas-notas" type="button" aria-label="Unificar carpetas de notas duplicadas" title="Unifica las carpetas '* - Documentos y notas' duplicadas en esta carpeta">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+          <path d="M8 13.5l2.2 2.2L16 10"/>
+        </svg>
+      </button>
       <button class="btn-icon" id="btn-theme-toggle" type="button" aria-label="Cambiar a tema claro" title="Cambiar tema">
         <svg id="icon-tema-sol" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
           <circle cx="12" cy="12" r="4"/>
@@ -3113,6 +3119,30 @@ document.getElementById("btn-logo-home").addEventListener("click", () => {
 
 // Botón recargar
 document.getElementById("btn-recargar-carpeta").addEventListener("click", recargarCarpeta);
+
+// Unificar carpetas "* - Documentos y notas" duplicadas de TODOS los
+// modelos del nivel de carpeta que se está viendo ahora en Files (ver
+// unificarCarpetasNotasEnCarpeta) — a diferencia del botón dentro de un
+// modelo puntual (panel de lista de notas del visor 3D), este corre para
+// toda la carpeta de una sola vez.
+document.getElementById("btn-unificar-carpetas-notas").addEventListener("click", async () => {
+  const carpeta = state.carpetaActual;
+  if (!carpeta || !carpeta.driveId) { showToast("Esta acción solo funciona con una carpeta de Drive"); return; }
+  if (!driveEscrituraConectada()) { showToast("Conectá la edición de Drive primero"); return; }
+  const btn = document.getElementById("btn-unificar-carpetas-notas");
+  btn.disabled = true;
+  showToast("Buscando carpetas duplicadas…");
+  try {
+    const res = await unificarCarpetasNotasEnCarpeta(carpeta.driveId);
+    showToast(res.modelosConDuplicados > 0
+      ? `✓ Se unificaron ${res.carpetasFusionadas} carpeta(s) duplicada(s) de ${res.modelosConDuplicados} modelo(s)`
+      : "No había carpetas duplicadas en esta carpeta");
+  } catch (err) {
+    showToast("No se pudo unificar: " + err.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 // Menú "Fuente de datos" (carpeta local / Drive / desvincular)
 (function() {
@@ -9169,12 +9199,45 @@ async function ejecutarBorrarArchivoDrive(payload) {
   }
 }
 
-// Limpieza de carpetas "<glb> - Documentos y notas" duplicadas (ver
-// obtenerOCrearCarpetaDrive: viejas ejecuciones simultáneas pudieron crear
-// más de una con el mismo nombre antes del fix de la carrera). Junta todo
-// el contenido de las duplicadas más nuevas en la más vieja y manda las
-// vacías a la papelera — así las notas/adjuntos de esa pieza quedan todos
-// en un solo lugar de nuevo.
+// Fusiona un grupo de carpetas duplicadas (mismo nombre, ya buscadas y
+// ordenadas por createdTime) en una sola: mueve todo el contenido de las
+// más nuevas a la más vieja y manda las vacías resultantes a la papelera.
+// Compartido por la limpieza de un solo modelo (ejecutarUnificarCarpetasNotas,
+// vía postMessage desde el visor 3D) y el escaneo de toda una carpeta de
+// Files (unificarCarpetasNotasEnCarpeta, botón del toolbar).
+async function fusionarGrupoCarpetasDrive(carpetas) {
+  if (carpetas.length <= 1) return { fusionadas: 0, archivosMovidos: 0 };
+  const [destino, ...duplicadas] = carpetas; // la más vieja (ya viene ordenada) queda como destino
+  let archivosMovidos = 0;
+  for (const dup of duplicadas) {
+    const hijosResp = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`'${dup.id}' in parents and trashed=false`)}&fields=files(id)`, {
+      headers: { Authorization: `Bearer ${driveAccessToken}` },
+    });
+    if (!hijosResp.ok) throw new Error(`No se pudo listar el contenido de una carpeta duplicada (HTTP ${hijosResp.status})`);
+    const hijos = (await hijosResp.json()).files || [];
+    for (const hijo of hijos) {
+      const moveResp = await fetch(`https://www.googleapis.com/drive/v3/files/${hijo.id}?addParents=${destino.id}&removeParents=${dup.id}`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${driveAccessToken}` },
+      });
+      if (!moveResp.ok) throw new Error(`No se pudo mover un archivo (HTTP ${moveResp.status})`);
+      archivosMovidos++;
+    }
+    const trashResp = await fetch(`https://www.googleapis.com/drive/v3/files/${dup.id}`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${driveAccessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ trashed: true }),
+    });
+    if (!trashResp.ok) throw new Error(`No se pudo borrar una carpeta duplicada vacía (HTTP ${trashResp.status})`);
+  }
+  return { fusionadas: duplicadas.length, archivosMovidos };
+}
+
+// Limpieza de carpetas "<glb> - Documentos y notas" duplicadas de UN modelo
+// puntual (ver obtenerOCrearCarpetaDrive: viejas ejecuciones simultáneas
+// pudieron crear más de una con el mismo nombre antes del fix de la
+// carrera). Disparado por postMessage desde el visor 3D — ver
+// unificarCarpetasNotasDrive en pv-tpl.
 async function ejecutarUnificarCarpetasNotas(payload) {
   const { nombreGlb, carpetaPadreId, reqId } = payload;
   try {
@@ -9186,37 +9249,42 @@ async function ejecutarUnificarCarpetasNotas(payload) {
     });
     if (!listResp.ok) throw new Error(`No se pudo buscar la carpeta (HTTP ${listResp.status})`);
     const carpetas = (await listResp.json()).files || [];
-    if (carpetas.length <= 1) {
-      enviarAlVisor3D({ tipo: "unificarCarpetasNotasOK", reqId, fusionadas: 0 });
-      return;
-    }
-    const [destino, ...duplicadas] = carpetas; // la más vieja (orderBy=createdTime) queda como destino
-    let archivosMovidos = 0;
-    for (const dup of duplicadas) {
-      const hijosResp = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`'${dup.id}' in parents and trashed=false`)}&fields=files(id)`, {
-        headers: { Authorization: `Bearer ${driveAccessToken}` },
-      });
-      if (!hijosResp.ok) throw new Error(`No se pudo listar el contenido de una carpeta duplicada (HTTP ${hijosResp.status})`);
-      const hijos = (await hijosResp.json()).files || [];
-      for (const hijo of hijos) {
-        const moveResp = await fetch(`https://www.googleapis.com/drive/v3/files/${hijo.id}?addParents=${destino.id}&removeParents=${dup.id}`, {
-          method: "PATCH",
-          headers: { Authorization: `Bearer ${driveAccessToken}` },
-        });
-        if (!moveResp.ok) throw new Error(`No se pudo mover un archivo (HTTP ${moveResp.status})`);
-        archivosMovidos++;
-      }
-      const trashResp = await fetch(`https://www.googleapis.com/drive/v3/files/${dup.id}`, {
-        method: "PATCH",
-        headers: { Authorization: `Bearer ${driveAccessToken}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ trashed: true }),
-      });
-      if (!trashResp.ok) throw new Error(`No se pudo borrar una carpeta duplicada vacía (HTTP ${trashResp.status})`);
-    }
-    enviarAlVisor3D({ tipo: "unificarCarpetasNotasOK", reqId, fusionadas: duplicadas.length, archivosMovidos });
+    const { fusionadas, archivosMovidos } = await fusionarGrupoCarpetasDrive(carpetas);
+    enviarAlVisor3D({ tipo: "unificarCarpetasNotasOK", reqId, fusionadas, archivosMovidos });
   } catch (err) {
     enviarAlVisor3D({ tipo: "unificarCarpetasNotasError", reqId, error: err.message || String(err) });
   }
+}
+
+// Escaneo masivo: TODAS las carpetas "* - Documentos y notas" que cuelgan
+// directo de carpetaPadreId (la carpeta de Drive que se está viendo en
+// Files ahora mismo) — agrupadas por nombre exacto, fusiona cada grupo que
+// tenga más de una. A diferencia de ejecutarUnificarCarpetasNotas no hace
+// falta conocer de antemano el nombre de cada GLB: alcanza con el patrón
+// de sufijo, así corre para todos los modelos de este nivel de carpeta de
+// una sola vez.
+async function unificarCarpetasNotasEnCarpeta(carpetaPadreId) {
+  const q = encodeURIComponent(`'${carpetaPadreId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false and name contains ' - Documentos y notas'`);
+  const listResp = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,createdTime)&orderBy=createdTime`, {
+    headers: { Authorization: `Bearer ${driveAccessToken}` },
+  });
+  if (!listResp.ok) throw new Error(`No se pudo listar las carpetas de notas (HTTP ${listResp.status})`);
+  const todas = (await listResp.json()).files || [];
+  const porNombre = new Map();
+  todas.forEach(c => {
+    if (!c.name.endsWith(" - Documentos y notas")) return; // "contains" en la query de Drive no es un match exacto de sufijo
+    if (!porNombre.has(c.name)) porNombre.set(c.name, []);
+    porNombre.get(c.name).push(c);
+  });
+  let modelosConDuplicados = 0, carpetasFusionadas = 0, archivosMovidos = 0;
+  for (const grupo of porNombre.values()) {
+    if (grupo.length <= 1) continue;
+    modelosConDuplicados++;
+    const res = await fusionarGrupoCarpetasDrive(grupo);
+    carpetasFusionadas += res.fusionadas;
+    archivosMovidos += res.archivosMovidos;
+  }
+  return { modelosConDuplicados, carpetasFusionadas, archivosMovidos };
 }
 
 const EJECUTORES_DRIVE = {
