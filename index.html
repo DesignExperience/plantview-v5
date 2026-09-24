@@ -10195,6 +10195,17 @@ window.addEventListener("message", (e) => {
   if (e.source) e.source.postMessage({ tipo: "consultaLoginDriveResp", reqId: e.data.reqId, conectado: driveEscrituraConectada() }, "*");
 });
 
+// Ídem, para el ícono de estado de Drive del visor 3D (ver
+// btnDriveStatus3D en pv-tpl): tocarlo estando desconectado dispara el
+// login acá afuera (el iframe no tiene el Client ID configurado para
+// abrir el OAuth por su cuenta) — el resultado real le llega al visor
+// solo con el 'driveLoginCambio' que ya empuja actualizarUIEscrituraDrive
+// apenas el login se completa.
+window.addEventListener("message", (e) => {
+  if (!e.data || e.data.tipo !== "conectarEscrituraDrive") return;
+  conectarEscrituraDrive();
+});
+
 /* ============================================================
    PESTAÑAS PDF / eDRAWINGS (mobile) — cada una muestra su propio
    contenido recordado, sin destruir el del otro tipo.
@@ -17799,8 +17810,18 @@ function pintarDriveStatus3D(conectado){
 consultaLoginDrive().then(pintarDriveStatus3D);
 document.getElementById('btnDriveStatus3D').addEventListener('click', async ()=>{
   const conectado=await consultaLoginDrive();
-  pintarDriveStatus3D(conectado);
-  toast(conectado ? '✓ Drive conectado — se puede guardar' : '✗ Drive desconectado — conectá la edición desde Files para guardar');
+  if(conectado){
+    pintarDriveStatus3D(true);
+    toast('✓ Drive conectado — se puede guardar');
+    return;
+  }
+  // Desconectado: el OAuth (popup/redirect) solo lo puede disparar el
+  // shell exterior (tiene el Client ID configurado) — el iframe no
+  // puede abrirlo por sí mismo, así que le pide a afuera que lo haga.
+  // El estado real termina llegando solo con el 'driveLoginCambio' que
+  // ya empuja actualizarUIEscrituraDrive apenas el login se completa.
+  window.parent.postMessage({ tipo:'conectarEscrituraDrive' }, '*');
+  toast('Conectando con Drive…');
 });
 
 window.addEventListener('message',(e)=>{
