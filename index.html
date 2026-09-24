@@ -11303,8 +11303,14 @@ canvas{display:block;width:100%;height:100%}
 .adj-item .adj-pdf{width:60px;height:60px;border-radius:6px;background:rgba(58,107,232,.1);color:#3A6BE8;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;cursor:pointer}
 .adj-item .adj-nombre{margin-top:2px;font-size:9.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center}
 .adj-item .adj-quitar{position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;border:2px solid var(--surf);background:#e03050;color:#fff;font-size:12px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
-#notaRefGlbBtn3D{display:flex;align-items:center;justify-content:center;gap:7px;height:36px;border-radius:9px;border:1px dashed var(--border);background:none;color:var(--muted);font-family:inherit;font-size:12px;cursor:pointer}
-#notaRefGlbBtn3D:active{border-color:var(--acc);color:var(--acc)}
+.nota-refglb-botones{display:flex;gap:8px}
+#notaRefGlbBtn3D,#notaRefGlbLinkBtn3D{flex:1;display:flex;align-items:center;justify-content:center;gap:7px;height:36px;border-radius:9px;border:1px dashed var(--border);background:none;color:var(--muted);font-family:inherit;font-size:12px;cursor:pointer}
+#notaRefGlbBtn3D:active,#notaRefGlbLinkBtn3D:active{border-color:var(--acc);color:var(--acc)}
+.nota-refglb-link-row{display:flex;gap:6px}
+.nota-refglb-link-row input{flex:1;height:36px;border-radius:9px;border:1px solid var(--border);background:var(--surf2);color:var(--text);font-family:inherit;font-size:12px;padding:0 10px;min-width:0}
+.nota-refglb-link-row button{flex:none;height:36px;padding:0 10px;border-radius:9px;border:none;font-family:inherit;font-size:12px;cursor:pointer}
+#notaRefGlbLinkOk3D{background:#3A6BE8;color:#fff;font-weight:700}
+#notaRefGlbLinkCancel3D{background:var(--surf2);color:var(--muted)}
 .nota-refglb-chip{display:flex;align-items:center;gap:7px;height:36px;padding:0 10px;border-radius:9px;border:1px solid rgba(58,107,232,.35);background:rgba(58,107,232,.08);color:#3A6BE8;font-size:12px}
 .nota-refglb-chip span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
 .nota-refglb-chip button{flex:none;width:20px;height:20px;border-radius:50%;border:none;background:none;color:#3A6BE8;font-size:14px;cursor:pointer}
@@ -11832,10 +11838,25 @@ window.onerror=function(msg,src,line){
     <span id="notaRefGlbNombre3D"></span>
     <button type="button" id="notaRefGlbQuitar3D" title="Quitar referencia">×</button>
   </div>
-  <button id="notaRefGlbBtn3D" type="button">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07l-1.5 1.5"/><path d="M14 11a5 5 0 0 0-7.07 0L4.1 13.83a5 5 0 0 0 7.07 7.07l1.5-1.5"/></svg>
-    <span>Referenciar otro GLB</span>
-  </button>
+  <div id="notaRefGlbBotones3D" class="nota-refglb-botones">
+    <button id="notaRefGlbBtn3D" type="button">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07l-1.5 1.5"/><path d="M14 11a5 5 0 0 0-7.07 0L4.1 13.83a5 5 0 0 0 7.07 7.07l1.5-1.5"/></svg>
+      <span>Referenciar otro GLB</span>
+    </button>
+    <!-- Tercera opción: pegar el link de compartir de Drive de un GLB que
+         puede estar en OTRA carpeta del proyecto (el selector de arriba solo
+         lista los de la misma carpeta que el modelo actual) — ver
+         resolverGlbPorLinkDrive. -->
+    <button id="notaRefGlbLinkBtn3D" type="button">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07l-1.5 1.5"/><path d="M14 11a5 5 0 0 0-7.07 0L4.1 13.83a5 5 0 0 0 7.07 7.07l1.5-1.5"/></svg>
+      <span>Pegar link de Drive</span>
+    </button>
+  </div>
+  <div id="notaRefGlbLinkRow3D" class="nota-refglb-link-row" style="display:none">
+    <input type="text" id="notaRefGlbLinkInput3D" placeholder="Pegá el link para compartir del GLB…">
+    <button type="button" id="notaRefGlbLinkOk3D">Usar</button>
+    <button type="button" id="notaRefGlbLinkCancel3D">Cancelar</button>
+  </div>
   <div id="notaRefGlbLista3D" style="display:none"></div>
 
   <label id="notaMostrarPinRow3D" class="nota-toggle-row">
@@ -17275,17 +17296,18 @@ async function listarGLBsCarpetaActual(){
 
 function renderNotaRefGlbChip(){
   const chip=document.getElementById('notaRefGlbChip3D');
-  const btn=document.getElementById('notaRefGlbBtn3D');
+  const botones=document.getElementById('notaRefGlbBotones3D');
   const lista=document.getElementById('notaRefGlbLista3D');
   if(notaRefGlbPendiente){
     chip.style.display='flex';
-    btn.style.display='none';
+    botones.style.display='none';
     document.getElementById('notaRefGlbNombre3D').textContent=notaRefGlbPendiente.nombre;
   }else{
     chip.style.display='none';
-    btn.style.display='flex';
+    botones.style.display='flex';
   }
   lista.style.display='none';
+  document.getElementById('notaRefGlbLinkRow3D').style.display='none';
 }
 
 document.getElementById('notaRefGlbBtn3D').addEventListener('click',async ()=>{
@@ -17307,6 +17329,58 @@ document.getElementById('notaRefGlbLista3D').addEventListener('click',(e)=>{
 });
 document.getElementById('notaRefGlbQuitar3D').addEventListener('click',()=>{
   notaRefGlbPendiente=null;
+  renderNotaRefGlbChip();
+});
+
+// ── Tercera opción: referenciar por link de Drive (puede estar en OTRA
+// carpeta del proyecto, a diferencia del selector de arriba) ──────────────
+// Acepta los formatos habituales de link "compartir" de Drive, o directamente
+// el ID pegado a mano.
+function extraerIdDriveDeLink(texto){
+  const s=(texto||'').trim();
+  let m=s.match(/\/file\/d\/([a-zA-Z0-9_-]{10,})/);
+  if(m) return m[1];
+  m=s.match(/[?&]id=([a-zA-Z0-9_-]{10,})/);
+  if(m) return m[1];
+  if(/^[a-zA-Z0-9_-]{10,}$/.test(s)) return s;
+  return null;
+}
+
+// Resuelve nombre y carpeta padre de un GLB a partir de su ID de Drive —
+// solo lectura vía API Key, no requiere login de escritura. carpetaDriveId
+// (parents[0]) es lo que hace que el modelo referenciado, al abrirse, pueda
+// resolver SU PROPIA carpeta de notas/vistas correctamente.
+async function resolverGlbPorLinkDrive(driveId){
+  if(!driveApiKeyActual) return null;
+  const url=`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(driveId)}?fields=id,name,parents&key=${driveApiKeyActual}`;
+  try{
+    const resp=await fetch(url);
+    if(!resp.ok) return null;
+    const data=await resp.json();
+    if(!data.name || !data.name.toLowerCase().endsWith('.glb')) return null;
+    return {driveId:data.id, nombre:data.name, carpetaDriveId:(data.parents&&data.parents[0])||null};
+  }catch(err){ return null; }
+}
+
+document.getElementById('notaRefGlbLinkBtn3D').addEventListener('click',()=>{
+  document.getElementById('notaRefGlbLista3D').style.display='none';
+  document.getElementById('notaRefGlbLinkRow3D').style.display='flex';
+  document.getElementById('notaRefGlbLinkInput3D').value='';
+  document.getElementById('notaRefGlbLinkInput3D').focus();
+});
+document.getElementById('notaRefGlbLinkCancel3D').addEventListener('click',()=>{
+  document.getElementById('notaRefGlbLinkRow3D').style.display='none';
+});
+document.getElementById('notaRefGlbLinkOk3D').addEventListener('click',async ()=>{
+  const input=document.getElementById('notaRefGlbLinkInput3D');
+  const driveId=extraerIdDriveDeLink(input.value);
+  if(!driveId){ toast('Ese link no parece de Drive'); return; }
+  const btnOk=document.getElementById('notaRefGlbLinkOk3D');
+  btnOk.disabled=true;
+  const info=await resolverGlbPorLinkDrive(driveId);
+  btnOk.disabled=false;
+  if(!info){ toast('No se pudo encontrar ese GLB (¿el link es correcto y accesible?)'); return; }
+  notaRefGlbPendiente=info;
   renderNotaRefGlbChip();
 });
 
