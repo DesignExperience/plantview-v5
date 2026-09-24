@@ -11323,7 +11323,14 @@ pvHandle.addEventListener("pointerdown", e => {
 });
 document.addEventListener("pointermove", e => {
   if (!dragH) return;
-  setSP(e.clientX);
+  // splitPx es el ANCHO del panel de Files (pvWrap.right / app.left =
+  // innerWidth - splitPx, ver más abajo) — pasarle clientX directo lo
+  // trataba como si el mouse SIEMPRE estuviera a esa distancia del borde
+  // derecho, invirtiendo el arrastre: mientras más a la izquierda el
+  // mouse, más ancho "de más" quedaba asignado a Files y el borde real
+  // terminaba moviéndose para el lado contrario. innerWidth - clientX da
+  // el ancho real del panel derecho desde donde está el mouse.
+  setSP(window.innerWidth - e.clientX);
   // Mismas propiedades que arma la entrada a "3D + Split" (aplicarModo):
   // app usa left+right:0 (no width), pvWrap usa left:0+right (no left) —
   // acá se estaba tocando width/left en vez de eso, dejando left/right/
