@@ -16380,7 +16380,7 @@ function resolverInstanciasIgualesDesdePopup(){
   const profundidad=nivel==='subensamblaje'?0:nivel.profundidad;
   const nombre=(piezaUd.pathNames||[])[profundidad]||null;
   if(!nombre) return null;
-  const grupos=buscarInstanciasIgualesSubensamblaje(nombre,profundidad);
+  const grupos=buscarInstanciasIgualesSubensamblaje(nombre);
   return { grupos, instancias:grupos.map(anclaDesdeGrupoSubensamblaje).filter(Boolean), etiqueta:nombre };
 }
 
@@ -16540,12 +16540,21 @@ function buscarInstanciasIguales(objName){
 // distintas que reusen el mismo nombre en ramas distintas del árbol.
 // pathNames = [nombreZona, ...intermedios..., nombrePieza] — profundidad=0
 // es el subensamblaje de tope (nombreZona).
-function buscarInstanciasIgualesSubensamblaje(nombre,profundidad){
+// "nombre" se busca en CUALQUIER posición del camino (no una profundidad
+// fija) — dos ramas del árbol pueden anidar el mismo subensamblaje a
+// distinta profundidad (una pieza de más/de menos en el medio), así que
+// exigir la misma posición exacta dejaba afuera instancias repetidas
+// reales. Se agrupa por el prefijo hasta la PRIMERA aparición del nombre
+// en el camino de cada pieza — eso sigue separando bien dos ramas
+// distintas que reusen el mismo nombre en lugares no relacionados,
+// solo que ya no exige que estén al mismo nivel de anidado.
+function buscarInstanciasIgualesSubensamblaje(nombre){
   const grupos=new Map(); // zoneId+prefijo -> {zoneId,pathPrefix,piezas:[{mesh,pieza}]}
   function registrar(ud,mesh,pieza){
     const pathNames=ud.pathNames||[];
-    if(pathNames.length<=profundidad||pathNames[profundidad]!==nombre) return;
-    const prefix=pathNames.slice(0,profundidad+1);
+    const idx=pathNames.indexOf(nombre);
+    if(idx===-1) return;
+    const prefix=pathNames.slice(0,idx+1);
     const key=ud.zoneId+'::'+prefix.join('§');
     if(!grupos.has(key)) grupos.set(key,{zoneId:ud.zoneId,pathPrefix:prefix,piezas:[]});
     grupos.get(key).piezas.push({mesh,pieza});
