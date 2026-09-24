@@ -3150,12 +3150,25 @@ document.getElementById("btn-unificar-carpetas-notas").addEventListener("click",
   try {
     const res = await unificarCarpetasNotasEnCarpeta(carpeta.driveId);
     console.log("[unificarNotas] resultado final:", res);
-    showToast(res.modelosConDuplicados > 0
-      ? `✓ Se unificaron ${res.carpetasFusionadas} carpeta(s) duplicada(s) de ${res.modelosConDuplicados} modelo(s)${res.tope ? ' (carpeta muy grande, puede haber quedado algo sin revisar — volvé a tocar el botón)' : ''}`
-      : "No había carpetas duplicadas en esta carpeta");
+    // alert() en vez de solo un toast que se esconde solo: si algo falla
+    // (ej. un error de permisos al mover/borrar un archivo que la app no
+    // creó — ver driveEscrituraConectada/scope drive.file) queda visible
+    // hasta que se lea, con el motivo exacto, sin depender de abrir la
+    // consola del navegador (F12) para enterarse.
+    const fallidos = res.detalle.filter(d => !d.ok);
+    if (fallidos.length) {
+      alert(
+        `Se unificaron ${res.carpetasFusionadas} carpeta(s) de ${res.modelosConDuplicados - fallidos.length} modelo(s), pero ${fallidos.length} fallaron:\n\n` +
+        fallidos.map(f => `• "${f.nombre}": ${f.error}`).join("\n")
+      );
+    } else if (res.modelosConDuplicados > 0) {
+      showToast(`✓ Se unificaron ${res.carpetasFusionadas} carpeta(s) duplicada(s) de ${res.modelosConDuplicados} modelo(s)${res.tope ? ' (carpeta muy grande, puede haber quedado algo sin revisar — volvé a tocar el botón)' : ''}`);
+    } else {
+      showToast("No había carpetas duplicadas en esta carpeta");
+    }
     recargarCarpeta();
   } catch (err) {
-    showToast("No se pudo unificar: " + err.message);
+    alert("No se pudo unificar: " + err.message);
   } finally {
     btn.disabled = false;
   }
@@ -9272,6 +9285,20 @@ async function ejecutarBorrarArchivoDrive(payload) {
 // Compartido por la limpieza de un solo modelo (ejecutarUnificarCarpetasNotas,
 // vía postMessage desde el visor 3D) y el escaneo de toda una carpeta de
 // Files (unificarCarpetasNotasEnCarpeta, botón del toolbar).
+// El token de escritura usa el scope "drive.file" (ver conectarDriveEscritura
+// más abajo): la app solo puede modificar archivos que ELLA creó (o que el
+// usuario abrió con su selector) — un archivo/carpeta subido a mano
+// directo en Drive, aunque se vea y se pueda LEER sin problema (eso usa la
+// API Key, sin esta restricción), puede rechazar un PATCH con 403 acá. Sin
+// este mensaje, ese 403 se veía como un "No se pudo mover" genérico sin
+// pista de qué hacer al respecto.
+function explicarErrorDriveEscritura(resp, accion) {
+  if (resp.status === 403) {
+    return `${accion}: la app no tiene permiso para modificar este archivo/carpeta (probablemente fue subido directo en Drive, no desde PlantView — el token de escritura solo puede tocar lo que la app creó).`;
+  }
+  return `${accion} (HTTP ${resp.status})`;
+}
+
 async function fusionarGrupoCarpetasDrive(carpetas) {
   if (carpetas.length <= 1) return { fusionadas: 0, archivosMovidos: 0 };
   const [destino, ...duplicadas] = carpetas; // la más vieja (ya viene ordenada) queda como destino
@@ -9280,14 +9307,14 @@ async function fusionarGrupoCarpetasDrive(carpetas) {
     const hijosResp = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`'${dup.id}' in parents and trashed=false`)}&fields=files(id)`, {
       headers: { Authorization: `Bearer ${driveAccessToken}` },
     });
-    if (!hijosResp.ok) throw new Error(`No se pudo listar el contenido de una carpeta duplicada (HTTP ${hijosResp.status})`);
+    if (!hijosResp.ok) throw new Error(explicarErrorDriveEscritura(hijosResp, "No se pudo listar el contenido de una carpeta duplicada"));
     const hijos = (await hijosResp.json()).files || [];
     for (const hijo of hijos) {
       const moveResp = await fetch(`https://www.googleapis.com/drive/v3/files/${hijo.id}?addParents=${destino.id}&removeParents=${dup.id}`, {
         method: "PATCH",
         headers: { Authorization: `Bearer ${driveAccessToken}` },
       });
-      if (!moveResp.ok) throw new Error(`No se pudo mover un archivo (HTTP ${moveResp.status})`);
+      if (!moveResp.ok) throw new Error(explicarErrorDriveEscritura(moveResp, "No se pudo mover un archivo"));
       archivosMovidos++;
     }
     const trashResp = await fetch(`https://www.googleapis.com/drive/v3/files/${dup.id}`, {
@@ -9295,7 +9322,7 @@ async function fusionarGrupoCarpetasDrive(carpetas) {
       headers: { Authorization: `Bearer ${driveAccessToken}`, "Content-Type": "application/json" },
       body: JSON.stringify({ trashed: true }),
     });
-    if (!trashResp.ok) throw new Error(`No se pudo borrar una carpeta duplicada vacía (HTTP ${trashResp.status})`);
+    if (!trashResp.ok) throw new Error(explicarErrorDriveEscritura(trashResp, "No se pudo borrar una carpeta duplicada vacía"));
   }
   return { fusionadas: duplicadas.length, archivosMovidos };
 }
