@@ -14003,7 +14003,7 @@ function marcaKey(zone,objName,pathPrefix){
 }
 
 let marcasPiezas={};      // marcaKey -> {zoneId, objName, color:'#rrggbb'|null, opacidad:number|null (0-1), borde:bool}
-const marcaOverlays={};   // marcaKey -> THREE.Group (overlays de color/borde para esa marca \u2014 se recrea entero en cada aplicarMarcaPieza)
+const marcaOverlays={};   // marcaKey -> [{mesh,obj}] overlays de borde/color-fusionado de esa marca (hijos del mesh due\u00f1o, ver aplicarMarcaPieza) \u2014 se recrean enteros en cada aplicarMarcaPieza
 const marcaMatOriginal=new WeakMap(); // THREE.Mesh -> material original, para poder revertir/reaplicar sin acumular clones
 
 // Devuelve, para una zona+objName, los meshes "simples" (uno-a-uno, se
@@ -14038,10 +14038,10 @@ function aplicarMarcaPieza(zone,objName,pathPrefix){
   const key=marcaKey(zone,objName,pathPrefix);
   const marca=marcasPiezas[key];
 
-  if(marcaOverlays[key]){ scene.remove(marcaOverlays[key]); delete marcaOverlays[key]; }
+  if(marcaOverlays[key]){ marcaOverlays[key].forEach(({mesh,obj})=>mesh.remove(obj)); delete marcaOverlays[key]; }
 
   const {simples,fusionados}=pathPrefix ? resolverObjetivoMarcaPorPrefix(zone,pathPrefix) : resolverObjetivoMarca(zone,objName);
-  const grupoOverlay=new THREE.Group();
+  const overlaysCreados=[];
   const tieneColorUOpacidad=marca&&(marca.color||(marca.opacidad!=null&&marca.opacidad<1));
 
   simples.forEach(mesh=>{
@@ -14064,8 +14064,8 @@ function aplicarMarcaPieza(zone,objName,pathPrefix){
     if(marca&&marca.borde&&!marca.oculto){
       const edges=new THREE.EdgesGeometry(mesh.geometry,15);
       const linea=new THREE.LineSegments(edges,new THREE.LineBasicMaterial({color:marca.color||'#111111'}));
-      linea.matrix.copy(mesh.matrixWorld);linea.matrixAutoUpdate=false;
-      grupoOverlay.add(linea);
+      mesh.add(linea);
+      overlaysCreados.push({mesh,obj:linea});
     }
   });
 
@@ -14079,7 +14079,9 @@ function aplicarMarcaPieza(zone,objName,pathPrefix){
     if(tieneColorUOpacidad){
       const hl=buildFaceHighlightMesh(mesh,faceIndices,marca.color||'#ff3b30');
       hl.material.opacity=marca.opacidad!=null?marca.opacidad:0.55;
-      grupoOverlay.add(hl);
+      hl.matrix.identity();hl.matrixAutoUpdate=true;
+      mesh.add(hl);
+      overlaysCreados.push({mesh,obj:hl});
     }
     // Borde en piezas fusionadas: no soportado (requerir\u00eda extraer la
     // sub-geometr\u00eda de esa pieza puntual cada vez, y son un caso raro \u2014
@@ -14087,7 +14089,7 @@ function aplicarMarcaPieza(zone,objName,pathPrefix){
     // de arriba sigue funcionando igual.
   });
 
-  if(grupoOverlay.children.length) { scene.add(grupoOverlay); marcaOverlays[key]=grupoOverlay; }
+  if(overlaysCreados.length) marcaOverlays[key]=overlaysCreados;
 }
 
 function reaplicarTodasLasMarcas(){
