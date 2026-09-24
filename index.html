@@ -2735,6 +2735,19 @@ const state = {
   recientes: JSON.parse(localStorage.getItem("dd_recientes") || "[]"),
 };
 
+// Dos llamadas a obtenerOCrearCarpetaDrive con el mismo nombre/padre que
+// caen casi al mismo tiempo (ej. guardar dos notas seguidas, o dos pestañas
+// del mismo modelo) buscaban "¿existe?" ANTES de que la primera terminara de
+// crearla — las dos veían "no existe" y cada una creaba la suya, dejando
+// carpetas duplicadas con el mismo nombre. Este caché de promesas en vuelo
+// hace que la segunda llamada (misma sesión/pestaña) espere el resultado de
+// la primera en vez de repetir la búsqueda+creación desde cero. Declarado
+// acá arriba (no junto a obtenerOCrearCarpetaDrive, mucho más abajo en el
+// archivo) porque esa función puede llegar a correr durante el render
+// inicial de Files (ver asegurarCarpetaPlanosEstandar), antes de que la
+// ejecución del script llegue tan abajo.
+const carpetaDriveEnVuelo = new Map();
+
 /* ============================================================
    REFS
    ============================================================ */
@@ -6804,14 +6817,11 @@ function subirArchivoADriveConProgreso(nombre, blob, carpetaIdPadre, onProgress)
 }
 
 // Busca una subcarpeta por nombre dentro de carpetaPadreId, o la crea si no existe.
-// Dos llamadas a obtenerOCrearCarpetaDrive con el mismo nombre/padre que
-// caen casi al mismo tiempo (ej. guardar dos notas seguidas, o dos pestañas
-// del mismo modelo) buscaban "¿existe?" ANTES de que la primera terminara de
-// crearla — las dos veían "no existe" y cada una creaba la suya, dejando
-// carpetas duplicadas con el mismo nombre. Este caché de promesas en vuelo
-// hace que la segunda llamada (misma sesión/pestaña) espere el resultado de
-// la primera en vez de repetir la búsqueda+creación desde cero.
-const carpetaDriveEnVuelo = new Map();
+// (carpetaDriveEnVuelo está declarado más arriba, junto a "state" — lo
+// necesita obtenerOCrearCarpetaDrive, que puede correr durante el render
+// inicial de Files, antes de que la ejecución llegue a este punto del
+// archivo; declararlo acá abajo con const disparaba un ReferenceError por
+// temporal dead zone la primera vez que se llamaba tan temprano.)
 
 // Dos nombres de archivo pueden verse IDÉNTICOS en pantalla y no serlo como
 // texto: acentos codificados en NFC vs NFD (Mac vs Windows/Drive web),
