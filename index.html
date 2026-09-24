@@ -6770,14 +6770,37 @@ function subirArchivoADriveConProgreso(nombre, blob, carpetaIdPadre, onProgress)
 }
 
 // Busca una subcarpeta por nombre dentro de carpetaPadreId, o la crea si no existe.
+// Dos llamadas a obtenerOCrearCarpetaDrive con el mismo nombre/padre que
+// caen casi al mismo tiempo (ej. guardar dos notas seguidas, o dos pestañas
+// del mismo modelo) buscaban "¿existe?" ANTES de que la primera terminara de
+// crearla — las dos veían "no existe" y cada una creaba la suya, dejando
+// carpetas duplicadas con el mismo nombre. Este caché de promesas en vuelo
+// hace que la segunda llamada (misma sesión/pestaña) espere el resultado de
+// la primera en vez de repetir la búsqueda+creación desde cero.
+const carpetaDriveEnVuelo = new Map();
+
 async function obtenerOCrearCarpetaDrive(nombre, carpetaPadreId) {
+  const clave = carpetaPadreId + "||" + nombre;
+  if (carpetaDriveEnVuelo.has(clave)) return carpetaDriveEnVuelo.get(clave);
+  const promesa = obtenerOCrearCarpetaDriveInterno(nombre, carpetaPadreId).finally(() => {
+    carpetaDriveEnVuelo.delete(clave);
+  });
+  carpetaDriveEnVuelo.set(clave, promesa);
+  return promesa;
+}
+
+async function obtenerOCrearCarpetaDriveInterno(nombre, carpetaPadreId) {
   const nombreEscapado = nombre.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
   const q = encodeURIComponent(`name='${nombreEscapado}' and '${carpetaPadreId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`);
-  const listResp = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)`, {
+  const listResp = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,createdTime)&orderBy=createdTime`, {
     headers: { Authorization: `Bearer ${driveAccessToken}` },
   });
   if (!listResp.ok) throw new Error(`No se pudo buscar la carpeta (HTTP ${listResp.status})`);
   const listData = await listResp.json();
+  // Si por una carrera entre pestañas/dispositivos distintos ya quedaron
+  // duplicadas (esto NO lo evita el caché de arriba, que solo cubre la
+  // MISMA pestaña), siempre se elige la más vieja — así todas las llamadas
+  // futuras convergen a la misma carpeta en vez de "saltar" entre ellas.
   let folderId = listData.files?.[0]?.id;
   if (!folderId) {
     const createResp = await fetch("https://www.googleapis.com/drive/v3/files", {
@@ -6924,7 +6947,9 @@ async function buscarSubcarpetaDriveSoloLectura(nombreCarpeta, carpetaPadreId) {
   if (!driveConfig.apiKey || !carpetaPadreId) return null;
   const nombreEscapado = nombreCarpeta.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
   const q = encodeURIComponent(`name='${nombreEscapado}' and '${carpetaPadreId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`);
-  const data = await fetchDriveJSON(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&key=${driveConfig.apiKey}`);
+  // orderBy=createdTime: si hay duplicadas por una carrera vieja, siempre
+  // resuelve a la misma (la más antigua) que obtenerOCrearCarpetaDrive.
+  const data = await fetchDriveJSON(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&orderBy=createdTime&key=${driveConfig.apiKey}`);
   return data.files?.[0]?.id || null;
 }
 async function buscarArchivoEnCarpetaSoloLectura(nombreArchivo, carpetaId) {
@@ -17018,7 +17043,10 @@ async function buscarSubcarpetaDrive(nombreCarpeta, carpetaPadreId){
   if(!driveApiKeyActual || !carpetaPadreId) return null;
   const nombreEscapado=nombreCarpeta.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
   const q=encodeURIComponent(`name='${nombreEscapado}' and '${carpetaPadreId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`);
-  const url=`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&key=${driveApiKeyActual}`;
+  // orderBy=createdTime: si quedaron carpetas duplicadas por una carrera
+  // vieja, siempre resuelve a la misma (la más antigua) que el lado de
+  // escritura (obtenerOCrearCarpetaDrive, en el shell exterior).
+  const url=`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&orderBy=createdTime&key=${driveApiKeyActual}`;
   try{
     const data=await (await fetch(url)).json();
     return data.files && data.files[0] ? data.files[0].id : null;
