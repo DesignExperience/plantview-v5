@@ -289,13 +289,20 @@ input  { font-family: inherit; }
 
 /* Split handle — línea neutra por default (no azul fija), se resalta con
    el acento solo al pasar el mouse/arrastrar, para que siga marcando
-   dónde se puede arrastrar sin quedar como una línea azul permanente. */
+   dónde se puede arrastrar sin quedar como una línea azul permanente.
+   OJO: "--border" no existe en este documento (solo está definida adentro
+   del iframe del visor 3D, un documento aparte) — con eso, el handle
+   quedaba con background transparente: existía, estaba bien posicionado
+   y se podía arrastrar, pero era invisible. Mismo tratamiento que #divider
+   (var(--muted) + opacity) para que además de arreglarlo, se vea igual en
+   los dos sistemas de split que tiene la app. */
 #pv-handle {
   position: fixed; top: calc(var(--bar-h) + var(--safe-t)); bottom: 0;
   width: 5px; z-index: 50; cursor: col-resize;
-  background: var(--border); display: none;
+  background: var(--muted); opacity: .35; display: none;
+  transition: background .15s, opacity .15s;
 }
-#pv-handle:hover, #pv-handle.dragging { background: var(--accent); }
+#pv-handle:hover, #pv-handle.dragging { background: var(--accent); opacity: 1; }
 
 /* Split mode */
 body.mode-split #app      { position: fixed; top: calc(var(--bar-h) + var(--safe-t)); left: 0; right: auto; bottom: 0; }
