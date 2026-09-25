@@ -12240,6 +12240,16 @@ window.onerror=function(msg,src,line){
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
     Agregar a aislar
   </button>
+  <div style="display:flex;gap:6px;margin-top:6px">
+    <button type="button" class="sel-level-popup-ficha" id="btnSelLevelOcultar" disabled title="Elegí un nivel primero" style="flex:1;background:var(--surf2,#e8eaef);color:var(--text)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+      Ocultar
+    </button>
+    <button type="button" class="sel-level-popup-ficha" id="btnSelLevelTransparentar" disabled title="Elegí un nivel primero" style="flex:1;background:var(--surf2,#e8eaef);color:var(--text)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" opacity="0.35"/><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+      Transparentar
+    </button>
+  </div>
   <button type="button" class="sel-level-popup-ficha" id="btnSelLevelIguales" disabled title="Elegí un nivel primero" style="margin-top:6px;background:var(--surf2,#e8eaef);color:var(--text)">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
     Nota en iguales
@@ -16424,6 +16434,13 @@ function mostrarSelLevelPopup(cx,cy,hit,piezaUd,zone){
   const btnAislar=document.getElementById('btnSelLevelAislar');
   btnAislar.disabled=true;
   btnAislar.title='Elegí Pieza o Subensamblaje primero';
+  const btnOcultarReset=document.getElementById('btnSelLevelOcultar');
+  btnOcultarReset.disabled=true;
+  btnOcultarReset.title='Elegí un nivel primero';
+  const btnTransparentarReset=document.getElementById('btnSelLevelTransparentar');
+  btnTransparentarReset.disabled=true;
+  btnTransparentarReset.title='Elegí un nivel primero';
+  actualizarBotonesMarcaRapida();
   const btnIguales=document.getElementById('btnSelLevelIguales');
   btnIguales.disabled=true;
   btnIguales.title='Elegí un nivel primero';
@@ -16479,6 +16496,17 @@ function elegirNivelDesdePopup(nivel,key){
   const btnAislar=document.getElementById('btnSelLevelAislar');
   btnAislar.disabled=!(esExtremo||esIntermedio);
   btnAislar.title='';
+  // Ocultar/Transparentar rápido: mismo objName-target que "Ver ficha
+  // técnica" (marcaKey sin pathPrefix) — así comparten la MISMA marca que
+  // el panel completo de "Marcar pieza", en vez de crear un registro
+  // paralelo que se desincronice.
+  const btnOcultar=document.getElementById('btnSelLevelOcultar');
+  btnOcultar.disabled=!(esExtremo||esIntermedio);
+  btnOcultar.title=(esExtremo||esIntermedio)?'':'Elegí un nivel primero';
+  const btnTransparentar=document.getElementById('btnSelLevelTransparentar');
+  btnTransparentar.disabled=!(esExtremo||esIntermedio);
+  btnTransparentar.title=(esExtremo||esIntermedio)?'':'Elegí un nivel primero';
+  actualizarBotonesMarcaRapida();
   // "Nota en piezas iguales"/"Seleccionar y aislar iguales": para "Pieza"
   // agrupa por objName (buscarInstanciasIguales); para Subensamblaje o un
   // intermedio, agrupa por el prefijo de pathNames en esa profundidad
@@ -16519,18 +16547,76 @@ function elegirNivelDesdePopup(nivel,key){
   resaltarNivelSeleccion(selPopupPendiente.hit,nivel);
 }
 
+// objName-target para un nivel del popup — para "Subensamblaje" se deja
+// null (equipoKey/marcaKey ya sabe tratar eso como la ficha de la zona
+// entera). Compartido por "Ver ficha técnica" y los atajos rápidos de
+// Ocultar/Transparentar de abajo, para que los tres apunten SIEMPRE a la
+// misma marca (marcaKey) y no se desincronicen entre sí.
+function objNameDesdePopup(nivel,piezaUd){
+  if(nivel==='pieza') return piezaUd.objName;
+  if(nivel&&nivel.tipo==='intermedio') return (piezaUd.pathNames||[])[nivel.profundidad]||null;
+  return null;
+}
 function abrirFichaDesdePopup(){
   if(!selPopupPendiente||!selPopupPendiente.nivel) return;
   const {piezaUd,zone,nivel}=selPopupPendiente;
-  let objName=null;
-  if(nivel==='pieza') objName=piezaUd.objName;
-  else if(nivel&&nivel.tipo==='intermedio') objName=(piezaUd.pathNames||[])[nivel.profundidad]||null;
   currentZone=zone;
-  currentObjName=objName;
+  currentObjName=objNameDesdePopup(nivel,piezaUd);
   openSidebar(zone,currentObjName);
   ocultarSelLevelPopup();
 }
 document.getElementById('btnSelLevelFicha').addEventListener('click',abrirFichaDesdePopup);
+
+// Ocultar/Transparentar rápido desde el popup, sin tener que abrir la
+// ficha técnica completa — leen/escriben la MISMA marcasPiezas[marcaKey]
+// que el panel "Marcar pieza" (ver aplicarMarcaPieza), así quedan
+// sincronizados: tocar acá se refleja ahí y viceversa.
+function pintarBotonMarcaRapida(btn,activo){
+  if(!btn) return;
+  btn.style.background=activo?'var(--acc,#3A6BE8)':'var(--surf2,#e8eaef)';
+  btn.style.color=activo?'#fff':'var(--text)';
+}
+function actualizarBotonesMarcaRapida(){
+  const btnOcultar=document.getElementById('btnSelLevelOcultar');
+  const btnTransparentar=document.getElementById('btnSelLevelTransparentar');
+  if(!selPopupPendiente||!selPopupPendiente.nivel){
+    pintarBotonMarcaRapida(btnOcultar,false);
+    pintarBotonMarcaRapida(btnTransparentar,false);
+    return;
+  }
+  const {piezaUd,zone,nivel}=selPopupPendiente;
+  const objName=objNameDesdePopup(nivel,piezaUd);
+  const marca=marcasPiezas[marcaKey(zone,objName)]||{};
+  pintarBotonMarcaRapida(btnOcultar,!!marca.oculto);
+  pintarBotonMarcaRapida(btnTransparentar,marca.opacidad!=null&&marca.opacidad<1);
+}
+function aplicarMarcaRapida(mutar){
+  if(!selPopupPendiente||!selPopupPendiente.nivel) return;
+  const {piezaUd,zone,nivel}=selPopupPendiente;
+  const objName=objNameDesdePopup(nivel,piezaUd);
+  const key=marcaKey(zone,objName);
+  const marca=marcasPiezas[key]||{zoneId:zone.id,objName,color:null,opacidad:null,borde:false,oculto:false};
+  mutar(marca);
+  if(!marca.oculto&&!marca.color&&marca.opacidad==null&&!marca.borde) delete marcasPiezas[key];
+  else marcasPiezas[key]=marca;
+  aplicarMarcaPieza(zone,objName);
+  actualizarBotonesMarcaRapida();
+  guardarMarcasDrive().catch(err=>toast('❌ '+err.message));
+}
+document.getElementById('btnSelLevelOcultar').addEventListener('click',()=>{
+  let quedoOculto=false;
+  aplicarMarcaRapida(marca=>{ marca.oculto=!marca.oculto; quedoOculto=marca.oculto; });
+  toast(quedoOculto?'👁️ Pieza ocultada':'👁️ Pieza mostrada');
+});
+document.getElementById('btnSelLevelTransparentar').addEventListener('click',()=>{
+  let quedoTransparente=false;
+  aplicarMarcaRapida(marca=>{
+    const yaTransparente=marca.opacidad!=null&&marca.opacidad<1;
+    marca.opacidad=yaTransparente?null:0.35;
+    quedoTransparente=!yaTransparente;
+  });
+  toast(quedoTransparente?'◐ Pieza transparentada':'◻️ Transparencia quitada');
+});
 document.getElementById('btnSelLevelZoomMas').addEventListener('click',(e)=>{
   e.stopPropagation();
   if(selPopupPendiente) zoomHitPaso(selPopupPendiente.hit,0.6);
