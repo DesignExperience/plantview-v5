@@ -16494,14 +16494,6 @@ function elegirNivelDesdePopup(nivel,key){
   if(puedeIguales){
     const res=resolverInstanciasIgualesDesdePopup();
     cantidadIguales=res&&res.instancias?res.instancias.length:0;
-    // TEMPORAL: se reportó sobre-conteo (11 "iguales" cuando en realidad
-    // hay 1 solo) — se vuelca a consola el prefijo de cada grupo detectado
-    // para ver qué está agrupando junto que no debería. Sacar una vez
-    // resuelto.
-    if(res&&res.grupos&&res.grupos.length>1){
-      console.log('[iguales-debug4] nivel:',JSON.stringify(nivel),'etiqueta:',JSON.stringify(res.etiqueta),'grupos:',res.grupos.length);
-      res.grupos.forEach((g,i)=>console.log('  grupo',i,'pathPrefix:',JSON.stringify(g.pathPrefix),'piezas:',g.piezas.length));
-    }
   }
   const sufijo=cantidadIguales>1?` (${cantidadIguales})`:'';
   if(spanIguales) spanIguales.textContent='Nota en iguales'+sufijo;
@@ -16568,7 +16560,7 @@ function resolverInstanciasIgualesDesdePopup(){
   const profundidad=nivel==='subensamblaje'?0:nivel.profundidad;
   const nombre=(piezaUd.pathNames||[])[profundidad]||null;
   if(!nombre) return null;
-  const grupos=buscarInstanciasIgualesSubensamblaje(nombre);
+  const grupos=buscarInstanciasIgualesSubensamblaje(nombre,profundidad);
   return { grupos, instancias:grupos.map(anclaDesdeGrupoSubensamblaje).filter(Boolean), etiqueta:nombre };
 }
 
@@ -16788,24 +16780,48 @@ function codigosBaseDeSegmento(segmento){
 // que agrupar por ese token exacto (con su sufijo de instancia, sin
 // normalizar) en vez de por el nombre bare del subensamblaje — si no,
 // todas las instancias colapsan en un único grupo.
-function buscarInstanciasIgualesSubensamblaje(nombre){
+//
+// La búsqueda de la coincidencia "más profunda" (arriba) se probó
+// buscando en CUALQUIER posición del camino, pero eso confunde dos cosas
+// distintas (log [iguales-debug4]): una instancia repetida real del MISMO
+// subensamblaje anidada uno o dos niveles distinto (lo que este fix
+// resuelve), contra un herraje/pieza GENÉRICA cuyo nombre se reutiliza
+// como hoja de subensamblajes completamente distintos y sin relación en
+// cualquier parte del árbol (ej. "80-01395.0-00" usado suelto dentro de
+// 10 subensamblajes no relacionados) — eso NO son instancias repetidas
+// del mismo subensamblaje, son usos sueltos de la misma pieza en otro
+// lado. La ventana ±1 nivel alrededor de "profundidad" (la posición
+// donde se clickeó) alcanza para el corrimiento real ("una pieza de más
+// o de menos en el medio") sin llegar a confundirse con una reutilización
+// genérica varios niveles más abajo bajo un padre no relacionado.
+function buscarInstanciasIgualesSubensamblaje(nombre,profundidad){
   const grupos=new Map(); // zoneId+prefijo+token -> {zoneId,pathPrefix,piezas:[{mesh,pieza}]}
   const [nombreBase]=codigosBaseDeSegmento(nombre);
   function registrar(ud,mesh,pieza){
     const pathNames=ud.pathNames||[];
-    // Recorre TODO el camino y se queda con la coincidencia MÁS PROFUNDA
-    // (no la primera): el nombre puede aparecer "bare" (sin sufijo, igual
-    // en todas las instancias) en un nivel y de nuevo, ya diferenciado por
-    // instancia, en un segmento más profundo — quedarse con la primera
-    // colapsaría todas las instancias como pasaba antes de este fix.
+    const iMin=Math.max(0,profundidad-1);
+    const iMax=Math.min(pathNames.length-1,profundidad+1);
+    // Recorre solo la ventana ±1 y se queda con la coincidencia MÁS
+    // PROFUNDA dentro de ella (no la primera): el nombre puede aparecer
+    // "bare" (sin sufijo, igual en todas las instancias) en un nivel y de
+    // nuevo, ya diferenciado por instancia, en el segmento siguiente —
+    // quedarse con la primera colapsaría todas las instancias.
+    // Un match en un nivel DISTINTO al clickeado solo cuenta como
+    // diferenciador de instancia si viene de un token COMPUESTO ("A/B",
+    // fusión de dos piezas — ver comentario arriba). Un match suelto (sin
+    // "/") en otro nivel es la misma pieza reusada en otro lugar del
+    // árbol sin relación real (el bug de "80-01395.0-00": un herraje
+    // genérico reaparece como hoja de subensamblajes distintos), no una
+    // instancia repetida del subensamblaje clickeado.
     let hallazgo=null;
-    for(let i=0;i<pathNames.length;i++){
+    for(let i=iMin;i<=iMax;i++){
       const tokens=normalizarNombreInstancia(pathNames[i]).split('/');
       const j=tokens.findIndex(t=>{
         const m=CODIGO_BASE_RE.exec(t.trim());
         return (m?m[1]:t.trim())===nombreBase;
       });
       if(j===-1) continue;
+      if(i!==profundidad && tokens.length<2) continue;
       hallazgo={i,token:tokens[j].trim()};
     }
     if(hallazgo){
