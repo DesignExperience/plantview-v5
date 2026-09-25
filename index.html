@@ -16494,20 +16494,6 @@ function elegirNivelDesdePopup(nivel,key){
   if(puedeIguales){
     const res=resolverInstanciasIgualesDesdePopup();
     cantidadIguales=res&&res.instancias?res.instancias.length:0;
-    // TEMPORAL round 5: todavía queda sobre-conteo residual (2 en vez de
-    // 1) después del filtro de tokens compuestos. Se vuelca el detalle de
-    // cada grupo, incluyendo TODAS las piezas que cayeron en él (no solo
-    // el conteo), para ver exactamente qué compound match se está colando.
-    if(res&&res.grupos&&res.grupos.length>1){
-      console.log('[iguales-debug5] etiqueta:',JSON.stringify(res.etiqueta),'grupos:',res.grupos.length);
-      res.grupos.forEach((g,i)=>{
-        console.log('  grupo',i,'pathPrefix:',JSON.stringify(g.pathPrefix));
-        g.piezas.slice(0,5).forEach(({mesh,pieza})=>{
-          const ud=pieza?pieza.userData:mesh.userData;
-          console.log('    pieza pathNames:',JSON.stringify(ud.pathNames));
-        });
-      });
-    }
   }
   const sufijo=cantidadIguales>1?` (${cantidadIguales})`:'';
   if(spanIguales) spanIguales.textContent='Nota en iguales'+sufijo;
@@ -16574,7 +16560,7 @@ function resolverInstanciasIgualesDesdePopup(){
   const profundidad=nivel==='subensamblaje'?0:nivel.profundidad;
   const nombre=(piezaUd.pathNames||[])[profundidad]||null;
   if(!nombre) return null;
-  const grupos=buscarInstanciasIgualesSubensamblaje(nombre,profundidad);
+  const grupos=buscarInstanciasIgualesSubensamblaje(nombre);
   return { grupos, instancias:grupos.map(anclaDesdeGrupoSubensamblaje).filter(Boolean), etiqueta:nombre };
 }
 
@@ -16796,74 +16782,48 @@ function codigosBaseDeSegmento(segmento){
   });
 }
 
-// Confirmado con datos reales (log [iguales-debug2]): el exportador NO le
-// da un nivel propio del árbol a cada instancia del subensamblaje — el
-// nombre intermedio (ej. "10-01731.0-00") es IDÉNTICO en las 5+
-// instancias reales. El número de instancia real vive pegado al código
-// del HIJO, como primer token del segmento siguiente separado por "/"
-// (ej. "10-01731.0-00-3/10-01436.0-00-2" → instancia "-3"). Por eso hay
-// que agrupar por ese token exacto (con su sufijo de instancia, sin
-// normalizar) en vez de por el nombre bare del subensamblaje — si no,
-// todas las instancias colapsan en un único grupo.
+// Varias rondas de heurísticas de texto sobre pathNames (ver historial
+// de comentarios/logs [iguales-debug] a [iguales-debug5]) terminaron
+// mostrando que el nombre solo, en cualquier posición del camino, NO
+// alcanza para distinguir de forma general "instancia repetida real del
+// mismo subensamblaje" de "herraje genérico reusado como pieza suelta en
+// otro lado del árbol" — el mismo string ("80-01395.0-00") puede ser
+// simultáneamente el nombre del contenedor Y el de una pieza reusada
+// DENTRO de sí mismo, así que ninguna heurística de posición/ventana
+// distingue ambos casos de forma confiable en todos los modelos.
 //
-// La búsqueda de la coincidencia "más profunda" (arriba) se probó
-// buscando en CUALQUIER posición del camino, pero eso confunde dos cosas
-// distintas (log [iguales-debug4]): una instancia repetida real del MISMO
-// subensamblaje anidada uno o dos niveles distinto (lo que este fix
-// resuelve), contra un herraje/pieza GENÉRICA cuyo nombre se reutiliza
-// como hoja de subensamblajes completamente distintos y sin relación en
-// cualquier parte del árbol (ej. "80-01395.0-00" usado suelto dentro de
-// 10 subensamblajes no relacionados) — eso NO son instancias repetidas
-// del mismo subensamblaje, son usos sueltos de la misma pieza en otro
-// lado. La ventana ±1 nivel alrededor de "profundidad" (la posición
-// donde se clickeó) alcanza para el corrimiento real ("una pieza de más
-// o de menos en el medio") sin llegar a confundirse con una reutilización
-// genérica varios niveles más abajo bajo un padre no relacionado.
-function buscarInstanciasIgualesSubensamblaje(nombre,profundidad){
-  const grupos=new Map(); // zoneId+prefijo+token -> {zoneId,pathPrefix,piezas:[{mesh,pieza}]}
+// Cambio de enfoque: en vez de reconstruir "instancias" a partir de
+// strings, se recorre el ÁRBOL REAL de Three.js y se cuenta cada NODO
+// (Group) real que matchea — inequívoco, porque dos instancias físicas
+// distintas del mismo subensamblaje son, por construcción del parser
+// (buildNode), dos objetos Group DISTINTOS en el árbol, tengan o no el
+// mismo texto. Al encontrar un nodo que matchea se deja de bajar por sus
+// hijos (son SUS piezas, no nuevas instancias) — así una pieza reusada
+// con el mismo código adentro de su propio subensamblaje ya no se cuenta
+// como una segunda instancia fantasma.
+function buscarInstanciasIgualesSubensamblaje(nombre){
   const [nombreBase]=codigosBaseDeSegmento(nombre);
-  function registrar(ud,mesh,pieza){
-    const pathNames=ud.pathNames||[];
-    const iMin=Math.max(0,profundidad-1);
-    const iMax=Math.min(pathNames.length-1,profundidad+1);
-    // Recorre solo la ventana ±1 y se queda con la coincidencia MÁS
-    // PROFUNDA dentro de ella (no la primera): el nombre puede aparecer
-    // "bare" (sin sufijo, igual en todas las instancias) en un nivel y de
-    // nuevo, ya diferenciado por instancia, en el segmento siguiente —
-    // quedarse con la primera colapsaría todas las instancias.
-    // Un match en un nivel DISTINTO al clickeado solo cuenta como
-    // diferenciador de instancia si viene de un token COMPUESTO ("A/B",
-    // fusión de dos piezas — ver comentario arriba). Un match suelto (sin
-    // "/") en otro nivel es la misma pieza reusada en otro lugar del
-    // árbol sin relación real (el bug de "80-01395.0-00": un herraje
-    // genérico reaparece como hoja de subensamblajes distintos), no una
-    // instancia repetida del subensamblaje clickeado.
-    let hallazgo=null;
-    for(let i=iMin;i<=iMax;i++){
-      const tokens=normalizarNombreInstancia(pathNames[i]).split('/');
-      const j=tokens.findIndex(t=>{
-        const m=CODIGO_BASE_RE.exec(t.trim());
-        return (m?m[1]:t.trim())===nombreBase;
-      });
-      if(j===-1) continue;
-      if(i!==profundidad && tokens.length<2) continue;
-      hallazgo={i,token:tokens[j].trim()};
-    }
-    if(hallazgo){
-      const {i,token}=hallazgo;
-      const prefix=[...pathNames.slice(0,i),token];
-      const key=ud.zoneId+'::'+prefix.join('§');
-      if(!grupos.has(key)) grupos.set(key,{zoneId:ud.zoneId,pathPrefix:prefix,piezas:[]});
-      grupos.get(key).piezas.push({mesh,pieza});
-      return;
-    }
+  const gruposObj=[];
+  function esGrupoBuscado(nodo){
+    const pn=nodo.userData&&nodo.userData.pathNames;
+    if(!pn||!pn.length) return false;
+    return codigosBaseDeSegmento(pn[pn.length-1])[0]===nombreBase;
   }
-  allMeshes.forEach(mesh=>{
-    if(mesh.visible===false) return; // solo cuenta lo VISIBLE ahora mismo (respeta el aislamiento activo)
-    if(mesh.userData.piezas) mesh.userData.piezas.forEach(p=>registrar(p.userData,mesh,p));
-    else registrar(mesh.userData,mesh,null);
-  });
-  return [...grupos.values()];
+  function recorrer(nodo){
+    if(nodo.isMesh) return; // hoja real (ver fusionarRamaEstatica) — nada más que recorrer debajo
+    if(esGrupoBuscado(nodo)){ gruposObj.push(nodo); return; }
+    (nodo.children||[]).forEach(recorrer);
+  }
+  if(rootGrpActual) recorrer(rootGrpActual);
+  return gruposObj.map(g=>{
+    const piezas=[];
+    g.traverse(o=>{
+      if(!o.isMesh||o.visible===false) return; // solo lo VISIBLE ahora mismo (respeta el aislamiento activo)
+      if(o.userData.piezas) o.userData.piezas.forEach(p=>piezas.push({mesh:o,pieza:p}));
+      else piezas.push({mesh:o,pieza:null});
+    });
+    return {zoneId:g.userData.zoneId,pathPrefix:g.userData.pathNames,piezas};
+  }).filter(g=>g.piezas.length>0);
 }
 
 // Ancla de nota para UN grupo (una instancia de subensamblaje) — se usa la
