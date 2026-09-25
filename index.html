@@ -14307,7 +14307,7 @@ function restaurarVisibilidadTotal(){
 }
 
 function limpiarOverlayStaged(key){
-  if(aislarStagedOverlays[key]){ aislarStagedOverlays[key].forEach(hl=>hl.removeFromParent()); delete aislarStagedOverlays[key]; }
+  if(aislarStagedOverlays[key]){ aislarStagedOverlays[key].forEach(hl=>{ if(hl.parent) hl.parent.remove(hl); }); delete aislarStagedOverlays[key]; }
 }
 function limpiarSeleccionTempAislar(){
   Object.keys(aislarStagedOverlays).forEach(limpiarOverlayStaged);
@@ -16320,7 +16320,7 @@ let resaltadosNivel=[];
 const MAX_MESHES_RESALTADO_ZONA=250;
 
 function limpiarResaltadoNivel(){
-  resaltadosNivel.forEach(hl=>hl.removeFromParent());
+  resaltadosNivel.forEach(hl=>{ if(hl.parent) hl.parent.remove(hl); });
   resaltadosNivel=[];
 }
 
