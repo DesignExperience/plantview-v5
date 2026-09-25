@@ -16900,20 +16900,30 @@ function instanciasDesdeAislamiento(seleccion){
 // selección de aislar en construcción (aislarSeleccionTemp) — mismo paso
 // que "Agregar a aislar" pieza por pieza, pero para todas de una — el
 // usuario todavía tiene que tocar "Confirmar" en la barra para que se
-// aplique, igual que agregando una sola. Como aislarSeleccionTemp está
-// scopeado por zona (ver claveAislar/coincideConAislamiento), agrega una
-// entrada por cada zona distinta donde aparece la pieza, no una sola
-// entrada global.
+// aplique, igual que agregando una sola.
+//
+// Antes agregaba UNA sola entrada genérica por zona usando el objName
+// bare (resuelta luego por coincidencia EXACTA de objName en
+// resolverObjetivoMarca) — pero buscarInstanciasIguales ya sabe que el
+// objName de cada instancia real trae su propio sufijo distinto (ver
+// coincideCompuesto), así que esa entrada genérica nunca iba a
+// re-encontrar las otras 13 al confirmar "Aislar": solo la que coincide
+// letra por letra. Bug reportado: el cartel decía "14 piezas iguales"
+// pero la barra mostraba "1 pieza seleccionada", y al confirmar hubiera
+// aislado una sola. Ahora se agrega UNA entrada POR CADA instancia real
+// encontrada, usando su propio pathNames completo como pathPrefix
+// (identifica esa pieza física puntual sin ambigüedad, sin depender de
+// que el objName coincida exacto con otras).
 function seleccionarIgualesParaAislar(objName){
   const instancias=buscarInstanciasIguales(objName);
-  const zoneIds=new Set(instancias.map(i=>i.zoneId).filter(Boolean));
   let agregadas=0;
-  zoneIds.forEach(zid=>{
-    const zone=ZONES.find(z=>z.id===zid);
+  instancias.forEach(inst=>{
+    const zone=ZONES.find(z=>z.id===inst.zoneId);
     if(!zone) return;
-    const key=claveAislar(zid,objName,null);
+    const pathPrefix=inst.pathNames||null;
+    const key=claveAislar(zone.id,pathPrefix?null:objName,pathPrefix);
     if(!aislarSeleccionTemp.has(key)){
-      toggleAislarSeleccion(zone,objName);
+      toggleAislarSeleccion(zone,pathPrefix?null:objName,pathPrefix);
       agregadas++;
     }
   });
