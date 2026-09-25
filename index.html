@@ -15348,11 +15348,9 @@ const cvwrap=document.getElementById('canvas-wrap');
 
 // ── MOUSE ────────────────────────────────────────────────────────────
 // dragButton guarda con qué botón arrancó el drag actual. El botón del
-// medio (rueda) SIEMPRE orbita al arrastrar, esté o no activado "Mover"
-// — es la convención real de SolidWorks/CAD (mantenerlo apretado
-// alcanza, sin tildar ningún modo). Ctrl+botón del medio paniza en vez
-// de orbitar (también calcado de SolidWorks: Ctrl+rueda = pan). Click
-// izquierdo sigue respetando navMode como siempre.
+// medio (rueda) SIEMPRE paniza (mover) al arrastrar, esté o no activado
+// "Mover" — mantenerlo apretado alcanza, sin tildar ningún modo (pedido
+// explícito). Click izquierdo sigue respetando navMode como siempre.
 let dragButton=0;
 cvwrap.addEventListener('mousedown',e=>{
   if(e.button===1) e.preventDefault(); // evita el ícono de autoscroll que el navegador muestra con el botón central
@@ -15369,7 +15367,7 @@ window.addEventListener('mousemove',e=>{
   if(Math.abs(dx)>2||Math.abs(dy)>2) didMove=true;
   const W=cvwrap.clientWidth||window.innerWidth;
   const H=cvwrap.clientHeight||window.innerHeight;
-  const hacerPan = dragButton===1 ? e.ctrlKey : navMode==='pan';
+  const hacerPan = dragButton===1 ? true : navMode==='pan';
   if(hacerPan){
     panCamera(dx, dy);
   } else {
