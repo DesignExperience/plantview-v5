@@ -14297,7 +14297,7 @@ function restaurarVisibilidadTotal(){
 }
 
 function limpiarOverlayStaged(key){
-  if(aislarStagedOverlays[key]){ scene.remove(aislarStagedOverlays[key]); delete aislarStagedOverlays[key]; }
+  if(aislarStagedOverlays[key]){ aislarStagedOverlays[key].forEach(hl=>hl.removeFromParent()); delete aislarStagedOverlays[key]; }
 }
 function limpiarSeleccionTempAislar(){
   Object.keys(aislarStagedOverlays).forEach(limpiarOverlayStaged);
@@ -14315,12 +14315,19 @@ function toggleAislarSeleccion(zone,objName,pathPrefix){
   }else{
     aislarSeleccionTemp.set(key,{zoneId:zone.id,objName,pathPrefix});
     const {simples,fusionados}=pathPrefix ? resolverObjetivoMarcaPorPrefix(zone,pathPrefix) : resolverObjetivoMarca(zone,objName);
-    const grupo=new THREE.Group();
+    // Hijo de CADA mesh dueño (no un solo Group en la escena con transform
+    // horneado) — mismo motivo que ya se corrigió para las marcas y el
+    // resaltado de selección: si no, el resaltado ámbar de "en
+    // construcción" queda clavado en la posición de antes de explotar.
+    const overlays=[];
     simples.forEach(mesh=>{
       const geo=mesh.geometry;
       const faceCount=geo.index?geo.index.count/3:geo.attributes.position.count/3;
       const faceIndices=Array.from({length:faceCount},(_,i)=>i);
-      grupo.add(buildFaceHighlightMesh(mesh,faceIndices,AISLAR_STAGE_COLOR));
+      const hl=buildFaceHighlightMesh(mesh,faceIndices,AISLAR_STAGE_COLOR);
+      hl.matrix.identity();hl.matrixAutoUpdate=true;
+      mesh.add(hl);
+      overlays.push(hl);
     });
     const porMesh=new Map();
     fusionados.forEach(({mesh,pieza})=>{
@@ -14328,9 +14335,13 @@ function toggleAislarSeleccion(zone,objName,pathPrefix){
       for(let i=0;i<pieza.faceCount;i++)lista.push(pieza.faceStart+i);
       porMesh.set(mesh,lista);
     });
-    porMesh.forEach((faceIndices,mesh)=>grupo.add(buildFaceHighlightMesh(mesh,faceIndices,AISLAR_STAGE_COLOR)));
-    scene.add(grupo);
-    aislarStagedOverlays[key]=grupo;
+    porMesh.forEach((faceIndices,mesh)=>{
+      const hl=buildFaceHighlightMesh(mesh,faceIndices,AISLAR_STAGE_COLOR);
+      hl.matrix.identity();hl.matrixAutoUpdate=true;
+      mesh.add(hl);
+      overlays.push(hl);
+    });
+    aislarStagedOverlays[key]=overlays;
   }
   actualizarBarraAislar();
 }
@@ -16299,7 +16310,7 @@ let resaltadosNivel=[];
 const MAX_MESHES_RESALTADO_ZONA=250;
 
 function limpiarResaltadoNivel(){
-  resaltadosNivel.forEach(hl=>scene.remove(hl));
+  resaltadosNivel.forEach(hl=>hl.removeFromParent());
   resaltadosNivel=[];
 }
 
@@ -16309,7 +16320,13 @@ function _resaltarMeshCompleto(mesh,color){
   const faceCount=idx ? idx.count/3 : geo.attributes.position.count/3;
   const faceIndices=Array.from({length:faceCount},(_,i)=>i);
   const hl=buildFaceHighlightMesh(mesh,faceIndices,color);
-  scene.add(hl);
+  // Hijo del mesh (no de la escena con un matrixWorld "horneado" al
+  // momento del click) — mismo motivo que ya se corrigió para los
+  // overlays de "Marcar pieza": si no, el highlight queda clavado en la
+  // posición de ANTES de explotar mientras el mesh real se mueve, dejando
+  // una copia translúcida fantasma atrás (bug reportado con captura).
+  hl.matrix.identity();hl.matrixAutoUpdate=true;
+  mesh.add(hl);
   resaltadosNivel.push(hl);
 }
 
@@ -16330,7 +16347,8 @@ function resaltarNivelSeleccion(hit,nivel){
       if(p){
         const faceIndices=Array.from({length:p.faceCount},(_,i)=>p.faceStart+i);
         const hl=buildFaceHighlightMesh(mesh,faceIndices,SELECCION_COLOR);
-        scene.add(hl);
+        hl.matrix.identity();hl.matrixAutoUpdate=true;
+        mesh.add(hl);
         resaltadosNivel.push(hl);
         return;
       }
