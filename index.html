@@ -16893,6 +16893,7 @@ let notaAbiertaId=null;         // id de la nota que está en el panel (null = n
 let notaHitPendiente=null;      // hit de raycast para la nota nueva sin guardar aún
 let notaGrupoIgualesPendiente=null; // [{mesh,local,zoneId,objName,pathNames}] cuando la nota en edición se va a crear en TODAS las instancias de una pieza repetida (ver "Nota en piezas iguales")
 let notaGrupoEtiquetaPendiente=null; // nombre a mostrar en el header colapsable del grupo (ver renderizado en "Notas del modelo")
+let notaGrupoEditandoIds=null; // ids de las notas de un grupo ya EXISTENTE que se están editando juntas (ver abrirEdicionGrupoNota3D) — a diferencia de notaGrupoIgualesPendiente (crear notas nuevas), esto edita las que ya existen
 
 // Devuelve, para un nombre de pieza, TODAS sus instancias en el modelo
 // completo (cualquier zona/subensamblaje) — así se puede anotar de una
@@ -18758,6 +18759,7 @@ function abrirNota3D(notaId){
   document.getElementById('notaTexto3D').value=n.texto||'';
   document.getElementById('notaMeta3D').textContent=n.autor?`${n.autor} · ${n.fecha||''}`:'';
   document.getElementById('notaBorrar3D').style.display='block';
+  document.getElementById('notaAdjuntarBtn3D').style.display='';
   document.getElementById('notaMostrarPin3D').checked=!!n.mostrarPin;
   document.getElementById('notaNegrita3D').checked=!!n.negrita;
   seleccionarColorNota(n.color);
@@ -18774,11 +18776,61 @@ function abrirNota3D(notaId){
   document.getElementById('panelNota').classList.add('show');
 }
 
+// Edita de una las notas de un grupo YA EXISTENTE (ver crearGrupoNotasEl,
+// pedido explícito: "editar global" para el grupo de un aislamiento) —
+// precarga el formulario con los valores de la primera nota (comparten
+// texto/color/etc. al crearse juntas) y, al guardar, aplica los cambios
+// a TODAS las del grupo. La posición/pieza de cada una no se toca (eso
+// sigue siendo por instancia). Los adjuntos tampoco se tocan acá — se
+// siguen editando nota por nota para no duplicar/perder archivos.
+function abrirEdicionGrupoNota3D(miembros){
+  if(!miembros||!miembros.length) return;
+  const n=miembros[0];
+  notaAbiertaId=null;
+  notaHitPendiente=null;
+  notaGrupoIgualesPendiente=null;
+  notaGrupoEtiquetaPendiente=null;
+  notaGrupoEditandoIds=miembros.map(m=>m.id);
+  notaAdjuntosNuevos=[];
+  notaAdjuntosExistentesQuitar=new Set();
+  notaRefGlbPendiente=null;
+  renderNotaRefGlbChip();
+  document.getElementById('notaAdjuntoInput3D').value='';
+  document.getElementById('notaNumeroManualLabel3D').textContent='Número base (2.1, 2.2, 2.3…)';
+  document.getElementById('notaTitulo3D').textContent='Editar nota (grupo)';
+  document.getElementById('notaPieza3D').textContent=`Editando ${miembros.length} notas del grupo`;
+  document.getElementById('notaIrPieza3D').style.display='none';
+  document.getElementById('notaTexto3D').value=n.texto||'';
+  document.getElementById('notaMeta3D').textContent='';
+  document.getElementById('notaBorrar3D').style.display='none'; // borrar el grupo entero se hace desde el header, no desde acá
+  document.getElementById('notaMostrarPin3D').checked=!!n.mostrarPin;
+  document.getElementById('notaNegrita3D').checked=!!n.negrita;
+  seleccionarColorNota(n.color);
+  // El número base es común (ej. "3" para 3.1/3.2/3.3) — se edita solo esa
+  // parte, cada nota conserva su propio sufijo de instancia al guardar.
+  document.getElementById('notaNumeroManual3D').value=n.numeroManual!=null?String(n.numeroManual).split('.')[0]:'';
+  document.getElementById('notaZona3D').checked=!!n.esZona;
+  seleccionarTamanoZona(n.radioMult||1);
+  document.getElementById('notaZonaRadioRow3D').style.display=n.esZona?'':'none';
+  document.getElementById('notaEsTarea3D').checked=!!n.esTarea;
+  document.getElementById('notaEstadoRow3D').style.display=n.esTarea?'':'none';
+  crearSelectorEstadoEn(document.getElementById('notaEstados3D'), n.estado);
+  // Sin adjuntar durante la edición grupal — cada nota tiene los suyos
+  // propios, adjuntar acá sin una pieza puntual de referencia sería ambiguo.
+  document.getElementById('notaAdjuntoPreview3D').innerHTML='';
+  document.getElementById('notaAdjuntoPreview3D').style.display='none';
+  document.getElementById('notaAdjuntarBtn3D').style.display='none';
+  actualizarPanelNotaSegunLogin();
+  recentrarPanelNota();
+  document.getElementById('panelNota').classList.add('show');
+}
+
 function abrirFormNota3D(hit){
   notaAbiertaId=null;
   notaHitPendiente=hit;
   notaGrupoIgualesPendiente=null;
   notaGrupoEtiquetaPendiente=null;
+  notaGrupoEditandoIds=null;
   notaAdjuntosNuevos=[];
   notaAdjuntosExistentesQuitar=new Set();
   notaRefGlbPendiente=null;
@@ -18800,6 +18852,7 @@ function abrirFormNota3D(hit){
   document.getElementById('notaTexto3D').value='';
   document.getElementById('notaMeta3D').textContent='';
   document.getElementById('notaBorrar3D').style.display='none';
+  document.getElementById('notaAdjuntarBtn3D').style.display='';
   document.getElementById('notaMostrarPin3D').checked=false;
   document.getElementById('notaNegrita3D').checked=false;
   seleccionarColorNota('negro');
@@ -18830,6 +18883,7 @@ function cerrarPanelNota3D(){
   notaHitPendiente=null;
   notaGrupoIgualesPendiente=null;
   notaGrupoEtiquetaPendiente=null;
+  notaGrupoEditandoIds=null;
   notaAdjuntosNuevos=[];
   notaAdjuntosExistentesQuitar=new Set();
   notaRefGlbPendiente=null;
@@ -19159,6 +19213,22 @@ function crearGrupoNotasEl(grupoId,miembros){
   toggleBurbuja.appendChild(toggleTrack);
   top.appendChild(toggleBurbuja);
 
+  // Editar global: pedido explícito — abre un solo formulario que aplica
+  // los cambios (texto/color/negrita/etc.) a TODAS las notas del grupo de
+  // una, en vez de tener que editarlas una por una (ver
+  // abrirEdicionGrupoNota3D). La posición/pieza de cada instancia no se
+  // toca, eso sigue siendo por nota.
+  const editarGrupo=document.createElement('span');
+  editarGrupo.className='lni-accion';
+  editarGrupo.title='Editar todas las notas de este grupo';
+  editarGrupo.innerHTML='<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+  editarGrupo.addEventListener('click',(e)=>{
+    e.stopPropagation();
+    cerrarListaNotas();
+    abrirEdicionGrupoNota3D(miembros);
+  });
+  top.appendChild(editarGrupo);
+
   const borrarGrupo=document.createElement('span');
   borrarGrupo.className='lni-accion lni-borrar';
   borrarGrupo.title='Borrar todas las notas de este grupo';
@@ -19275,6 +19345,22 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
     if(notaAbiertaId){
       n=notas3d.find(x=>x.id===notaAbiertaId);
       if(n){ n.texto=texto; n.mostrarPin=mostrarPin; n.negrita=negrita; n.color=color; n.tamano=tamano; n.numeroManual=numeroManual; n.esZona=esZona; n.radioMult=radioMult; n.esTarea=esTarea; n.estado=estado; if(notaRefGlbPendiente) n.refGlb=notaRefGlbPendiente; else delete n.refGlb; }
+    }else if(notaGrupoEditandoIds && notaGrupoEditandoIds.length){
+      // Edición grupal de notas YA EXISTENTES (ver abrirEdicionGrupoNota3D)
+      // — aplica los campos compartidos a TODAS, sin tocar la posición/
+      // pieza de cada una. numeroManual acá es solo la parte BASE (ej.
+      // "3" para 3.1/3.2/3.3): cada nota conserva su propio sufijo de
+      // instancia, solo se le reemplaza el número antes del primer punto.
+      notaGrupoEditandoIds.forEach(id=>{
+        const m=notas3d.find(x=>x.id===id);
+        if(!m) return;
+        m.texto=texto; m.mostrarPin=mostrarPin; m.negrita=negrita; m.color=color; m.tamano=tamano; m.esZona=esZona; m.radioMult=radioMult; m.esTarea=esTarea; m.estado=estado;
+        if(numeroManual!=null){
+          const actual=m.numeroManual!=null?String(m.numeroManual):'';
+          const puntoIdx=actual.indexOf('.');
+          m.numeroManual=puntoIdx===-1?numeroManual:`${numeroManual}${actual.slice(puntoIdx)}`;
+        }
+      });
     }else if(notaGrupoIgualesPendiente && notaGrupoIgualesPendiente.length){
       // Una nota por instancia, mismo texto/color/etc. Si se escribió un
       // número base (ej. "2"), se mantiene igual en todas y se distingue
@@ -19386,12 +19472,14 @@ document.getElementById('notaGuardar3D').addEventListener('click', async ()=>{
     }
 
     const cantidadGrupo=notasCreadas?notasCreadas.length:0;
+    const cantidadEditadaGrupo=notaGrupoEditandoIds?notaGrupoEditandoIds.length:0;
     notaGrupoIgualesPendiente=null;
     notaGrupoEtiquetaPendiente=null;
+    notaGrupoEditandoIds=null;
     renderPinesNotas();
     if(currentZone) renderSidebarBody(currentZone,currentObjName);
     await guardarNotasDrive();
-    toast(cantidadGrupo?`✓ Nota creada en ${cantidadGrupo} piezas iguales`:'Nota guardada ✓');
+    toast(cantidadGrupo?`✓ Nota creada en ${cantidadGrupo} piezas iguales`:cantidadEditadaGrupo?`✓ ${cantidadEditadaGrupo} notas del grupo actualizadas`:'Nota guardada ✓');
     cerrarPanelNota3D();
   }catch(err){
     toast('No se pudo guardar: '+err.message);
