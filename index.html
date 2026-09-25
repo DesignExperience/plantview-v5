@@ -11108,11 +11108,8 @@ canvas{display:block;width:100%;height:100%}
 .lista-notas-head{display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
 .lista-notas-head span{font-weight:700;font-size:13px}
 .lista-notas-head-btns{display:flex;align-items:center;gap:6px}
-.lista-notas-toggle-burbujas{display:flex;align-items:center;justify-content:flex-start;gap:8px;font-size:11px;color:var(--muted);cursor:pointer;flex-shrink:0;margin:2px 0 4px}
-.lista-notas-toggle-burbujas span{font-weight:400;font-size:11px}
-.lista-notas-toggle-burbujas .nota-switch{width:30px;height:17px}
-.lista-notas-toggle-burbujas .nota-switch-track::after{width:13px;height:13px}
-.lista-notas-toggle-burbujas input:checked~.nota-switch-track::after{transform:translateX(13px)}
+.lista-notas-toggle-burbujas{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;color:var(--muted);cursor:pointer;flex-shrink:0;margin:2px 0 4px}
+.lista-notas-toggle-burbujas span:first-child{font-weight:400;font-size:11px}
 #listaNotasAgregar{width:28px;height:28px;border:none;border-radius:8px;background:#3A6BE8;color:#fff;font-size:17px;font-weight:700;cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center}
 #listaNotasCerrar{width:28px;height:28px;border:none;background:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1}
 #listaNotasItems{display:flex;flex-direction:column;gap:6px;overflow-y:auto;min-height:0}
@@ -11852,7 +11849,7 @@ window.onerror=function(msg,src,line){
   </div>
   <label class="lista-notas-toggle-burbujas" title="Activa o desactiva la burbuja de texto de TODAS las notas de una — cada nota abajo tiene su propio toggle individual para ajustarlas una por una después">
     <span>Mostrar todas las burbujas</span>
-    <span class="nota-switch">
+    <span class="lni-toggle">
       <input type="checkbox" id="notasBurbujasGlobalToggle" checked>
       <span class="nota-switch-track"></span>
     </span>
