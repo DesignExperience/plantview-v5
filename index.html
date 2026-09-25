@@ -10846,16 +10846,11 @@ canvas{display:block;width:100%;height:100%}
   .tareas-fila-header span:nth-child(2), .tareas-fila-header span:nth-child(3),
   .tareas-fila > span:nth-child(2), .tareas-fila > span:nth-child(3) { display: none; }
 
-  /* En mobile no entran los pills de Notas/Vistas + sus "+" + badges
-     todos juntos sin verse apretado — se ocultan los "+" (agregar sigue
-     accesible desde adentro de cada desplegable, ver listaNotasAgregar/
-     listaVistasAgregar) y se acercan los dos pills entre sí. */
   /* "html " sube la especificidad: las reglas base de .notas-pill-group
-     y #pillNotasAdd están declaradas MÁS ABAJO en el archivo y, con la
-     misma especificidad, pisaban estas. */
+     están declaradas MÁS ABAJO en el archivo y, con la misma
+     especificidad, pisaban estas. */
   html .notas-pill-group{gap:6px;top:var(--pv-mob-fila-top);flex-wrap:nowrap;max-width:none}
   html .notas-pill{height:36px;padding:0 8px 0 11px;font-size:9.5px;letter-spacing:.05em}
-  html #pillNotasAdd,html #pillVistasAdd{display:none}
 
   /* Logo chico y centrado arriba del todo (su propia línea, separado de
      todo lo demás) en vez de compartir fila con el nombre de archivo y
@@ -10901,17 +10896,6 @@ canvas{display:block;width:100%;height:100%}
 .notas-pill svg{width:13px;height:13px;flex-shrink:0}
 .notas-pill .notas-pill-badge{background:var(--acc);color:#fff;border-radius:8px;min-width:15px;height:15px;padding:0 4px;font-size:9px;display:none;align-items:center;justify-content:center;line-height:1;letter-spacing:0}
 .notas-pill.tiene-notas .notas-pill-badge,.notas-pill.tiene-vistas .notas-pill-badge{display:flex}
-/* "+" separado del pill, siempre a la vista — agregar una nota (o una
-   vista) es la acción más repetida y antes exigía abrir el desplegable
-   primero solo para llegar al "+" que ya vivía adentro (ver
-   listaNotasAgregar/listaVistasAgregar). Azul de acento (en vez del gris
-   del pill) para que se note que es LA acción, no un dato para
-   consultar. :active en vez de solo :hover — :hover no dispara en
-   mobile, así que sin esto el feedback de "lo toqué" solo existía en
-   desktop. */
-#pillNotasAdd,#pillVistasAdd{width:26px;height:26px;flex-shrink:0;border:none;border-radius:50%;background:var(--acc);color:#fff;font-size:16px;font-weight:700;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit;box-shadow:0 1px 4px rgba(58,107,232,.4);transition:background .12s,transform .12s}
-#pillNotasAdd:hover,#pillVistasAdd:hover{background:#2f5bd0}
-#pillNotasAdd:active,#pillVistasAdd:active{background:#2851bd;transform:scale(.92)}
 /* Popup de nivel de selección (estilo SolidWorks: mini-toolbar que
    aparece flotando justo en el punto donde tocaste, para elegir si ese
    click agarra la PIEZA puntual o todo el SUBENSAMBLAJE). Reemplaza al
@@ -11514,13 +11498,11 @@ window.onerror=function(msg,src,line){
     <span id="pillNotasBadge" class="notas-pill-badge">0</span>
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
   </button>
-  <button type="button" id="pillNotasAdd" aria-label="Agregar nota" title="Agregar nota">+</button>
   <button type="button" class="notas-pill" id="pillVistas" title="Vistas guardadas">
     <span>Vistas</span>
     <span id="pillVistasBadge" class="notas-pill-badge">0</span>
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
   </button>
-  <button type="button" id="pillVistasAdd" aria-label="Guardar vista" title="Guardar vista">+</button>
 </div>
 <div class="sel-level-popup" id="selLevelPopup">
   <div class="sel-level-popup-nombre" id="selLevelPopupNombre">—</div>
@@ -18174,12 +18156,6 @@ document.getElementById('pillNotas').addEventListener('click',()=>{
   // una pieza" sin mostrar ninguna forma explícita de agregar una nota.
   abrirListaNotas();
 });
-// "+" al lado del pill, sin pasar por el desplegable — agregar es la
-// acción más repetida, no debería exigir un tap extra para llegar a ella.
-document.getElementById('pillNotasAdd').addEventListener('click',()=>{
-  cerrarListaNotas();
-  setMode('notas');
-});
 
 // Mismo criterio que pillNotas: acceso directo de arriba al medio a
 // "Vistas guardadas", que antes solo se podía abrir desde el botón
@@ -18188,10 +18164,6 @@ document.getElementById('pillNotasAdd').addEventListener('click',()=>{
 document.getElementById('pillVistas').addEventListener('click',()=>{
   if (vistasGuardadas.length > 0) abrirListaVistas();
   else abrirModalNuevaVista();
-});
-document.getElementById('pillVistasAdd').addEventListener('click',()=>{
-  cerrarListaVistas();
-  abrirModalNuevaVista();
 });
 
 document.getElementById('notaCerrar3D').addEventListener('click', cerrarPanelNota3D);
