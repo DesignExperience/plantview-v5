@@ -17979,6 +17979,19 @@ function actualizarPosicionesNotas(){
     const n=notas3d.find(x=>x.id===id);
     const refs=notaMarkerEls[id];
     if(!n)return;
+    // n.oculta: ocultamiento TOTAL de la nota (pin incluido) — distinto
+    // de notaOcultaTemporal, que solo apaga la burbuja de texto pero deja
+    // el pin numerado siempre visible. Pedido explícito: un ojo que
+    // oculte la nota entera, no solo su globo.
+    if(n.oculta){
+      refs.g.style.display='none';
+      if(notaBurbujaEls[id]) notaBurbujaEls[id].style.display='none';
+      if(notaAdjBurbujaEls[id]) notaAdjBurbujaEls[id].style.display='none';
+      if(notaTiposEls[id]) notaTiposEls[id].style.display='none';
+      if(notaZoomEls[id]) notaZoomEls[id].style.display='none';
+      if(notaOjoEls[id]) notaOjoEls[id].style.display='none';
+      return;
+    }
     // Tareas creadas desde la pantalla Tareas (fuera del visor) no tienen
     // point/local — no se anclaron haciendo click en una pieza, así que no
     // hay una posición 3D real que dibujar. Sin este chequeo, n.point.x
@@ -19016,6 +19029,25 @@ function crearItemNotaEl(n,idx,indentado){
     top.appendChild(clip);
   }
 
+  // Ojo de ocultamiento TOTAL — a diferencia del toggle de abajo (que solo
+  // apaga la burbuja de texto, el pin numerado sigue viéndose), esto saca
+  // la nota entera del visor (pin incluido). Combinado con el toggle: si
+  // la nota está oculta del todo, el toggle de burbuja queda deshabilitado
+  // (no tiene sentido ajustar la burbuja de algo que no se ve).
+  const ojoTotal=document.createElement('span');
+  ojoTotal.className='lni-accion';
+  ojoTotal.title=n.oculta?'Mostrar esta nota':'Ocultar esta nota por completo';
+  ojoTotal.innerHTML=svgOjo(!n.oculta);
+  ojoTotal.style.marginLeft='auto'; // empuja ojo+toggle+acciones al margen derecho de la fila
+  ojoTotal.addEventListener('click',(e)=>{
+    e.stopPropagation();
+    n.oculta=!n.oculta;
+    actualizarPosicionesNotas();
+    guardarNotasDrive().catch(()=>{});
+    abrirListaNotas();
+  });
+  top.appendChild(ojoTotal);
+
   // Toggle individual: activa/desactiva la burbuja de ESTA nota en el
   // modelo (mismo estado que el ojo flotante sobre el pin — ver
   // notaOcultaTemporal). El switch "Mostrar todas las burbujas" del
@@ -19023,12 +19055,13 @@ function crearItemNotaEl(n,idx,indentado){
   // ahora"), este toggle es el ajuste fino nota por nota.
   const toggleBurbuja=document.createElement('label');
   toggleBurbuja.className='lni-toggle';
-  toggleBurbuja.style.marginLeft='auto'; // empuja el toggle + las 3 acciones al margen derecho de la fila
-  toggleBurbuja.title='Mostrar/ocultar la burbuja de esta nota en el modelo';
+  toggleBurbuja.title=n.oculta?'La nota está oculta por completo':'Mostrar/ocultar la burbuja de esta nota en el modelo';
+  toggleBurbuja.style.opacity=n.oculta?'.4':'1';
   toggleBurbuja.addEventListener('click',e=>e.stopPropagation());
   const toggleInput=document.createElement('input');
   toggleInput.type='checkbox';
   toggleInput.checked=!notaOcultaTemporal[n.id];
+  toggleInput.disabled=!!n.oculta;
   toggleInput.addEventListener('change',(e)=>{
     setNotaOculta(n,!e.target.checked);
     actualizarPosicionesNotas();
@@ -19122,14 +19155,34 @@ function crearGrupoNotasEl(grupoId,miembros){
   pieza.textContent=etiquetaGrupo+' · '+miembros.length;
   top.appendChild(pieza);
 
+  // Mismo ojo de ocultamiento TOTAL que en una nota suelta, pero para
+  // TODAS las del grupo de una — combinado con el toggle de burbuja de
+  // abajo: con el grupo oculto del todo, ese toggle queda deshabilitado.
+  const grupoOculto=miembros.every(m=>m.oculta);
+  const ojoTotal=document.createElement('span');
+  ojoTotal.className='lni-accion';
+  ojoTotal.title=grupoOculto?'Mostrar este grupo':'Ocultar este grupo por completo';
+  ojoTotal.innerHTML=svgOjo(!grupoOculto);
+  ojoTotal.style.marginLeft='auto';
+  ojoTotal.addEventListener('click',(e)=>{
+    e.stopPropagation();
+    const nuevoOculto=!grupoOculto;
+    miembros.forEach(m=>{ m.oculta=nuevoOculto; });
+    actualizarPosicionesNotas();
+    guardarNotasDrive().catch(()=>{});
+    abrirListaNotas();
+  });
+  top.appendChild(ojoTotal);
+
   const toggleBurbuja=document.createElement('label');
   toggleBurbuja.className='lni-toggle';
-  toggleBurbuja.style.marginLeft='auto';
-  toggleBurbuja.title='Mostrar/ocultar la burbuja de TODAS las notas de este grupo';
+  toggleBurbuja.title=grupoOculto?'El grupo está oculto por completo':'Mostrar/ocultar la burbuja de TODAS las notas de este grupo';
+  toggleBurbuja.style.opacity=grupoOculto?'.4':'1';
   toggleBurbuja.addEventListener('click',e=>e.stopPropagation());
   const toggleInput=document.createElement('input');
   toggleInput.type='checkbox';
   toggleInput.checked=miembros.some(m=>!notaOcultaTemporal[m.id]);
+  toggleInput.disabled=grupoOculto;
   toggleInput.addEventListener('change',(e)=>{
     miembros.forEach(m=>setNotaOculta(m,!e.target.checked));
     actualizarPosicionesNotas();
