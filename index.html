@@ -16725,18 +16725,29 @@ function buscarInstanciasIguales(objName){
   // /CODIGO_BASE_RE). Y solo cuenta lo VISIBLE ahora mismo (si hay un
   // aislamiento activo, no se cuentan piezas ocultas fuera de él — bug
   // reportado: "está contando de más, no debería contar piezas ocultas").
-  const objBase=codigosBaseDeSegmento(objName)[0];
+  //
+  // objName puede ser un COMPUESTO "A/B" (dos piezas fusionadas en un
+  // mismo mesh, ver comentario de codigosBaseDeSegmento) — comparar solo
+  // el primer código ([0]) confundía piezas con distinto "B" fusionado
+  // como si fueran la misma (bug: "158 piezas iguales" cuando A era un
+  // herraje genérico reusado con muchos B distintos). Hay que comparar el
+  // compuesto COMPLETO, no solo el primer código.
+  const objBases=codigosBaseDeSegmento(objName);
+  const coincideCompuesto=(otro)=>{
+    const otroBases=codigosBaseDeSegmento(otro);
+    return otroBases.length===objBases.length && otroBases.every((b,i)=>b===objBases[i]);
+  };
   allMeshes.forEach(mesh=>{
     if(mesh.visible===false) return;
     const ud=mesh.userData;
     if(ud.piezas){
       ud.piezas.forEach(p=>{
-        if(codigosBaseDeSegmento(p.userData.objName)[0]!==objBase) return;
+        if(!coincideCompuesto(p.userData.objName)) return;
         const c=centroPiezaFusionada(mesh,p);
         if(!c) return;
         instancias.push({mesh,local:c.local,point:c.point,zoneId:p.userData.zoneId,objName:p.userData.objName,pathNames:p.userData.pathNames||null});
       });
-    }else if(codigosBaseDeSegmento(ud.objName)[0]===objBase){
+    }else if(coincideCompuesto(ud.objName)){
       const c=centroMeshSimple(mesh);
       if(!c) return;
       instancias.push({mesh,local:c.local,point:c.point,zoneId:ud.zoneId,objName:ud.objName,pathNames:ud.pathNames||null});
