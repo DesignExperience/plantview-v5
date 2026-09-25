@@ -15945,7 +15945,13 @@ function getIntersects(cx,cy){
   const rect=canvas.getBoundingClientRect();
   const ndc=new THREE.Vector2(((cx-rect.left)/rect.width)*2-1,-((cy-rect.top)/rect.height)*2+1);
   raycaster.setFromCamera(ndc,camera);
-  return raycaster.intersectObjects(allMeshes,false);
+  // Filtro explícito por visible: no alcanza con confiar en que
+  // Raycaster.intersectObjects lo respete solo — con un aislamiento
+  // activo, medir/clickear podía "tocar" piezas ocultas fuera de la
+  // selección aislada (bug reportado: medir entre dos piezas que no
+  // deberían estar disponibles). allMeshes no cambia de tamaño seguido,
+  // así que este filtro por frame es barato.
+  return raycaster.intersectObjects(allMeshes.filter(m=>m.visible!==false),false);
 }
 let hoveredMesh=null,hoveredOrigColor=null;
 function hoverHL(cx,cy){
