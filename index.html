@@ -19792,7 +19792,10 @@ function renderSidebarBody(zone,objName){
     <div class="sb-section">
       <div class="sb-section-hdr" style="justify-content:space-between">
         <span style="display:flex;align-items:center;gap:8px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Notas (${notasZona.length})</span>
-        <button id="sbNotaAgregar" type="button" title="Agregar nota" style="width:22px;height:22px;border-radius:7px;border:none;background:var(--acc);color:#fff;font-size:14px;font-weight:700;line-height:1;cursor:pointer">+</button>
+        <span style="display:flex;gap:6px">
+          ${notasZona.length>0?'<button id="sbNotasReset" type="button" title="Borrar todas las notas de esta pieza" style="width:22px;height:22px;border-radius:7px;border:1px solid var(--border);background:none;color:var(--muted);font-size:12px;line-height:1;cursor:pointer">🗑️</button>':''}
+          <button id="sbNotaAgregar" type="button" title="Agregar nota" style="width:22px;height:22px;border-radius:7px;border:none;background:var(--acc);color:#fff;font-size:14px;font-weight:700;line-height:1;cursor:pointer">+</button>
+        </span>
       </div>
       <div class="sb-section-body" id="sb-notas-${key}">
         ${notasZona.length===0?'<div style="padding:16px 0;text-align:center;color:var(--muted);font-size:11px">Sin notas en esta pieza</div>':''}
@@ -19800,7 +19803,10 @@ function renderSidebarBody(zone,objName){
       </div>
     </div>
     <div class="sb-section">
-      <div class="sb-section-hdr"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Documentos (${stored.length})</div>
+      <div class="sb-section-hdr" style="justify-content:space-between">
+        <span style="display:flex;align-items:center;gap:8px"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Documentos (${stored.length})</span>
+        ${stored.length>0?'<button id="sbDocsReset" type="button" title="Borrar todos los documentos de esta pieza" style="width:22px;height:22px;border-radius:7px;border:1px solid var(--border);background:none;color:var(--muted);font-size:12px;line-height:1;cursor:pointer">🗑️</button>':''}
+      </div>
       <div class="sb-section-body" id="docs-list-${key}">
         ${stored.length===0?'<div style="padding:16px 0;text-align:center;color:var(--muted);font-size:11px">Sin documentos adjuntos</div>':''}
         ${stored.map((d,i)=>renderDocRow(d,true,i)).join('')}
@@ -19838,6 +19844,24 @@ function renderSidebarBody(zone,objName){
   wireNotaSbEditForm(zone);
   const btnAgregarNota=document.getElementById('sbNotaAgregar');
   if(btnAgregarNota) btnAgregarNota.addEventListener('click',()=>agregarNotaParaZona(zone));
+  const btnNotasReset=document.getElementById('sbNotasReset');
+  if(btnNotasReset) btnNotasReset.addEventListener('click',async ()=>{
+    if(!confirm(`¿Borrar las ${notasZona.length} notas de esta pieza?\n\nSe borran para todos los que vean este modelo. No se puede deshacer.`)) return;
+    const idsABorrar=new Set(notasZona.map(n=>n.id));
+    notas3d=notas3d.filter(n=>!idsABorrar.has(n.id));
+    renderPinesNotas();
+    renderSidebarBody(zone,objName);
+    try{ await guardarNotasDrive(); toast('🗑️ Notas reseteadas'); }
+    catch(err){ toast('❌ '+err.message); }
+  });
+  const btnDocsReset=document.getElementById('sbDocsReset');
+  if(btnDocsReset) btnDocsReset.addEventListener('click',()=>{
+    const cantidad=(docStore[key]||[]).length;
+    if(!confirm(`¿Borrar los ${cantidad} documentos de esta pieza?\n\nNo se puede deshacer.`)) return;
+    delete docStore[key];
+    renderSidebarBody(zone,objName);
+    toast('🗑️ Documentos reseteados');
+  });
 }
 
 // Sección "Marcar pieza" de la ficha técnica — Aplicar arma la marca a
@@ -19879,12 +19903,16 @@ function wireMarcaPiezaForm(zone,objName){
   });
 
   btnQuitar.addEventListener('click',()=>{
+    // "Quitar" YA es un reset completo de la marca (borde/color/
+    // transparencia/ocultar, ver arriba) — se agrega confirmación porque
+    // esto es compartido: todos los que abran este modelo ven la marca.
+    if(!confirm('¿Resetear la marca de esta pieza/subensamblaje?\n\nSe quita borde, color, transparencia y ocultar para todos los que vean este modelo.')) return;
     const key=marcaKey(zone,objName);
     delete marcasPiezas[key];
     aplicarMarcaPieza(zone,objName);
     bordeCheck.checked=false;colorCheck.checked=false;opacidadCheck.checked=false;ocultarCheck.checked=false;
     opacidadInput.value=0;opacidadVal.textContent='0';
-    guardarMarcasDrive().then(()=>toast('🗑️ Marca quitada')).catch(err=>toast('❌ '+err.message));
+    guardarMarcasDrive().then(()=>toast('🗑️ Marca reseteada')).catch(err=>toast('❌ '+err.message));
   });
 }
 
