@@ -10835,22 +10835,23 @@ canvas{display:block;width:100%;height:100%}
    (único elemento en esa posición, ver arriba) — en vez de depender
    solo del botón chico de la esquina (#btnNotas3D), que muchos usuarios
    no encontraban. Mismo componente para mobile y desktop. */
-.notas-pill-group{position:fixed;top:calc(var(--safe-top) + 14px);left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:6px;z-index:200}
+.notas-pill-group{position:fixed;top:calc(var(--safe-top) + 14px);left:50%;transform:translateX(-50%);display:flex;align-items:center;flex-wrap:wrap;justify-content:center;gap:6px;max-width:calc(100vw - 24px);z-index:200}
 .notas-pill{display:flex;align-items:center;gap:5px;background:rgba(232,234,239,.9);border:1px solid var(--border);backdrop-filter:blur(12px);border-radius:20px;padding:5px 10px 5px 14px;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text);cursor:pointer;white-space:nowrap;font-family:inherit}
 .notas-pill:hover{background:rgba(232,234,239,1)}
 .notas-pill svg{width:13px;height:13px;flex-shrink:0}
-.notas-pill #pillNotasBadge{background:var(--acc);color:#fff;border-radius:8px;min-width:15px;height:15px;padding:0 4px;font-size:9px;display:none;align-items:center;justify-content:center;line-height:1;letter-spacing:0}
-.notas-pill.tiene-notas #pillNotasBadge{display:flex}
-/* "+" separado del pill, siempre a la vista — agregar una nota es la
-   acción más repetida y antes exigía abrir el desplegable primero solo
-   para llegar al "+" que ya vivía adentro (ver listaNotasAgregar). Azul
-   de acento (en vez del gris del pill) para que se note que es LA
-   acción, no un dato para consultar. :active en vez de solo :hover —
-   :hover no dispara en mobile, así que sin esto el feedback de "lo toqué"
-   solo existía en desktop. */
-#pillNotasAdd{width:26px;height:26px;flex-shrink:0;border:none;border-radius:50%;background:var(--acc);color:#fff;font-size:16px;font-weight:700;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit;box-shadow:0 1px 4px rgba(58,107,232,.4);transition:background .12s,transform .12s}
-#pillNotasAdd:hover{background:#2f5bd0}
-#pillNotasAdd:active{background:#2851bd;transform:scale(.92)}
+.notas-pill .notas-pill-badge{background:var(--acc);color:#fff;border-radius:8px;min-width:15px;height:15px;padding:0 4px;font-size:9px;display:none;align-items:center;justify-content:center;line-height:1;letter-spacing:0}
+.notas-pill.tiene-notas .notas-pill-badge,.notas-pill.tiene-vistas .notas-pill-badge{display:flex}
+/* "+" separado del pill, siempre a la vista — agregar una nota (o una
+   vista) es la acción más repetida y antes exigía abrir el desplegable
+   primero solo para llegar al "+" que ya vivía adentro (ver
+   listaNotasAgregar/listaVistasAgregar). Azul de acento (en vez del gris
+   del pill) para que se note que es LA acción, no un dato para
+   consultar. :active en vez de solo :hover — :hover no dispara en
+   mobile, así que sin esto el feedback de "lo toqué" solo existía en
+   desktop. */
+#pillNotasAdd,#pillVistasAdd{width:26px;height:26px;flex-shrink:0;border:none;border-radius:50%;background:var(--acc);color:#fff;font-size:16px;font-weight:700;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit;box-shadow:0 1px 4px rgba(58,107,232,.4);transition:background .12s,transform .12s}
+#pillNotasAdd:hover,#pillVistasAdd:hover{background:#2f5bd0}
+#pillNotasAdd:active,#pillVistasAdd:active{background:#2851bd;transform:scale(.92)}
 /* Popup de nivel de selección (estilo SolidWorks: mini-toolbar que
    aparece flotando justo en el punto donde tocaste, para elegir si ese
    click agarra la PIEZA puntual o todo el SUBENSAMBLAJE). Reemplaza al
@@ -11450,10 +11451,16 @@ window.onerror=function(msg,src,line){
 <div class="notas-pill-group">
   <button type="button" class="notas-pill" id="pillNotas" title="Notas del modelo">
     <span>Notas</span>
-    <span id="pillNotasBadge">0</span>
+    <span id="pillNotasBadge" class="notas-pill-badge">0</span>
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
   </button>
   <button type="button" id="pillNotasAdd" aria-label="Agregar nota" title="Agregar nota">+</button>
+  <button type="button" class="notas-pill" id="pillVistas" title="Vistas guardadas">
+    <span>Vistas</span>
+    <span id="pillVistasBadge" class="notas-pill-badge">0</span>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+  </button>
+  <button type="button" id="pillVistasAdd" aria-label="Guardar vista" title="Guardar vista">+</button>
 </div>
 <div class="sel-level-popup" id="selLevelPopup">
   <div class="sel-level-popup-nombre" id="selLevelPopupNombre">—</div>
@@ -14872,6 +14879,8 @@ function actualizarBadgeVistas() {
   const n = vistasGuardadas.length;
   badge.textContent = n > 99 ? '99+' : String(n);
   badge.classList.toggle('show', n > 0);
+  document.getElementById('pillVistasBadge').textContent = n > 99 ? '99+' : String(n);
+  document.getElementById('pillVistas').classList.toggle('tiene-vistas', n > 0);
 }
 
 // Lectura pública (API Key, sin login) del manifiesto de vistas guardadas —
@@ -18110,6 +18119,19 @@ document.getElementById('pillNotas').addEventListener('click',()=>{
 document.getElementById('pillNotasAdd').addEventListener('click',()=>{
   cerrarListaNotas();
   setMode('notas');
+});
+
+// Mismo criterio que pillNotas: acceso directo de arriba al medio a
+// "Vistas guardadas", que antes solo se podía abrir desde el botón
+// flotante de la esquina (#btnGuardarVista) — mismo comportamiento (lista
+// si ya hay vistas, formulario de nueva vista si todavía no hay ninguna).
+document.getElementById('pillVistas').addEventListener('click',()=>{
+  if (vistasGuardadas.length > 0) abrirListaVistas();
+  else abrirModalNuevaVista();
+});
+document.getElementById('pillVistasAdd').addEventListener('click',()=>{
+  cerrarListaVistas();
+  abrirModalNuevaVista();
 });
 
 document.getElementById('notaCerrar3D').addEventListener('click', cerrarPanelNota3D);
