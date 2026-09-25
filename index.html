@@ -12271,7 +12271,7 @@ window.onerror=function(msg,src,line){
   <button type="button" id="btnAislarVerEstados" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none;background:transparent;color:var(--text);border:1px solid var(--border)" title="Ver estados de visualización guardados">📂 Ver estados</button>
   <button type="button" id="btnAislarNota" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none;background:transparent;color:var(--text);border:1px solid var(--border)" title="Crear una nota en todas las piezas aisladas">📝 Nota a estas piezas</button>
   <button type="button" id="btnAislarMarcar" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none;background:transparent;color:var(--text);border:1px solid var(--border)" title="Marcar (borde/color/transparencia) todas las selecciones aisladas">🎨 Marcar estas piezas</button>
-  <button type="button" id="btnAislarFantasma" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none;background:transparent;color:var(--text);border:1px solid var(--border)" title="Mostrar el resto del modelo transparente en vez de ocultarlo">👻 Fantasma</button>
+  <button type="button" id="btnAislarFantasma" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none;background:transparent;color:var(--text);border:1px solid var(--border)" title="Mostrar el resto del modelo transparente en vez de ocultarlo">Ver en contexto</button>
   <button type="button" id="btnMostrarTodo" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none">👁 Mostrar todo</button>
 </div>
 <!-- Popup "Marcar" para un grupo de selecciones aisladas (piezas sueltas
@@ -14364,7 +14364,7 @@ document.getElementById('btnAislarFantasma').addEventListener('click',()=>{
   aislamientoFantasma=!aislamientoFantasma;
   if(aislamientoActivo) aplicarAislamiento(aislamientoActivo);
   actualizarBarraAislar();
-  toast(aislamientoFantasma?'👻 Mostrando el resto transparente':'Fantasma desactivado');
+  toast(aislamientoFantasma?'Mostrando el resto transparente':'Vista en contexto desactivada');
 });
 
 function limpiarOverlayStaged(key){
