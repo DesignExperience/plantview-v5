@@ -10822,6 +10822,13 @@ canvas{display:block;width:100%;height:100%}
   .tareas-fila, .tareas-fila-header { grid-template-columns: 1fr 70px; }
   .tareas-fila-header span:nth-child(2), .tareas-fila-header span:nth-child(3),
   .tareas-fila > span:nth-child(2), .tareas-fila > span:nth-child(3) { display: none; }
+
+  /* En mobile no entran los pills de Notas/Vistas + sus "+" + badges
+     todos juntos sin verse apretado — se ocultan los "+" (agregar sigue
+     accesible desde adentro de cada desplegable, ver listaNotasAgregar/
+     listaVistasAgregar) y se acercan los dos pills entre sí. */
+  .notas-pill-group{gap:8px}
+  #pillNotasAdd,#pillVistasAdd{display:none}
 }
 .hover-label{position:fixed;bottom:calc(104px + var(--safe-bottom));left:50%;transform:translateX(-50%);background:rgba(58,107,232,.12);border:1px solid rgba(58,107,232,.25);backdrop-filter:blur(8px);border-radius:20px;padding:6px 14px;font-size:11px;color:var(--acc);white-space:nowrap;pointer-events:none;z-index:190;opacity:0;transition:opacity .2s;max-width:220px;overflow:hidden;text-overflow:ellipsis}
 .hover-label.show{opacity:1}
