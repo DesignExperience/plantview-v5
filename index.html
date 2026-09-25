@@ -15382,9 +15382,9 @@ const cvwrap=document.getElementById('canvas-wrap');
 
 // ── MOUSE ────────────────────────────────────────────────────────────
 // dragButton guarda con qué botón arrancó el drag actual. El botón del
-// medio (rueda) SIEMPRE paniza (mover) al arrastrar, esté o no activado
-// "Mover" — mantenerlo apretado alcanza, sin tildar ningún modo (pedido
-// explícito). Click izquierdo sigue respetando navMode como siempre.
+// medio (rueda) SIEMPRE orbita al arrastrar, sin importar el modo — mover
+// se hace con el botón izquierdo, activando "Mover" en la toolbar (pedido
+// explícito). Click izquierdo respeta navMode como siempre.
 let dragButton=0;
 cvwrap.addEventListener('mousedown',e=>{
   if(e.button===1) e.preventDefault(); // evita el ícono de autoscroll que el navegador muestra con el botón central
@@ -15401,7 +15401,7 @@ window.addEventListener('mousemove',e=>{
   if(Math.abs(dx)>2||Math.abs(dy)>2) didMove=true;
   const W=cvwrap.clientWidth||window.innerWidth;
   const H=cvwrap.clientHeight||window.innerHeight;
-  const hacerPan = dragButton===1 ? true : navMode==='pan';
+  const hacerPan = dragButton===1 ? false : navMode==='pan';
   if(hacerPan){
     panCamera(dx, dy);
   } else {
