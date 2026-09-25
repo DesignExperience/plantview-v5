@@ -12271,6 +12271,7 @@ window.onerror=function(msg,src,line){
   <button type="button" id="btnAislarVerEstados" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none;background:transparent;color:var(--text);border:1px solid var(--border)" title="Ver estados de visualización guardados">📂 Ver estados</button>
   <button type="button" id="btnAislarNota" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none;background:transparent;color:var(--text);border:1px solid var(--border)" title="Crear una nota en todas las piezas aisladas">📝 Nota a estas piezas</button>
   <button type="button" id="btnAislarMarcar" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none;background:transparent;color:var(--text);border:1px solid var(--border)" title="Marcar (borde/color/transparencia) todas las selecciones aisladas">🎨 Marcar estas piezas</button>
+  <button type="button" id="btnAislarFantasma" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none;background:transparent;color:var(--text);border:1px solid var(--border)" title="Mostrar el resto del modelo transparente en vez de ocultarlo">👻 Fantasma</button>
   <button type="button" id="btnMostrarTodo" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none">👁 Mostrar todo</button>
 </div>
 <!-- Popup "Marcar" para un grupo de selecciones aisladas (piezas sueltas
@@ -14170,6 +14171,13 @@ let aislamientoActivo=null;         // Map key->{zoneId,objName} actualmente ais
 let aislarSeleccionTemp=new Map();  // key->{zoneId,objName} en construcción, antes de confirmar "Aislar"
 const aislarStagedOverlays={};      // key -> THREE.Group (resaltado ámbar temporal de "agregado a la selección")
 const AISLAR_STAGE_COLOR='#ffaa00';
+// "Fantasma": en vez de ocultar (mesh.visible=false) lo que quedó FUERA
+// del aislamiento, se lo deja visible pero transparente — para ver dónde
+// encaja la selección dentro del conjunto completo. Viaja como parte del
+// estado de aislamiento al guardar una vista (ver btnVistaGuardar).
+let aislamientoFantasma=false;
+const FANTASMA_OPACIDAD=0.08;
+const fantasmaMatOriginal=new WeakMap(); // THREE.Mesh -> material original antes de aplicarle la transparencia fantasma
 
 // Devuelve true si el mesh pertenece a alguna de las piezas/subensamblajes
 // de la selección — mismo criterio de "toda la zona si objName es null,
@@ -14259,17 +14267,20 @@ function actualizarBarraAislar(){
   const btnVerEstados=document.getElementById('btnAislarVerEstados');
   const btnNota=document.getElementById('btnAislarNota');
   const btnMarcar=document.getElementById('btnAislarMarcar');
+  const btnFantasma=document.getElementById('btnAislarFantasma');
   if(count>0){
     bar.classList.add('show');
     document.getElementById('aislarBarCount').textContent=count+(count===1?' pieza seleccionada':' piezas seleccionadas');
     btnConfirmar.style.display='';btnCancelar.style.display='';
-    btnMostrarTodo.style.display='none';btnGuardarEstado.style.display='none';btnVerEstados.style.display='none';btnNota.style.display='none';btnMarcar.style.display='none';
+    btnMostrarTodo.style.display='none';btnGuardarEstado.style.display='none';btnVerEstados.style.display='none';btnNota.style.display='none';btnMarcar.style.display='none';btnFantasma.style.display='none';
   }else if(aislamientoActivo){
     bar.classList.add('show');
     const n=aislamientoActivo.size;
     document.getElementById('aislarBarCount').textContent='Aislado — '+n+(n===1?' selección':' selecciones');
     btnConfirmar.style.display='none';btnCancelar.style.display='none';
-    btnMostrarTodo.style.display='';btnGuardarEstado.style.display='';btnVerEstados.style.display='';btnNota.style.display='';btnMarcar.style.display='';
+    btnMostrarTodo.style.display='';btnGuardarEstado.style.display='';btnVerEstados.style.display='';btnNota.style.display='';btnMarcar.style.display='';btnFantasma.style.display='';
+    btnFantasma.style.background=aislamientoFantasma?'var(--acc)':'transparent';
+    btnFantasma.style.color=aislamientoFantasma?'#fff':'var(--text)';
   }else{
     bar.classList.remove('show');
   }
@@ -14295,20 +14306,66 @@ function recalcularExplosionSegunVisibilidad(){
   computeExplodeData(rootGrpActual);
 }
 
+// Revierte el material "fantasma" (transparencia) de un mesh puntual, si
+// tenía uno aplicado — separado para poder llamarlo tanto pieza por
+// pieza (al entrar a la selección) como sobre todos (al salir del modo
+// fantasma o al mostrar todo).
+function quitarFantasmaDe(mesh){
+  if(fantasmaMatOriginal.has(mesh)){
+    mesh.material=fantasmaMatOriginal.get(mesh);
+    fantasmaMatOriginal.delete(mesh);
+  }
+  delete mesh.userData.esFantasma;
+}
+
 function aplicarAislamiento(seleccion){
   if(!seleccion||seleccion.size===0){ restaurarVisibilidadTotal(); return; }
-  allMeshes.forEach(mesh=>{ mesh.visible=coincideConAislamiento(mesh,seleccion); });
+  if(aislamientoFantasma){
+    // Todo queda visible=true (se sigue viendo, transparente) — lo que
+    // importa para separar "adentro" de "afuera" del aislamiento pasa a
+    // ser el material, no la visibilidad. userData.esFantasma marca los
+    // meshes fantasma para que la explosión (cajaMeshesVisibles) y el
+    // raycaster (getIntersects) los sigan ignorando como si estuvieran
+    // ocultos — si no, "aislar" perdería su efecto real bajo fantasma.
+    allMeshes.forEach(mesh=>{
+      mesh.visible=true;
+      if(coincideConAislamiento(mesh,seleccion)){
+        quitarFantasmaDe(mesh);
+      }else{
+        if(!fantasmaMatOriginal.has(mesh)) fantasmaMatOriginal.set(mesh,mesh.material);
+        const original=fantasmaMatOriginal.get(mesh);
+        const mat=original.clone();
+        mat.transparent=true;
+        mat.opacity=FANTASMA_OPACIDAD;
+        mat.depthWrite=false;
+        mesh.material=mat;
+        mesh.userData.esFantasma=true;
+      }
+    });
+  }else{
+    allMeshes.forEach(mesh=>{
+      quitarFantasmaDe(mesh); // por si se venía de modo fantasma
+      mesh.visible=coincideConAislamiento(mesh,seleccion);
+    });
+  }
   aislamientoActivo=seleccion;
   actualizarBarraAislar();
   recalcularExplosionSegunVisibilidad();
 }
 
 function restaurarVisibilidadTotal(){
-  allMeshes.forEach(mesh=>{ mesh.visible=true; });
+  allMeshes.forEach(mesh=>{ quitarFantasmaDe(mesh); mesh.visible=true; });
   aislamientoActivo=null;
   actualizarBarraAislar();
   recalcularExplosionSegunVisibilidad();
 }
+
+document.getElementById('btnAislarFantasma').addEventListener('click',()=>{
+  aislamientoFantasma=!aislamientoFantasma;
+  if(aislamientoActivo) aplicarAislamiento(aislamientoActivo);
+  actualizarBarraAislar();
+  toast(aislamientoFantasma?'👻 Mostrando el resto transparente':'Fantasma desactivado');
+});
 
 function limpiarOverlayStaged(key){
   if(aislarStagedOverlays[key]){ aislarStagedOverlays[key].forEach(hl=>{ if(hl.parent) hl.parent.remove(hl); }); delete aislarStagedOverlays[key]; }
@@ -14743,7 +14800,11 @@ function fusionarMallasPesadas(rootGrp){
 function cajaMeshesVisibles(obj){
   const box=new THREE.Box3();
   obj.traverse(o=>{
-    if(!o.isMesh || o.visible===false || !o.geometry?.attributes?.position) return;
+    // esFantasma: visible=true pero transparente por el modo "ver el
+    // resto fantasma" del aislamiento (ver aplicarAislamiento) — cuenta
+    // como oculto para este cálculo, si no la explosión vuelve a usar el
+    // tamaño del modelo entero apenas se prende el fantasma.
+    if(!o.isMesh || o.visible===false || o.userData.esFantasma || !o.geometry?.attributes?.position) return;
     o.updateMatrixWorld(true);
     const b=new THREE.Box3().setFromBufferAttribute(o.geometry.attributes.position);
     b.applyMatrix4(o.matrixWorld);
@@ -15734,6 +15795,11 @@ document.getElementById('btnVistaGuardar').addEventListener('click', async () =>
       // usuario "guardar este aislamiento como estado de visualización" y
       // volver a él después (ver aplicarVistaGuardada).
       aislamiento: aislamientoActivo ? Array.from(aislamientoActivo.values()) : null,
+      // "Fantasma" (ver aplicarAislamiento) solo importa si hay
+      // aislamiento guardado con esta vista — se guarda igual sin ese
+      // chequeo por simplicidad, aplicarVistaGuardada ya lo ignora si no
+      // hay aislamiento al restaurar.
+      fantasma: aislamientoActivo ? aislamientoFantasma : false,
       // Vista de sección activa (ver activarSeccion) — se guarda el eje,
       // la posición del slider (0-1000) y el lado (signo) en vez del
       // plano en sí, porque min/max dependen del bounding box calculado
@@ -15773,10 +15839,12 @@ function aplicarVistaGuardada(v) {
   // aislamiento de la vista anterior al cambiar entre vistas guardadas).
   limpiarSeleccionTempAislar();
   if (v.aislamiento && v.aislamiento.length) {
+    aislamientoFantasma = !!v.fantasma; // ver aplicarAislamiento — tiene que estar seteado ANTES de aplicar
     const seleccion = new Map();
     v.aislamiento.forEach(entry => seleccion.set(claveAislar(entry.zoneId, entry.objName, entry.pathPrefix), entry));
     aplicarAislamiento(seleccion);
   } else {
+    aislamientoFantasma = false;
     restaurarVisibilidadTotal();
   }
   // Restaurar la vista de sección guardada (mismo criterio que el
@@ -15985,8 +16053,10 @@ function getIntersects(cx,cy){
   // activo, medir/clickear podía "tocar" piezas ocultas fuera de la
   // selección aislada (bug reportado: medir entre dos piezas que no
   // deberían estar disponibles). allMeshes no cambia de tamaño seguido,
-  // así que este filtro por frame es barato.
-  return raycaster.intersectObjects(allMeshes.filter(m=>m.visible!==false),false);
+  // así que este filtro por frame es barato. esFantasma (modo "ver el
+  // resto transparente") también queda afuera: sigue visible en pantalla
+  // pero no es parte real del aislamiento.
+  return raycaster.intersectObjects(allMeshes.filter(m=>m.visible!==false&&!m.userData.esFantasma),false);
 }
 let hoveredMesh=null,hoveredOrigColor=null;
 function hoverHL(cx,cy){
