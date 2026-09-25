@@ -258,10 +258,10 @@ input  { font-family: inherit; }
     /* En 3D el visor arranca en y=0 (pvWrap.style.top="0", ver
        aplicarModo), no debajo de --bar-h. */
     top: calc(var(--safe-t) + 34px);
-    width: 32px; height: 32px;
+    width: 36px; height: 36px;
     border-radius: 10px;
   }
-  #pv-split-btn { left: 50px; }
+  #pv-split-btn { left: 54px; }
 }
 #pv-loading {
   width: 100%; height: 100%;
@@ -10853,8 +10853,8 @@ canvas{display:block;width:100%;height:100%}
   /* "html " sube la especificidad: las reglas base de .notas-pill-group
      y #pillNotasAdd están declaradas MÁS ABAJO en el archivo y, con la
      misma especificidad, pisaban estas. */
-  html .notas-pill-group{gap:6px;top:var(--pv-mob-fila-top);left:90px;transform:none;flex-wrap:nowrap;max-width:none}
-  html .notas-pill{height:32px;padding:0 8px 0 11px;font-size:9.5px;letter-spacing:.05em}
+  html .notas-pill-group{gap:6px;top:var(--pv-mob-fila-top);flex-wrap:nowrap;max-width:none}
+  html .notas-pill{height:36px;padding:0 8px 0 11px;font-size:9.5px;letter-spacing:.05em}
   html #pillNotasAdd,html #pillVistasAdd{display:none}
 
   /* Logo chico y centrado arriba del todo (su propia línea, separado de
@@ -10867,11 +10867,19 @@ canvas{display:block;width:100%;height:100%}
   .topbar{padding:calc(6px + var(--safe-top)) 10px 0}
   .logo{position:fixed;top:calc(var(--safe-top) + 6px);left:50%;transform:translateX(-50%);font-size:13px}
   .topbar-archivo-nombre{display:none}
-  .topbar-btn{position:fixed;top:var(--pv-mob-fila-top);width:32px;height:32px}
-  .topbar-btn svg{width:16px;height:16px}
-  #bImport{right:84px}
-  #bZones{right:48px}
-  #bEdges{right:12px}
+  /* Mismo estilo que la columna de la derecha (brújula, cámara, etc.):
+     36px, radio 10, mismo fondo. Con los pills centrados no entran 3
+     íconos arriba a la derecha, así que Importar encabeza la columna. */
+  .topbar-btn{position:fixed;top:var(--pv-mob-fila-top);right:16px;width:36px;height:36px;border-radius:10px;background:rgba(232,234,239,.88);backdrop-filter:blur(8px);color:var(--text)}
+  .topbar-btn svg{width:18px;height:18px}
+  #bZones{right:60px}
+  #bEdges{right:16px}
+  #bImport{top:calc(var(--pv-mob-fila-top) + 46px)}
+  html .compass{top:calc(var(--pv-mob-fila-top) + 90px)}
+  html #btnGuardarVista{top:calc(var(--pv-mob-fila-top) + 134px)}
+  html #btnNotas3D{top:calc(var(--pv-mob-fila-top) + 178px)}
+  html #btnDriveStatus3D{top:calc(var(--pv-mob-fila-top) + 222px)}
+  html #btnResetGlobal3D{top:calc(var(--pv-mob-fila-top) + 266px)}
   /* Sin lugar para el contador en una fila de 7 controles */
   html .notas-pill.notas-pill .notas-pill-badge{display:none}
 }
