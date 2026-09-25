@@ -16494,6 +16494,20 @@ function elegirNivelDesdePopup(nivel,key){
   if(puedeIguales){
     const res=resolverInstanciasIgualesDesdePopup();
     cantidadIguales=res&&res.instancias?res.instancias.length:0;
+    // TEMPORAL round 5: todavía queda sobre-conteo residual (2 en vez de
+    // 1) después del filtro de tokens compuestos. Se vuelca el detalle de
+    // cada grupo, incluyendo TODAS las piezas que cayeron en él (no solo
+    // el conteo), para ver exactamente qué compound match se está colando.
+    if(res&&res.grupos&&res.grupos.length>1){
+      console.log('[iguales-debug5] etiqueta:',JSON.stringify(res.etiqueta),'grupos:',res.grupos.length);
+      res.grupos.forEach((g,i)=>{
+        console.log('  grupo',i,'pathPrefix:',JSON.stringify(g.pathPrefix));
+        g.piezas.slice(0,5).forEach(({mesh,pieza})=>{
+          const ud=pieza?pieza.userData:mesh.userData;
+          console.log('    pieza pathNames:',JSON.stringify(ud.pathNames));
+        });
+      });
+    }
   }
   const sufijo=cantidadIguales>1?` (${cantidadIguales})`:'';
   if(spanIguales) spanIguales.textContent='Nota en iguales'+sufijo;
