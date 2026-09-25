@@ -19111,9 +19111,15 @@ function crearGrupoNotasEl(grupoId,miembros){
   num.textContent=numeroBase||'•';
   top.appendChild(num);
 
+  // El header del grupo muestra el texto que el usuario escribió en la
+  // nota (ej. "Barandas STD 3mts") en vez de la etiqueta genérica de
+  // origen ("Piezas aisladas"/código de pieza) — pedido explícito: tiene
+  // que decir lo mismo que se escribió, no un genérico.
   const pieza=document.createElement('span');
   pieza.className='lni-pieza';
-  pieza.textContent=(miembros[0].grupoEtiqueta||miembros[0].objName||'Grupo')+' · '+miembros.length;
+  let etiquetaGrupo=(miembros[0].texto||'').trim()||miembros[0].grupoEtiqueta||miembros[0].objName||'Grupo';
+  if(etiquetaGrupo.length>40) etiquetaGrupo=etiquetaGrupo.slice(0,39)+'…';
+  pieza.textContent=etiquetaGrupo+' · '+miembros.length;
   top.appendChild(pieza);
 
   const toggleBurbuja=document.createElement('label');
