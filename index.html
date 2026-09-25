@@ -12272,6 +12272,7 @@ window.onerror=function(msg,src,line){
   <button type="button" id="btnAislarNota" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none;background:transparent;color:var(--text);border:1px solid var(--border)" title="Crear una nota en todas las piezas aisladas">📝 Nota a estas piezas</button>
   <button type="button" id="btnAislarMarcar" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none;background:transparent;color:var(--text);border:1px solid var(--border)" title="Marcar (borde/color/transparencia) todas las selecciones aisladas">🎨 Marcar estas piezas</button>
   <button type="button" id="btnAislarFantasma" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none;background:transparent;color:var(--text);border:1px solid var(--border)" title="Mostrar el resto del modelo transparente en vez de ocultarlo">Ver en contexto</button>
+  <button type="button" id="btnAislarBordesContexto" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none;background:transparent;color:var(--text);border:1px solid var(--border)" title="Mostrar/ocultar los bordes de las piezas de contexto (transparentes)">Bordes en contexto</button>
   <button type="button" id="btnMostrarTodo" class="vista-guardar-btn" style="padding:6px 12px;font-size:11px;display:none">👁 Mostrar todo</button>
 </div>
 <!-- Popup "Marcar" para un grupo de selecciones aisladas (piezas sueltas
@@ -14178,6 +14179,13 @@ const AISLAR_STAGE_COLOR='#ffaa00';
 let aislamientoFantasma=false;
 const FANTASMA_OPACIDAD=0.08;
 const fantasmaMatOriginal=new WeakMap(); // THREE.Mesh -> material original antes de aplicarle la transparencia fantasma
+// Con "Ver en contexto" activo, esto decide si las piezas de contexto
+// (transparentes) muestran sus bordes (ver construirAristas) o no —
+// pedido explícito: con el modelo entero lleno de bordes, verlos también
+// en las piezas fantasma recargaba visualmente la escena. true = mismo
+// comportamiento de siempre (se ven), false = los oculta solo en las de
+// contexto (el resto del modelo sigue respetando el toggle global).
+let bordesEnContextoVisible=true;
 
 // Devuelve true si el mesh pertenece a alguna de las piezas/subensamblajes
 // de la selección — mismo criterio de "toda la zona si objName es null,
@@ -14268,11 +14276,12 @@ function actualizarBarraAislar(){
   const btnNota=document.getElementById('btnAislarNota');
   const btnMarcar=document.getElementById('btnAislarMarcar');
   const btnFantasma=document.getElementById('btnAislarFantasma');
+  const btnBordesContexto=document.getElementById('btnAislarBordesContexto');
   if(count>0){
     bar.classList.add('show');
     document.getElementById('aislarBarCount').textContent=count+(count===1?' pieza seleccionada':' piezas seleccionadas');
     btnConfirmar.style.display='';btnCancelar.style.display='';
-    btnMostrarTodo.style.display='none';btnGuardarEstado.style.display='none';btnVerEstados.style.display='none';btnNota.style.display='none';btnMarcar.style.display='none';btnFantasma.style.display='none';
+    btnMostrarTodo.style.display='none';btnGuardarEstado.style.display='none';btnVerEstados.style.display='none';btnNota.style.display='none';btnMarcar.style.display='none';btnFantasma.style.display='none';btnBordesContexto.style.display='none';
   }else if(aislamientoActivo){
     bar.classList.add('show');
     const n=aislamientoActivo.size;
@@ -14281,6 +14290,11 @@ function actualizarBarraAislar(){
     btnMostrarTodo.style.display='';btnGuardarEstado.style.display='';btnVerEstados.style.display='';btnNota.style.display='';btnMarcar.style.display='';btnFantasma.style.display='';
     btnFantasma.style.background=aislamientoFantasma?'var(--acc)':'transparent';
     btnFantasma.style.color=aislamientoFantasma?'#fff':'var(--text)';
+    // Solo tiene sentido con "Ver en contexto" activo — sin eso no hay
+    // piezas de contexto cuyos bordes ocultar/mostrar.
+    btnBordesContexto.style.display=aislamientoFantasma?'':'none';
+    btnBordesContexto.style.background=bordesEnContextoVisible?'transparent':'var(--acc)';
+    btnBordesContexto.style.color=bordesEnContextoVisible?'var(--text)':'#fff';
   }else{
     bar.classList.remove('show');
   }
@@ -14351,6 +14365,7 @@ function aplicarAislamiento(seleccion){
   aislamientoActivo=seleccion;
   actualizarBarraAislar();
   recalcularExplosionSegunVisibilidad();
+  if(typeof actualizarVisibilidadAristas==='function') actualizarVisibilidadAristas();
 }
 
 function restaurarVisibilidadTotal(){
@@ -14358,6 +14373,7 @@ function restaurarVisibilidadTotal(){
   aislamientoActivo=null;
   actualizarBarraAislar();
   recalcularExplosionSegunVisibilidad();
+  if(typeof actualizarVisibilidadAristas==='function') actualizarVisibilidadAristas();
 }
 
 document.getElementById('btnAislarFantasma').addEventListener('click',()=>{
@@ -14365,6 +14381,13 @@ document.getElementById('btnAislarFantasma').addEventListener('click',()=>{
   if(aislamientoActivo) aplicarAislamiento(aislamientoActivo);
   actualizarBarraAislar();
   toast(aislamientoFantasma?'Mostrando el resto transparente':'Vista en contexto desactivada');
+});
+
+document.getElementById('btnAislarBordesContexto').addEventListener('click',()=>{
+  bordesEnContextoVisible=!bordesEnContextoVisible;
+  actualizarVisibilidadAristas();
+  actualizarBarraAislar();
+  toast(bordesEnContextoVisible?'Bordes en contexto activados':'Bordes en contexto ocultos');
 });
 
 function limpiarOverlayStaged(key){
@@ -14590,7 +14613,7 @@ async function buildSceneFromGLB(glbData, selectedIndices){
     }
     // Se reconstruyen después de la fusión de arriba, no antes, para no
     // calcular aristas sobre meshes que la fusión va a descartar.
-    if(edgesVisible){ construirAristas(); edgeLines.forEach(l=>l.visible=true); }
+    if(edgesVisible){ construirAristas(); actualizarVisibilidadAristas(); }
 
     await new Promise(r=>setTimeout(r,100));
     renderer.render(scene,camera);
@@ -15061,6 +15084,17 @@ function construirAristas(){
     edgeLines.push(line);
   });
   edgesConstruidas=true;
+  actualizarVisibilidadAristas();
+}
+// Combina el toggle global de aristas con "Bordes en contexto": una
+// arista que cuelga de una pieza fantasma (ver aplicarAislamiento) se
+// oculta si bordesEnContextoVisible está apagado, aunque el toggle
+// global esté prendido — el resto del modelo sigue el global solo.
+function actualizarVisibilidadAristas(){
+  edgeLines.forEach(l=>{
+    const esFantasma=l.parent&&l.parent.userData&&l.parent.userData.esFantasma;
+    l.visible=edgesVisible&&(!esFantasma||bordesEnContextoVisible);
+  });
 }
 function limpiarAristas(){
   edgeLines.forEach(l=>{ l.parent?.remove(l); l.geometry.dispose(); });
@@ -21488,7 +21522,7 @@ document.getElementById('bEdges').onclick=()=>{
   edgesVisible=!edgesVisible;
   document.getElementById('bEdges').classList.toggle('on',edgesVisible);
   if(edgesVisible) construirAristas(); // primera vez que se activa: las arma
-  edgeLines.forEach(l=>l.visible=edgesVisible);
+  actualizarVisibilidadAristas();
   toast(edgesVisible?'Aristas activadas':'Aristas desactivadas');
 };
 
