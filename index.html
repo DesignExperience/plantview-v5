@@ -248,6 +248,18 @@ input  { font-family: inherit; }
 }
 #pv-split-btn:hover { background: rgba(0,0,0,0.8); }
 #pv-split-btn.hidden { display: none; }
+
+/* Mobile: mismo criterio que el visor 3D adentro del iframe (ver
+   --pv-mob-fila-top en pv-tpl) — volver/split, los pills de Notas/Vistas
+   y los íconos de la topbar del visor quedan a la misma altura, en vez
+   de compitiendo con el logo en una sola fila apretada arriba de todo. */
+@media (max-width: 480px) {
+  #pv-back-btn, #pv-split-btn {
+    top: calc(var(--bar-h) + var(--safe-t) + 34px);
+    width: 32px; height: 32px;
+  }
+  #pv-split-btn { left: 50px; }
+}
 #pv-loading {
   width: 100%; height: 100%;
   display: flex; flex-direction: column;
@@ -10774,6 +10786,14 @@ else if (typeof exports === 'object')
   --acc:#3a6be8;--acc2:#00b89c;--warn:#d97a00;--danger:#e03050;
   --text:#1a1d26;--muted:#6b7280;--radius:16px;
   --safe-top:env(safe-area-inset-top,0px);--safe-bottom:env(safe-area-inset-bottom,0px);
+  /* Altura de la fila de controles en mobile (bImport/bZones/bEdges y el
+     pill-group de Notas/Vistas) — debajo del logo, que en mobile pasa a
+     su propia línea chica arriba de todo (ver @media 480px). El botón
+     volver/split del gestor de archivos, dibujado por afuera de este
+     iframe, usa el mismo valor (más el alto fijo de SU propia topbar) para
+     quedar a la misma altura — ver #pv-back-btn/#pv-split-btn en el doc
+     principal. */
+  --pv-mob-fila-top: calc(var(--safe-top) + 34px);
 }
 html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'DM Mono','Courier New',monospace;overscroll-behavior:none}
 .topbar{position:fixed;top:0;left:0;right:0;padding:calc(12px + var(--safe-top)) 16px 12px;background:linear-gradient(to bottom,rgba(208,212,220,.98),rgba(208,212,220,0));display:flex;align-items:center;gap:10px;z-index:200;pointer-events:none}
@@ -10827,8 +10847,24 @@ canvas{display:block;width:100%;height:100%}
      todos juntos sin verse apretado — se ocultan los "+" (agregar sigue
      accesible desde adentro de cada desplegable, ver listaNotasAgregar/
      listaVistasAgregar) y se acercan los dos pills entre sí. */
-  .notas-pill-group{gap:8px}
+  .notas-pill-group{gap:8px;top:var(--pv-mob-fila-top)}
   #pillNotasAdd,#pillVistasAdd{display:none}
+
+  /* Logo chico y centrado arriba del todo (su propia línea, separado de
+     todo lo demás) en vez de compartir fila con el nombre de archivo y
+     los íconos — esa fila (bImport/bZones/bEdges) pasa a fixed, a la
+     MISMA altura (--pv-mob-fila-top) que los pills de Notas/Vistas de
+     acá arriba y que volver/split del gestor de archivos (dibujados por
+     encima del iframe, ver #pv-back-btn/#pv-split-btn afuera), para que
+     los tres grupos queden en un solo nivel visual. */
+  .topbar{padding:calc(6px + var(--safe-top)) 10px 0}
+  .logo{position:fixed;top:calc(var(--safe-top) + 6px);left:50%;transform:translateX(-50%);font-size:13px}
+  .topbar-archivo-nombre{display:none}
+  .topbar-btn{position:fixed;top:var(--pv-mob-fila-top);width:32px;height:32px}
+  .topbar-btn svg{width:16px;height:16px}
+  #bImport{right:100px}
+  #bZones{right:58px}
+  #bEdges{right:16px}
 }
 .hover-label{position:fixed;bottom:calc(104px + var(--safe-bottom));left:50%;transform:translateX(-50%);background:rgba(58,107,232,.12);border:1px solid rgba(58,107,232,.25);backdrop-filter:blur(8px);border-radius:20px;padding:6px 14px;font-size:11px;color:var(--acc);white-space:nowrap;pointer-events:none;z-index:190;opacity:0;transition:opacity .2s;max-width:220px;overflow:hidden;text-overflow:ellipsis}
 .hover-label.show{opacity:1}
