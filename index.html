@@ -19118,7 +19118,9 @@ function refreshMeasurePanel(){
     return;
   }
 
-  document.getElementById('msrPanel').classList.add('show');
+  // Panel superior con los resultados: se dejó de mostrar (pedido
+  // explícito) — la info ya está en las etiquetas flotantes sobre el
+  // modelo (dX/dY/dZ/Dist, ver setLabel), este panel duplicaba.
   document.getElementById('msrDeltaSection').style.display='';
   const a=measurePts[0], b=measurePts[1];
   const sc=window.measureScale||1000;
