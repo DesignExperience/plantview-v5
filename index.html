@@ -11336,9 +11336,14 @@ canvas{display:block;width:100%;height:100%}
 .vista-share-btns button{width:100%;height:32px;border-radius:8px;font-family:inherit;font-weight:600;font-size:11px;cursor:pointer;border:none}
 #btnVistaCopiar{background:var(--surf2);color:var(--text);border:1px solid var(--border) !important}
 #btnVistaDescargar{background:var(--acc);color:#fff}
+.vista-guardar-row{display:flex;gap:8px;width:100%}
 .vista-guardar-btn{width:100%;height:38px;border-radius:10px;border:none;background:#3A6BE8;color:#fff;font-family:inherit;font-weight:700;font-size:12.5px;cursor:pointer}
 .vista-guardar-btn:disabled{opacity:.5;cursor:default}
 .vista-guardar-btn.hide,#vistaTextoLabel.hide{display:none}
+/* "Guardar como" solo aparece cuando hay una vista ya cargada (ver
+   vistaActivaId) — mismo tamaño que "Guardar", pero en gris para que no
+   compita visualmente con la acción principal (sobrescribir). */
+.vista-guardar-como{background:var(--surf2);color:var(--text);border:1px solid var(--border)}
 #btnVistaCerrar{background:none;color:var(--muted);border:1px solid var(--border) !important;width:100%;height:32px;border-radius:9px;font-family:inherit;font-size:11.5px;cursor:pointer}
 
 #panelListaVistas{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);display:none;flex-direction:column;gap:12px;width:min(320px,calc(100vw - 32px));max-height:min(460px,calc(100vh - 100px));background:rgba(240,242,246,.98);border:1px solid var(--border);border-radius:14px;padding:14px;z-index:410;box-shadow:0 12px 40px rgba(0,0,0,.3)}
@@ -11768,7 +11773,10 @@ window.onerror=function(msg,src,line){
         <button id="btnVistaDescargar" type="button">Descargar QR</button>
       </div>
     </div>
-    <button id="btnVistaGuardar" type="button" class="vista-guardar-btn">Guardar vista</button>
+    <div id="vistaGuardarRow" class="vista-guardar-row">
+      <button id="btnVistaGuardar" type="button" class="vista-guardar-btn">Guardar vista</button>
+      <button id="btnVistaGuardarComo" type="button" class="vista-guardar-btn vista-guardar-como hide">Guardar como…</button>
+    </div>
     <button id="btnVistaCerrar" type="button">Cerrar</button>
   </div>
 </div>
@@ -14933,6 +14941,13 @@ document.getElementById('btnReset').addEventListener('click',()=>{
    ============================================================ */
 let vistaLinkActual = null;
 let vistasGuardadas = []; // [{id,texto,fecha,camPos:[x,y,z],camTarget:[x,y,z],explode,thumbFileId}]
+// Id de la vista guardada actualmente cargada (ver aplicarVistaGuardada),
+// o null si nunca se cargó ninguna en esta sesión. Es lo que permite
+// distinguir "Guardar" (sobrescribe esta) de "Guardar como" (crea una
+// nueva) en abrirModalNuevaVista — sin esto, editar una vista ya
+// guardada (mover la cámara, aislar otra cosa, etc.) solo podía
+// terminar en una vista NUEVA, nunca actualizando la que se estaba viendo.
+let vistaActivaId = null;
 let vistasReqSeq = 0;
 const vistasReqPendientes = {}; // reqId -> {resolve,reject}
 
@@ -15012,6 +15027,7 @@ function actualizarBadgeVistas() {
 // mismo patrón que las notas 3D.
 async function cargarVistasGuardadas() {
   vistasGuardadas = [];
+  vistaActivaId = null; // otro modelo — ninguna vista de ESTE está "cargada" todavía
   const archivo = nombreArchivoVistas();
   if (archivo && driveApiKeyActual && carpetaDriveIdActual && appBaseUrlActual) {
     try {
@@ -15085,21 +15101,29 @@ function cerrarModalVista() {
 //   guarde nada (comparten cámara vía URL sin necesidad de persistir).
 // - "compartir": una vista YA guardada (desde la lista) — miniatura real
 //   de Drive, nota de solo lectura, sin botón Guardar.
+// "activaAhora" es la vista guardada currently cargada (ver vistaActivaId),
+// si hay una — permite ofrecer "Guardar" (sobrescribirla) además de
+// "Guardar como" (crear una nueva), en vez de solo poder crear siempre
+// una nueva sin importar que se haya llegado hasta acá editando una que
+// ya existía.
 function abrirModalNuevaVista() {
   vistaLinkActual = construirLinkVistaActual();
   if (!vistaLinkActual) {
     toast('Todavía no se pudo identificar este archivo — probá recargarlo desde Files');
     return;
   }
-  document.getElementById('vistaModalTitulo').textContent = 'Nueva vista';
+  const activaAhora = vistaActivaId ? vistasGuardadas.find(x => x.id === vistaActivaId) : null;
+  document.getElementById('vistaModalTitulo').textContent = activaAhora ? 'Guardar cambios' : 'Nueva vista';
   document.getElementById('vistaThumb').src = capturarVista1000();
   const texto = document.getElementById('vistaTexto');
-  texto.value = '';
+  texto.value = activaAhora ? (activaAhora.texto || '') : '';
   texto.disabled = false;
   document.getElementById('vistaTextoLabel').classList.remove('hide');
   const btnGuardar = document.getElementById('btnVistaGuardar');
+  btnGuardar.textContent = activaAhora ? 'Guardar' : 'Guardar vista';
   btnGuardar.classList.remove('hide');
   btnGuardar.disabled = false;
+  document.getElementById('btnVistaGuardarComo').classList.toggle('hide', !activaAhora);
 
   const qrEl = document.getElementById('vistaQR');
   qrEl.innerHTML = '';
@@ -15128,6 +15152,7 @@ function abrirModalCompartirVista(v) {
   texto.disabled = true;
   document.getElementById('vistaTextoLabel').classList.toggle('hide', !v.texto);
   document.getElementById('btnVistaGuardar').classList.add('hide');
+  document.getElementById('btnVistaGuardarComo').classList.add('hide');
 
   const qrEl = document.getElementById('vistaQR');
   qrEl.innerHTML = '';
@@ -15154,51 +15179,107 @@ document.getElementById('btnVistaCopiar').addEventListener('click', () => {
     .catch(() => toast('No se pudo copiar — copialo manualmente de la barra de direcciones'));
 });
 
-// Guarda la vista de verdad: captura 1000x1000, la sube a la subcarpeta de
-// vistas del modelo (creándola si hace falta) y agrega la entrada al
-// manifiesto compartido — visible después para cualquiera que abra el modelo.
+// Arma los campos de contenido de una vista (todo salvo id/fecha/
+// thumbFileId, que dependen de si es nueva o se está sobrescribiendo una
+// existente) — compartido entre "Guardar" y "Guardar como".
+function capturarCamposVistaActual(texto) {
+  const explodeSliderEl = document.getElementById('explodeSlider');
+  const exPct = explodeSliderEl ? Number(explodeSliderEl.value) : 0;
+  return {
+    texto,
+    camPos: [camera.position.x, camera.position.y, camera.position.z],
+    camTarget: [target.x, target.y, target.z],
+    explode: exPct,
+    // Estado de aislamiento actual (ver aplicarAislamiento) — null si se
+    // está viendo todo el modelo. Guardarlo acá es lo que le permite al
+    // usuario "guardar este aislamiento como estado de visualización" y
+    // volver a él después (ver aplicarVistaGuardada).
+    aislamiento: aislamientoActivo ? Array.from(aislamientoActivo.values()) : null,
+    // "Fantasma" (ver aplicarAislamiento) solo importa si hay
+    // aislamiento guardado con esta vista — se guarda igual sin ese
+    // chequeo por simplicidad, aplicarVistaGuardada ya lo ignora si no
+    // hay aislamiento al restaurar.
+    fantasma: aislamientoActivo ? aislamientoFantasma : false,
+    // Vista de sección activa (ver activarSeccion) — se guarda el eje,
+    // la posición del slider (0-1000) y el lado (signo) en vez del
+    // plano en sí, porque min/max dependen del bounding box calculado
+    // en el momento y se recalculan de cero al reaplicar.
+    seccion: seccionActiva ? { eje: seccionActiva.eje, offset: Number(document.getElementById('seccionOffset').value), signo: seccionActiva.signo } : null,
+    // Medición activa (2 puntos) + posición de sus etiquetas movidas.
+    medicion: (mode === 'measure' && measurePts.length === 2) ? {
+      a: measurePts[0].toArray(), b: measurePts[1].toArray(),
+      offsets: JSON.parse(JSON.stringify(lblOffsets)),
+    } : null,
+  };
+}
+
+// Guarda como una vista NUEVA — captura 1000x1000, la sube a la subcarpeta
+// de vistas del modelo (creándola si hace falta) y agrega la entrada al
+// manifiesto compartido — visible después para cualquiera que abra el
+// modelo. Deja esta vista recién creada como la "activa" (ver
+// vistaActivaId), para que un "Guardar" inmediato después la sobrescriba
+// a ELLA en vez de crear otra más.
+async function guardarVistaComoNueva(texto) {
+  const carpetaVistas = await resolverCarpetaVistasDrive();
+  const blob = dataUrlToBlob(document.getElementById('vistaThumb').src);
+  const id = 'v' + Date.now() + Math.random().toString(36).slice(2, 7);
+  const fileId = await subirArchivoADriveDesdeVisor(`vista-${id}.png`, blob, carpetaVistas);
+  vistasGuardadas.push({
+    id, fecha: new Date().toISOString().slice(0, 10), thumbFileId: fileId,
+    ...capturarCamposVistaActual(texto),
+  });
+  await guardarVistasGuardadasDrive();
+  vistaActivaId = id;
+}
+
+// Sobrescribe la vista ya cargada (ver vistaActivaId) con el estado
+// actual — mismo contenido que crear una nueva, pero conserva el id
+// (así cualquier link ya compartido con esta vista sigue apuntando a la
+// versión más nueva) y reemplaza la miniatura vieja en vez de acumular
+// una huérfana en Drive.
+async function sobrescribirVistaActiva(v, texto) {
+  const carpetaVistas = await resolverCarpetaVistasDrive();
+  const blob = dataUrlToBlob(document.getElementById('vistaThumb').src);
+  const fileId = await subirArchivoADriveDesdeVisor(`vista-${v.id}.png`, blob, carpetaVistas);
+  const thumbViejo = v.thumbFileId;
+  Object.assign(v, { fecha: new Date().toISOString().slice(0, 10), thumbFileId: fileId }, capturarCamposVistaActual(texto));
+  await guardarVistasGuardadasDrive();
+  if (thumbViejo && thumbViejo !== fileId) {
+    try { await borrarArchivoDriveDesdeVisor(thumbViejo); } catch (e) { /* no crítico */ }
+  }
+}
+
 document.getElementById('btnVistaGuardar').addEventListener('click', async () => {
   const link = construirLinkVistaActual();
   if (!link) return;
   const btn = document.getElementById('btnVistaGuardar');
   btn.disabled = true;
   try {
-    const carpetaVistas = await resolverCarpetaVistasDrive();
-    const blob = dataUrlToBlob(document.getElementById('vistaThumb').src);
-    const id = 'v' + Date.now() + Math.random().toString(36).slice(2, 7);
-    const fileId = await subirArchivoADriveDesdeVisor(`vista-${id}.png`, blob, carpetaVistas);
     const texto = document.getElementById('vistaTexto').value.trim();
-    const explodeSliderEl = document.getElementById('explodeSlider');
-    const exPct = explodeSliderEl ? Number(explodeSliderEl.value) : 0;
-    vistasGuardadas.push({
-      id, texto,
-      fecha: new Date().toISOString().slice(0, 10),
-      camPos: [camera.position.x, camera.position.y, camera.position.z],
-      camTarget: [target.x, target.y, target.z],
-      explode: exPct,
-      thumbFileId: fileId,
-      // Estado de aislamiento actual (ver aplicarAislamiento) — null si se
-      // está viendo todo el modelo. Guardarlo acá es lo que le permite al
-      // usuario "guardar este aislamiento como estado de visualización" y
-      // volver a él después (ver aplicarVistaGuardada).
-      aislamiento: aislamientoActivo ? Array.from(aislamientoActivo.values()) : null,
-      // "Fantasma" (ver aplicarAislamiento) solo importa si hay
-      // aislamiento guardado con esta vista — se guarda igual sin ese
-      // chequeo por simplicidad, aplicarVistaGuardada ya lo ignora si no
-      // hay aislamiento al restaurar.
-      fantasma: aislamientoActivo ? aislamientoFantasma : false,
-      // Vista de sección activa (ver activarSeccion) — se guarda el eje,
-      // la posición del slider (0-1000) y el lado (signo) en vez del
-      // plano en sí, porque min/max dependen del bounding box calculado
-      // en el momento y se recalculan de cero al reaplicar.
-      seccion: seccionActiva ? { eje: seccionActiva.eje, offset: Number(document.getElementById('seccionOffset').value), signo: seccionActiva.signo } : null,
-      // Medición activa (2 puntos) + posición de sus etiquetas movidas.
-      medicion: (mode === 'measure' && measurePts.length === 2) ? {
-        a: measurePts[0].toArray(), b: measurePts[1].toArray(),
-        offsets: JSON.parse(JSON.stringify(lblOffsets)),
-      } : null,
-    });
-    await guardarVistasGuardadasDrive();
+    const activa = vistaActivaId ? vistasGuardadas.find(x => x.id === vistaActivaId) : null;
+    if (activa) await sobrescribirVistaActiva(activa, texto);
+    else await guardarVistaComoNueva(texto);
+    actualizarBadgeVistas();
+    toast(activa ? 'Vista actualizada ✓' : 'Vista guardada ✓');
+    cerrarModalVista();
+  } catch (err) {
+    toast('No se pudo guardar: ' + err.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// "Guardar como": crea una vista nueva aunque haya una cargada — para
+// cuando el cambio actual merece quedar aparte en vez de pisar la
+// original (ver btnVistaGuardar, que sobrescribe).
+document.getElementById('btnVistaGuardarComo').addEventListener('click', async () => {
+  const link = construirLinkVistaActual();
+  if (!link) return;
+  const btn = document.getElementById('btnVistaGuardarComo');
+  btn.disabled = true;
+  try {
+    const texto = document.getElementById('vistaTexto').value.trim();
+    await guardarVistaComoNueva(texto);
     actualizarBadgeVistas();
     toast('Vista guardada ✓');
     cerrarModalVista();
@@ -15211,6 +15292,9 @@ document.getElementById('btnVistaGuardar').addEventListener('click', async () =>
 
 function aplicarVistaGuardada(v) {
   if (!v.camPos || !v.camTarget) return;
+  // Queda "cargada" — ver vistaActivaId: un "Guardar" después de esto
+  // sobrescribe ESTA vista en vez de crear una nueva.
+  vistaActivaId = v.id || null;
   camera.position.set(v.camPos[0], v.camPos[1], v.camPos[2]);
   target.set(v.camTarget[0], v.camTarget[1], v.camTarget[2]);
   camera.lookAt(target);
@@ -15272,6 +15356,7 @@ async function borrarVistaGuardada(id) {
   const v = vistasGuardadas.find(x => x.id === id);
   if (!v) return;
   vistasGuardadas = vistasGuardadas.filter(x => x.id !== id);
+  if (vistaActivaId === id) vistaActivaId = null; // ya no existe — nada que sobrescribir
   actualizarBadgeVistas();
   abrirListaVistas();
   try {
@@ -15375,6 +15460,7 @@ function cerrarListaVistas() {
 document.getElementById('listaVistasCerrar').addEventListener('click', cerrarListaVistas);
 document.getElementById('listaVistasAgregar').addEventListener('click', () => {
   cerrarListaVistas();
+  vistaActivaId = null; // "Crear nueva vista" es explícito: nunca sobrescribe la actual
   abrirModalNuevaVista();
 });
 
