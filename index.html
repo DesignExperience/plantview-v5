@@ -14371,19 +14371,55 @@ let edgesTocadoPorUsuario=false; // true en cuanto el usuario clickea el toggle 
 // EdgesGeometry sí pesa, y es la razón por la que el toggle es manual.
 const UMBRAL_ARISTAS_AUTO=400;
 const ARISTA_MAT=new THREE.LineBasicMaterial({color:0x1a1a1a});
+// Se arma de a tandas (ARISTAS_POR_CUADRO por frame) en vez de todo de
+// una: calcular EdgesGeometry para miles de piezas en un solo tirón
+// congelaba la pantalla. Además, piezas con la misma forma (tornillos,
+// soportes repetidos) comparten el mismo EdgesGeometry: se cachea por
+// geometría (misma instancia) o por una huella de sus vértices.
+const ARISTAS_POR_CUADRO=50;
+let aristasGeneracion=0;
+let aristasGeoUnicas=new Set();
+function huellaGeometria(g){
+  const pos=g.attributes&&g.attributes.position;
+  if(!pos) return null;
+  const n=pos.count, paso=Math.max(1,Math.floor(n/64));
+  let h=n+'|'+(g.index?g.index.count:0);
+  for(let i=0;i<n;i+=paso) h+='|'+pos.getX(i).toFixed(4)+','+pos.getY(i).toFixed(4)+','+pos.getZ(i).toFixed(4);
+  return h;
+}
 function construirAristas(){
   if(edgesConstruidas) return;
-  allMeshes.forEach(mesh=>{
-    if(!mesh.geometry) return;
-    const geo=new THREE.EdgesGeometry(mesh.geometry, 15); // 15° = solo aristas "duras", no marca cada faceta de una superficie curva
-    const line=new THREE.LineSegments(geo, ARISTA_MAT);
-    line.visible=edgesVisible;
-    line.userData.esArista=true;
-    mesh.add(line);
-    edgeLines.push(line);
-  });
   edgesConstruidas=true;
-  actualizarVisibilidadAristas();
+  const gen=++aristasGeneracion;
+  const pendientes=allMeshes.filter(m=>m.geometry);
+  const porGeo=new Map(), porHuella=new Map();
+  let i=0;
+  function tanda(){
+    if(gen!==aristasGeneracion) return; // el modelo cambió (limpiarAristas) — abortar
+    const fin=Math.min(i+ARISTAS_POR_CUADRO,pendientes.length);
+    for(;i<fin;i++){
+      const mesh=pendientes[i];
+      let geo=porGeo.get(mesh.geometry);
+      if(!geo){
+        const huella=huellaGeometria(mesh.geometry);
+        geo=huella&&porHuella.get(huella);
+        if(!geo){
+          geo=new THREE.EdgesGeometry(mesh.geometry, 15); // 15° = solo aristas "duras", no marca cada faceta de una superficie curva
+          aristasGeoUnicas.add(geo);
+          if(huella) porHuella.set(huella,geo);
+        }
+        porGeo.set(mesh.geometry,geo);
+      }
+      const line=new THREE.LineSegments(geo, ARISTA_MAT);
+      line.userData.esArista=true;
+      const esFantasma=mesh.userData&&mesh.userData.esFantasma;
+      line.visible=edgesVisible&&(!esFantasma||bordesEnContextoVisible);
+      mesh.add(line);
+      edgeLines.push(line);
+    }
+    if(i<pendientes.length) requestAnimationFrame(tanda);
+  }
+  tanda();
 }
 // Combina el toggle global de aristas con "Bordes en contexto": una
 // arista que cuelga de una pieza fantasma (ver aplicarAislamiento) se
@@ -14396,7 +14432,10 @@ function actualizarVisibilidadAristas(){
   });
 }
 function limpiarAristas(){
-  edgeLines.forEach(l=>{ l.parent?.remove(l); l.geometry.dispose(); });
+  aristasGeneracion++; // corta una construcción en curso
+  edgeLines.forEach(l=>{ l.parent?.remove(l); });
+  aristasGeoUnicas.forEach(g=>g.dispose()); // compartidas: dispose una sola vez
+  aristasGeoUnicas=new Set();
   edgeLines=[];
   edgesConstruidas=false;
 }
