@@ -10894,6 +10894,7 @@ canvas{display:block;width:100%;height:100%}
 .notas-pill{display:flex;align-items:center;gap:5px;background:rgba(232,234,239,.9);border:1px solid var(--border);backdrop-filter:blur(12px);border-radius:20px;padding:5px 10px 5px 14px;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text);cursor:pointer;white-space:nowrap;font-family:inherit}
 .notas-pill:hover{background:rgba(232,234,239,1)}
 .notas-pill svg{width:13px;height:13px;flex-shrink:0}
+.notas-pill svg.pill-icono-vistas{width:16px;height:16px;margin-left:-4px}
 .notas-pill .notas-pill-badge{background:var(--acc);color:#fff;border-radius:8px;min-width:15px;height:15px;padding:0 4px;font-size:9px;display:none;align-items:center;justify-content:center;line-height:1;letter-spacing:0}
 .notas-pill.tiene-notas .notas-pill-badge,.notas-pill.tiene-vistas .notas-pill-badge{display:flex}
 /* Popup de nivel de selección (estilo SolidWorks: mini-toolbar que
@@ -11499,6 +11500,11 @@ window.onerror=function(msg,src,line){
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
   </button>
   <button type="button" class="notas-pill" id="pillVistas" title="Vistas guardadas">
+    <svg class="pill-icono-vistas" viewBox="0 0 24 24" aria-hidden="true" stroke="#555" stroke-width="1" stroke-linejoin="round">
+      <rect x="2" y="13" width="8" height="8" fill="#d9d9d9"/><polygon points="2,13 5,10 13,10 10,13" fill="#f1f1f1"/><polygon points="10,13 13,10 13,18 10,21" fill="#bdbdbd"/>
+      <rect x="10" y="13" width="8" height="8" fill="#d9d9d9"/><polygon points="10,13 13,10 21,10 18,13" fill="#f1f1f1"/><polygon points="18,13 21,10 21,18 18,21" fill="#bdbdbd"/>
+      <rect x="2" y="5" width="8" height="8" fill="#6aaee0" stroke="#3f86c4"/><polygon points="2,5 5,2 13,2 10,5" fill="#8fcaf7" stroke="#3f86c4"/><polygon points="10,5 13,2 13,10 10,13" fill="#4a93cc" stroke="#3f86c4"/>
+    </svg>
     <span>Vistas</span>
     <span id="pillVistasBadge" class="notas-pill-badge">0</span>
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
