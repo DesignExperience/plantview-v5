@@ -11618,58 +11618,76 @@ window.onerror=function(msg,src,line){
 <svg id="msr-svg">
   <defs>
     <!-- Arrow markers for each axis color -->
-    <marker id="arr-main" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto"><path d="M0,1 L6,3.5 L0,6 Z" fill="#ffffff"/></marker>
-    <marker id="arr-main-r" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto-start-reverse"><path d="M0,1 L6,3.5 L0,6 Z" fill="#ffffff"/></marker>
-    <marker id="arr-x" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto"><path d="M0,1 L6,3.5 L0,6 Z" fill="#FF4F6A"/></marker>
-    <marker id="arr-x-r" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto-start-reverse"><path d="M0,1 L6,3.5 L0,6 Z" fill="#FF4F6A"/></marker>
-    <marker id="arr-y" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto"><path d="M0,1 L6,3.5 L0,6 Z" fill="#3DFFD0"/></marker>
-    <marker id="arr-y-r" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto-start-reverse"><path d="M0,1 L6,3.5 L0,6 Z" fill="#3DFFD0"/></marker>
-    <marker id="arr-z" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto"><path d="M0,1 L6,3.5 L0,6 Z" fill="#5B8BFF"/></marker>
-    <marker id="arr-z-r" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto-start-reverse"><path d="M0,1 L6,3.5 L0,6 Z" fill="#5B8BFF"/></marker>
+    <marker id="arr-main" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto"><path d="M0,1 L6,3.5 L0,6 Z" fill="#1a1a1a"/></marker>
+    <marker id="arr-main-r" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto-start-reverse"><path d="M0,1 L6,3.5 L0,6 Z" fill="#1a1a1a"/></marker>
+    <marker id="arr-x" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto"><path d="M0,1 L6,3.5 L0,6 Z" fill="#e00000"/></marker>
+    <marker id="arr-x-r" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto-start-reverse"><path d="M0,1 L6,3.5 L0,6 Z" fill="#e00000"/></marker>
+    <marker id="arr-y" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto"><path d="M0,1 L6,3.5 L0,6 Z" fill="#009a00"/></marker>
+    <marker id="arr-y-r" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto-start-reverse"><path d="M0,1 L6,3.5 L0,6 Z" fill="#009a00"/></marker>
+    <marker id="arr-z" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto"><path d="M0,1 L6,3.5 L0,6 Z" fill="#0040e0"/></marker>
+    <marker id="arr-z-r" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto-start-reverse"><path d="M0,1 L6,3.5 L0,6 Z" fill="#0040e0"/></marker>
     <filter id="lbl-shadow" x="-20%" y="-40%" width="140%" height="180%">
-      <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="rgba(0,0,0,0.7)"/>
+      <feDropShadow dx="0" dy="1" stdDeviation="1.2" flood-color="rgba(0,0,0,0.35)"/>
     </filter>
   </defs>
 
   <!-- Main diagonal distance line -->
-  <line id="ml-main" x1="0" y1="0" x2="0" y2="0" stroke="#ffffff" stroke-width="1.5" stroke-dasharray="7,3" display="none" marker-end="url(#arr-main)" marker-start="url(#arr-main-r)"/>
+  <line id="ml-main" x1="0" y1="0" x2="0" y2="0" stroke="#1a1a1a" stroke-width="1.5" display="none" marker-end="url(#arr-main)" marker-start="url(#arr-main-r)"/>
 
-  <!-- Orthogonal component lines: X (red), Y (teal), Z (blue) -->
-  <line id="ml-x" x1="0" y1="0" x2="0" y2="0" stroke="#FF4F6A" stroke-width="1.8" display="none" marker-end="url(#arr-x)" marker-start="url(#arr-x-r)"/>
-  <line id="ml-y" x1="0" y1="0" x2="0" y2="0" stroke="#3DFFD0" stroke-width="1.8" display="none" marker-end="url(#arr-y)" marker-start="url(#arr-y-r)"/>
-  <line id="ml-z" x1="0" y1="0" x2="0" y2="0" stroke="#5B8BFF" stroke-width="1.8" display="none" marker-end="url(#arr-z)" marker-start="url(#arr-z-r)"/>
+  <!-- Orthogonal component lines: X (rojo), Y (verde), Z (azul) — colores estilo SolidWorks -->
+  <line id="ml-x" x1="0" y1="0" x2="0" y2="0" stroke="#e00000" stroke-width="1.8" display="none" marker-end="url(#arr-x)" marker-start="url(#arr-x-r)"/>
+  <line id="ml-y" x1="0" y1="0" x2="0" y2="0" stroke="#009a00" stroke-width="1.8" display="none" marker-end="url(#arr-y)" marker-start="url(#arr-y-r)"/>
+  <line id="ml-z" x1="0" y1="0" x2="0" y2="0" stroke="#0040e0" stroke-width="1.8" display="none" marker-end="url(#arr-z)" marker-start="url(#arr-z-r)"/>
 
   <!-- Witness lines (thin perpendicular ticks at endpoints) -->
   <line id="wit-a" x1="0" y1="0" x2="0" y2="0" stroke="rgba(255,255,255,0.35)" stroke-width="1" display="none"/>
   <line id="wit-b" x1="0" y1="0" x2="0" y2="0" stroke="rgba(255,255,255,0.35)" stroke-width="1" display="none"/>
 
-  <!-- Líneas guía: unen cada etiqueta movida con su punto original -->
-  <line id="ldr-main" stroke="rgba(255,255,255,0.7)" stroke-width="1" display="none"/>
-  <line id="ldr-x" stroke="#FF4F6A" stroke-width="1" display="none"/>
-  <line id="ldr-y" stroke="#3DFFD0" stroke-width="1" display="none"/>
-  <line id="ldr-z" stroke="#5B8BFF" stroke-width="1" display="none"/>
+  <!-- Líneas guía (estilo SolidWorks): unen cada etiqueta movida con su
+       punto original, con un circulito en cada punta -->
+  <line id="ldr-main" stroke="#555" stroke-width="1" display="none"/>
+  <circle id="ldr-main-a" r="2.5" fill="#fff" stroke="#555" stroke-width="1" display="none"/>
+  <circle id="ldr-main-b" r="2.5" fill="#fff" stroke="#555" stroke-width="1" display="none"/>
+  <line id="ldr-x" stroke="#555" stroke-width="1" display="none"/>
+  <circle id="ldr-x-a" r="2.5" fill="#fff" stroke="#555" stroke-width="1" display="none"/>
+  <circle id="ldr-x-b" r="2.5" fill="#fff" stroke="#555" stroke-width="1" display="none"/>
+  <line id="ldr-y" stroke="#555" stroke-width="1" display="none"/>
+  <circle id="ldr-y-a" r="2.5" fill="#fff" stroke="#555" stroke-width="1" display="none"/>
+  <circle id="ldr-y-b" r="2.5" fill="#fff" stroke="#555" stroke-width="1" display="none"/>
+  <line id="ldr-z" stroke="#555" stroke-width="1" display="none"/>
+  <circle id="ldr-z-a" r="2.5" fill="#fff" stroke="#555" stroke-width="1" display="none"/>
+  <circle id="ldr-z-b" r="2.5" fill="#fff" stroke="#555" stroke-width="1" display="none"/>
 
-  <!-- Labels: bg rect + text for each dimension -->
+  <!-- Etiquetas estilo SolidWorks: recuadro de color con el eje + recuadro
+       blanco con la medida (ver setLabel) -->
   <g id="lbl-main" display="none" filter="url(#lbl-shadow)">
-    <rect id="lbl-main-bg" rx="4" ry="4" fill="rgba(15,17,24,0.82)" stroke="rgba(255,255,255,0.18)" stroke-width="1"/>
-    <text id="lbl-main-txt" font-family="'DM Mono',monospace" font-size="11" font-weight="500" fill="#ffffff" text-anchor="middle" dominant-baseline="middle"></text>
+    <rect id="lbl-main-tag" fill="#1a1a1a" stroke="#333" stroke-width="1"/>
+    <text id="lbl-main-tagtxt" font-family="Arial,Helvetica,sans-serif" font-size="12" fill="#fff" dominant-baseline="central">Dist:</text>
+    <rect id="lbl-main-bg" fill="#fff" stroke="#333" stroke-width="1"/>
+    <text id="lbl-main-txt" font-family="Arial,Helvetica,sans-serif" font-size="12" fill="#111" dominant-baseline="central"></text>
   </g>
   <g id="lbl-x" display="none" filter="url(#lbl-shadow)">
-    <rect id="lbl-x-bg" rx="4" ry="4" fill="rgba(255,79,106,0.18)" stroke="rgba(255,79,106,0.5)" stroke-width="1"/>
-    <text id="lbl-x-txt" font-family="'DM Mono',monospace" font-size="11" font-weight="500" fill="#FF4F6A" text-anchor="middle" dominant-baseline="middle"></text>
+    <rect id="lbl-x-tag" fill="#e00000" stroke="#333" stroke-width="1"/>
+    <text id="lbl-x-tagtxt" font-family="Arial,Helvetica,sans-serif" font-size="12" fill="#fff" dominant-baseline="central">dX:</text>
+    <rect id="lbl-x-bg" fill="#fff" stroke="#333" stroke-width="1"/>
+    <text id="lbl-x-txt" font-family="Arial,Helvetica,sans-serif" font-size="12" fill="#111" dominant-baseline="central"></text>
   </g>
   <g id="lbl-y" display="none" filter="url(#lbl-shadow)">
-    <rect id="lbl-y-bg" rx="4" ry="4" fill="rgba(61,255,208,0.18)" stroke="rgba(61,255,208,0.5)" stroke-width="1"/>
-    <text id="lbl-y-txt" font-family="'DM Mono',monospace" font-size="11" font-weight="500" fill="#3DFFD0" text-anchor="middle" dominant-baseline="middle"></text>
+    <rect id="lbl-y-tag" fill="#009a00" stroke="#333" stroke-width="1"/>
+    <text id="lbl-y-tagtxt" font-family="Arial,Helvetica,sans-serif" font-size="12" fill="#fff" dominant-baseline="central">dY:</text>
+    <rect id="lbl-y-bg" fill="#fff" stroke="#333" stroke-width="1"/>
+    <text id="lbl-y-txt" font-family="Arial,Helvetica,sans-serif" font-size="12" fill="#111" dominant-baseline="central"></text>
   </g>
   <g id="lbl-z" display="none" filter="url(#lbl-shadow)">
-    <rect id="lbl-z-bg" rx="4" ry="4" fill="rgba(91,139,255,0.18)" stroke="rgba(91,139,255,0.5)" stroke-width="1"/>
-    <text id="lbl-z-txt" font-family="'DM Mono',monospace" font-size="11" font-weight="500" fill="#5B8BFF" text-anchor="middle" dominant-baseline="middle"></text>
+    <rect id="lbl-z-tag" fill="#0040e0" stroke="#333" stroke-width="1"/>
+    <text id="lbl-z-tagtxt" font-family="Arial,Helvetica,sans-serif" font-size="12" fill="#fff" dominant-baseline="central">dZ:</text>
+    <rect id="lbl-z-bg" fill="#fff" stroke="#333" stroke-width="1"/>
+    <text id="lbl-z-txt" font-family="Arial,Helvetica,sans-serif" font-size="12" fill="#111" dominant-baseline="central"></text>
   </g>
 
   <!-- Hit-point dots: small, clean, white-ringed -->
-  <circle id="pt-a" cx="0" cy="0" r="4" fill="#FF4F6A" stroke="#fff" stroke-width="1.5" display="none"/>
-  <circle id="pt-b" cx="0" cy="0" r="4" fill="#3DFFD0" stroke="#fff" stroke-width="1.5" display="none"/>
+  <circle id="pt-a" cx="0" cy="0" r="4" fill="#111" stroke="#fff" stroke-width="1.5" display="none"/>
+  <circle id="pt-b" cx="0" cy="0" r="4" fill="#111" stroke="#fff" stroke-width="1.5" display="none"/>
 
   <!-- Legacy snap elements kept to avoid JS errors (always hidden) -->
   <line id="ml-edge-a" display="none"/><line id="ml-edge-b" display="none"/>
@@ -15444,7 +15462,7 @@ let mode='orbit';
 const tapGuide=document.getElementById('tapGuide');
 function clearMeasureSVG(){
   ['pt-a','pt-b','ml-main','ml-x','ml-y','ml-z','ml-edge-a','ml-edge-b','snap-a','snap-b',
-   'lbl-main','lbl-x','lbl-y','lbl-z','wit-a','wit-b','ldr-main','ldr-x','ldr-y','ldr-z']
+   'lbl-main','lbl-x','lbl-y','lbl-z','wit-a','wit-b','ldr-main','ldr-x','ldr-y','ldr-z','ldr-main-a','ldr-main-b','ldr-x-a','ldr-x-b','ldr-y-a','ldr-y-b','ldr-z-a','ldr-z-b']
   .forEach(id=>{ const e=document.getElementById(id); if(e) e.setAttribute('display','none'); });
 }
 
@@ -18937,27 +18955,37 @@ let lblOffsets={main:{x:0,y:0},x:{x:0,y:0},y:{x:0,y:0},z:{x:0,y:0}};
 function resetLblOffsets(){ Object.keys(lblOffsets).forEach(k=>{lblOffsets[k]={x:0,y:0};}); }
 function setLabel(id, cx, cy, text){
   const g=document.getElementById(id);
+  const tag=document.getElementById(id+'-tag');
+  const tagTxt=document.getElementById(id+'-tagtxt');
   const bg=document.getElementById(id+'-bg');
   const txt=document.getElementById(id+'-txt');
-  if(!g||!bg||!txt) return;
+  if(!g||!tag||!tagTxt||!bg||!txt) return;
   const clave=id.slice(4), off=lblOffsets[clave]||{x:0,y:0};
-  const ldr=document.getElementById('ldr-'+clave);
-  if(ldr){
-    if(Math.hypot(off.x,off.y)>4){ setLine(ldr,{x:cx,y:cy},{x:cx+off.x,y:cy+off.y}); ldr.setAttribute('display',''); }
-    else ldr.setAttribute('display','none');
-  }
+  const movida=Math.hypot(off.x,off.y)>4;
+  const ancla={x:cx,y:cy};
   cx+=off.x; cy+=off.y;
   txt.textContent=text;
-  txt.setAttribute('x',cx); txt.setAttribute('y',cy);
-  // measure text to size the background rect
-  const pad={x:7,y:4};
-  try{
-    const bb=txt.getBBox();
-    bg.setAttribute('x',bb.x-pad.x); bg.setAttribute('y',bb.y-pad.y);
-    bg.setAttribute('width',bb.width+pad.x*2); bg.setAttribute('height',bb.height+pad.y*2);
-  }catch(e){
-    bg.setAttribute('x',cx-28); bg.setAttribute('y',cy-9);
-    bg.setAttribute('width',56); bg.setAttribute('height',18);
+  // Layout estilo SolidWorks: [tag de color][valor en blanco], centrado en (cx,cy)
+  const padX=5, alto=18;
+  let wTag=30, wVal=60;
+  try{ wTag=tagTxt.getComputedTextLength()+padX*2; wVal=txt.getComputedTextLength()+padX*2; }catch(e){}
+  const x0=cx-(wTag+wVal)/2, y0=cy-alto/2;
+  tag.setAttribute('x',x0); tag.setAttribute('y',y0); tag.setAttribute('width',wTag); tag.setAttribute('height',alto);
+  tagTxt.setAttribute('x',x0+padX); tagTxt.setAttribute('y',cy);
+  bg.setAttribute('x',x0+wTag); bg.setAttribute('y',y0); bg.setAttribute('width',wVal); bg.setAttribute('height',alto);
+  txt.setAttribute('x',x0+wTag+padX); txt.setAttribute('y',cy);
+  // Línea guía: del punto original al borde más cercano de la etiqueta
+  const ldr=document.getElementById('ldr-'+clave);
+  const dotA=document.getElementById('ldr-'+clave+'-a'), dotB=document.getElementById('ldr-'+clave+'-b');
+  if(ldr&&dotA&&dotB){
+    if(movida){
+      const bx=ancla.x<x0?x0:(ancla.x>x0+wTag+wVal?x0+wTag+wVal:ancla.x);
+      const by=ancla.y<y0?y0:(ancla.y>y0+alto?y0+alto:ancla.y);
+      setLine(ldr,ancla,{x:bx,y:by});
+      dotA.setAttribute('cx',ancla.x); dotA.setAttribute('cy',ancla.y);
+      dotB.setAttribute('cx',bx); dotB.setAttribute('cy',by);
+      [ldr,dotA,dotB].forEach(e=>e.setAttribute('display',''));
+    } else [ldr,dotA,dotB].forEach(e=>e.setAttribute('display','none'));
   }
   g.setAttribute('display','');
 }
@@ -18976,7 +19004,7 @@ function witnessLine(elId, anchor, dir, len=12){
 
 function drawMeasureSVG(){
   const all=['pt-a','pt-b','ml-main','ml-x','ml-y','ml-z','wit-a','wit-b',
-             'lbl-main','lbl-x','lbl-y','lbl-z','ldr-main','ldr-x','ldr-y','ldr-z',
+             'lbl-main','lbl-x','lbl-y','lbl-z','ldr-main','ldr-x','ldr-y','ldr-z','ldr-main-a','ldr-main-b','ldr-x-a','ldr-x-b','ldr-y-a','ldr-y-b','ldr-z-a','ldr-z-b',
              'ml-edge-a','ml-edge-b','snap-a','snap-b'];
   all.forEach(id=>{ const e=document.getElementById(id); if(e) e.setAttribute('display','none'); });
 
@@ -19013,7 +19041,7 @@ function drawMeasureSVG(){
     const dx2=sb.x-sa.x, dy2=sb.y-sa.y, len=Math.hypot(dx2,dy2)||1;
     const off=16;
     const mx=midPt(sa,sb);
-    setLabel('lbl-main', mx.x - dy2/len*off, mx.y + dx2/len*off, tot.toFixed(1)+' mm');
+    setLabel('lbl-main', mx.x - dy2/len*off, mx.y + dx2/len*off, tot.toFixed(1)+'mm');
     // witness ticks at A and B along the main line direction
     const dir={x:dx2/len,y:dy2/len};
     witnessLine('wit-a',sa,dir);
@@ -19031,7 +19059,7 @@ function drawMeasureSVG(){
     setLine(mlx,sa,mid1); mlx.setAttribute('display','');
     const m=midPt(sa,mid1);
     const dx2=mid1.x-sa.x, dy2=mid1.y-sa.y, len=Math.hypot(dx2,dy2)||1;
-    setLabel('lbl-x', m.x - dy2/len*13, m.y + dx2/len*13, 'dX: '+dx.toFixed(1)+' mm');
+    setLabel('lbl-x', m.x - dy2/len*13, m.y + dx2/len*13, dx.toFixed(1)+'mm');
   }
 
   // Y leg (teal): mid1 → mid2
@@ -19040,7 +19068,7 @@ function drawMeasureSVG(){
     setLine(mly,mid1,mid2); mly.setAttribute('display','');
     const m=midPt(mid1,mid2);
     const dx2=mid2.x-mid1.x, dy2=mid2.y-mid1.y, len=Math.hypot(dx2,dy2)||1;
-    setLabel('lbl-y', m.x - dy2/len*13, m.y + dx2/len*13, 'dY: '+dy.toFixed(1)+' mm');
+    setLabel('lbl-y', m.x - dy2/len*13, m.y + dx2/len*13, dy.toFixed(1)+'mm');
   }
 
   // Z leg (blue): mid2 → B
@@ -19049,7 +19077,7 @@ function drawMeasureSVG(){
     setLine(mlz,mid2,sb); mlz.setAttribute('display','');
     const m=midPt(mid2,sb);
     const dx2=sb.x-mid2.x, dy2=sb.y-mid2.y, len=Math.hypot(dx2,dy2)||1;
-    setLabel('lbl-z', m.x - dy2/len*13, m.y + dx2/len*13, 'dZ: '+dz.toFixed(1)+' mm');
+    setLabel('lbl-z', m.x - dy2/len*13, m.y + dx2/len*13, dz.toFixed(1)+'mm');
   }
 }
 function setLine(el,p1,p2){el.setAttribute('x1',p1.x);el.setAttribute('y1',p1.y);el.setAttribute('x2',p2.x);el.setAttribute('y2',p2.y);}
