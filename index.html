@@ -14674,6 +14674,7 @@ const cvwrap=document.getElementById('canvas-wrap');
 // se hace con el botón izquierdo, activando "Mover" en la toolbar (pedido
 // explícito). Click izquierdo respeta navMode como siempre.
 let dragButton=0;
+let ultimoClickMedio=0;
 cvwrap.addEventListener('mousedown',e=>{
   if(e.button===1) e.preventDefault(); // evita el ícono de autoscroll que el navegador muestra con el botón central
   dragButton=e.button;
@@ -14681,6 +14682,12 @@ cvwrap.addEventListener('mousedown',e=>{
 });
 window.addEventListener('mouseup',e=>{
   if(isDragging&&!didMove&&dragButton===0) handleClick(e.clientX,e.clientY,{ctrl:e.ctrlKey||e.metaKey,shift:e.shiftKey});
+  // Doble click con la rueda = mismo efecto que la brújula (#btnReset)
+  if(isDragging&&!didMove&&dragButton===1){
+    const ahora=performance.now();
+    if(ahora-ultimoClickMedio<400){ document.getElementById('btnReset').click(); ultimoClickMedio=0; }
+    else ultimoClickMedio=ahora;
+  }
   isDragging=false;
 });
 window.addEventListener('mousemove',e=>{
