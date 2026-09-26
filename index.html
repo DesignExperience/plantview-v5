@@ -10926,6 +10926,8 @@ canvas{display:block;width:100%;height:100%}
 .toast{position:fixed;top:calc(var(--safe-top) + 68px);left:50%;transform:translateX(-50%);background:rgba(58,107,232,.92);color:#fff;font-size:12px;padding:8px 18px;border-radius:20px;pointer-events:none;white-space:nowrap;z-index:300;opacity:0;transition:opacity .2s;max-width:90vw;overflow:hidden;text-overflow:ellipsis}
 .toast.show{opacity:1}
 #msr-svg{position:fixed;inset:0;pointer-events:none;z-index:80}
+#lbl-main,#lbl-x,#lbl-y,#lbl-z{pointer-events:auto;cursor:grab;touch-action:none}
+#lbl-main.arrastrando,#lbl-x.arrastrando,#lbl-y.arrastrando,#lbl-z.arrastrando{cursor:grabbing}
 .msr-panel{position:fixed;top:calc(var(--safe-top) + 68px);left:16px;right:16px;background:rgba(15,17,24,.95);border:1px solid var(--border);backdrop-filter:blur(20px);border-radius:var(--radius);padding:14px 16px;display:none;z-index:195;box-shadow:0 8px 40px rgba(0,0,0,.5)}
 .msr-panel.show{display:block}
 
@@ -11640,6 +11642,12 @@ window.onerror=function(msg,src,line){
   <!-- Witness lines (thin perpendicular ticks at endpoints) -->
   <line id="wit-a" x1="0" y1="0" x2="0" y2="0" stroke="rgba(255,255,255,0.35)" stroke-width="1" display="none"/>
   <line id="wit-b" x1="0" y1="0" x2="0" y2="0" stroke="rgba(255,255,255,0.35)" stroke-width="1" display="none"/>
+
+  <!-- Líneas guía: unen cada etiqueta movida con su punto original -->
+  <line id="ldr-main" stroke="rgba(255,255,255,0.7)" stroke-width="1" display="none"/>
+  <line id="ldr-x" stroke="#FF4F6A" stroke-width="1" display="none"/>
+  <line id="ldr-y" stroke="#3DFFD0" stroke-width="1" display="none"/>
+  <line id="ldr-z" stroke="#5B8BFF" stroke-width="1" display="none"/>
 
   <!-- Labels: bg rect + text for each dimension -->
   <g id="lbl-main" display="none" filter="url(#lbl-shadow)">
@@ -15166,6 +15174,11 @@ document.getElementById('btnVistaGuardar').addEventListener('click', async () =>
       // plano en sí, porque min/max dependen del bounding box calculado
       // en el momento y se recalculan de cero al reaplicar.
       seccion: seccionActiva ? { eje: seccionActiva.eje, offset: Number(document.getElementById('seccionOffset').value), signo: seccionActiva.signo } : null,
+      // Medición activa (2 puntos) + posición de sus etiquetas movidas.
+      medicion: (mode === 'measure' && measurePts.length === 2) ? {
+        a: measurePts[0].toArray(), b: measurePts[1].toArray(),
+        offsets: JSON.parse(JSON.stringify(lblOffsets)),
+      } : null,
     });
     await guardarVistasGuardadasDrive();
     actualizarBadgeVistas();
@@ -15218,6 +15231,20 @@ function aplicarVistaGuardada(v) {
     moverPlanoSeccion(v.seccion.offset);
   } else {
     desactivarSeccion();
+  }
+  // Medición guardada: entra a modo medir con los mismos 2 puntos y las
+  // etiquetas donde se habían dejado. Sin medición, sale de medir si
+  // había una activa (mismo criterio de "no dejar pegado" que arriba).
+  if (v.medicion && v.medicion.a && v.medicion.b) {
+    setMode('measure');
+    clearFaceHighlights();
+    measurePts = [new THREE.Vector3().fromArray(v.medicion.a), new THREE.Vector3().fromArray(v.medicion.b)];
+    measureHits = [];
+    resetLblOffsets();
+    Object.keys(v.medicion.offsets || {}).forEach(k => { if (lblOffsets[k]) lblOffsets[k] = v.medicion.offsets[k]; });
+    refreshMeasurePanel();
+  } else if (mode === 'measure') {
+    setMode('orbit');
   }
 }
 
@@ -15417,7 +15444,7 @@ let mode='orbit';
 const tapGuide=document.getElementById('tapGuide');
 function clearMeasureSVG(){
   ['pt-a','pt-b','ml-main','ml-x','ml-y','ml-z','ml-edge-a','ml-edge-b','snap-a','snap-b',
-   'lbl-main','lbl-x','lbl-y','lbl-z','wit-a','wit-b']
+   'lbl-main','lbl-x','lbl-y','lbl-z','wit-a','wit-b','ldr-main','ldr-x','ldr-y','ldr-z']
   .forEach(id=>{ const e=document.getElementById(id); if(e) e.setAttribute('display','none'); });
 }
 
@@ -18877,6 +18904,7 @@ function handleClick(cx,cy,mod){
 
     if(measurePts.length===0){
       // First point — Face A
+      resetLblOffsets();
       measurePts.push(point);
       measureHits.push(hit);
       setFaceHighlight(0, hit.object, hit.faceIndex);
@@ -18902,11 +18930,23 @@ function handleClick(cx,cy,mod){
 }
 
 // ── MEASUREMENT DRAW — called every frame from render loop ────────────
+// Desplazamiento en píxeles de pantalla de cada etiqueta respecto de su
+// posición automática — se cambia arrastrándola (estilo SolidWorks) y
+// se guarda con la vista. Doble click la devuelve a su lugar.
+let lblOffsets={main:{x:0,y:0},x:{x:0,y:0},y:{x:0,y:0},z:{x:0,y:0}};
+function resetLblOffsets(){ Object.keys(lblOffsets).forEach(k=>{lblOffsets[k]={x:0,y:0};}); }
 function setLabel(id, cx, cy, text){
   const g=document.getElementById(id);
   const bg=document.getElementById(id+'-bg');
   const txt=document.getElementById(id+'-txt');
   if(!g||!bg||!txt) return;
+  const clave=id.slice(4), off=lblOffsets[clave]||{x:0,y:0};
+  const ldr=document.getElementById('ldr-'+clave);
+  if(ldr){
+    if(Math.hypot(off.x,off.y)>4){ setLine(ldr,{x:cx,y:cy},{x:cx+off.x,y:cy+off.y}); ldr.setAttribute('display',''); }
+    else ldr.setAttribute('display','none');
+  }
+  cx+=off.x; cy+=off.y;
   txt.textContent=text;
   txt.setAttribute('x',cx); txt.setAttribute('y',cy);
   // measure text to size the background rect
@@ -18936,7 +18976,8 @@ function witnessLine(elId, anchor, dir, len=12){
 
 function drawMeasureSVG(){
   const all=['pt-a','pt-b','ml-main','ml-x','ml-y','ml-z','wit-a','wit-b',
-             'lbl-main','lbl-x','lbl-y','lbl-z','ml-edge-a','ml-edge-b','snap-a','snap-b'];
+             'lbl-main','lbl-x','lbl-y','lbl-z','ldr-main','ldr-x','ldr-y','ldr-z',
+             'ml-edge-a','ml-edge-b','snap-a','snap-b'];
   all.forEach(id=>{ const e=document.getElementById(id); if(e) e.setAttribute('display','none'); });
 
   if(measurePts.length===0) return;
@@ -19012,6 +19053,26 @@ function drawMeasureSVG(){
   }
 }
 function setLine(el,p1,p2){el.setAttribute('x1',p1.x);el.setAttribute('y1',p1.y);el.setAttribute('x2',p2.x);el.setAttribute('y2',p2.y);}
+
+['main','x','y','z'].forEach(clave=>{
+  const g=document.getElementById('lbl-'+clave);
+  if(!g) return;
+  let inicio=null;
+  g.addEventListener('pointerdown',e=>{
+    e.stopPropagation(); e.preventDefault();
+    inicio={px:e.clientX,py:e.clientY,ox:lblOffsets[clave].x,oy:lblOffsets[clave].y};
+    g.classList.add('arrastrando');
+    try{ g.setPointerCapture(e.pointerId); }catch(_){}
+  });
+  g.addEventListener('pointermove',e=>{
+    if(!inicio) return;
+    lblOffsets[clave]={x:inicio.ox+e.clientX-inicio.px,y:inicio.oy+e.clientY-inicio.py};
+  });
+  const soltar=()=>{ inicio=null; g.classList.remove('arrastrando'); };
+  g.addEventListener('pointerup',soltar);
+  g.addEventListener('pointercancel',soltar);
+  g.addEventListener('dblclick',e=>{ e.stopPropagation(); lblOffsets[clave]={x:0,y:0}; });
+});
 
 // ── Panel text — only update when points change, not every frame ──────
 function refreshMeasurePanel(){
